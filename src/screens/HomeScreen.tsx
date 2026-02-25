@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, typography, borderRadius } from '../constants/theme';
+import { spacing, typography, borderRadius } from '../constants/theme';
+import { useTheme } from '../theme/ThemeProvider';
+import type { ThemeColors } from '../constants/theme';
 
 type FeedMode = 'public' | 'my';
 
@@ -75,6 +77,8 @@ function FeedCard({
   vpChange,
   timeAgo,
   location,
+  styles,
+  colors,
 }: {
   sport: string;
   player1: string;
@@ -84,17 +88,21 @@ function FeedCard({
   vpChange: string;
   timeAgo: string;
   location: string;
+  styles: ReturnType<typeof createHomeStyles>;
+  colors: ThemeColors;
 }) {
   const isWin = vpChange.startsWith('+');
   const [liked, setLiked] = useState(false);
-
   const toggleLike = () => setLiked((prev) => !prev);
 
   return (
     <View style={styles.feedCard}>
       <View style={styles.feedCardHeader}>
         <Text style={styles.feedSport}>{sport}</Text>
-        <Text style={styles.feedTime}>{timeAgo}</Text>
+        <View style={styles.feedTimePill}>
+          <Ionicons name="time-outline" size={12} color={colors.textSecondary} />
+          <Text style={styles.feedTime}>{timeAgo}</Text>
+        </View>
       </View>
       <View style={styles.feedImage}>
         <Ionicons name="image" size={22} color={colors.textSecondary} />
@@ -105,9 +113,14 @@ function FeedCard({
         <Text style={styles.feedVs}>vs</Text>
         <Text style={styles.feedPlayer}>{player2}</Text>
       </View>
-      <Text style={styles.feedScore}>{score}</Text>
+      <View style={styles.feedScoreRow}>
+        <Text style={styles.feedScore}>{score}</Text>
+      </View>
       <View style={styles.feedFooter}>
-        <Text style={styles.feedLocation}>{location}</Text>
+        <View style={styles.feedLocationRow}>
+          <Ionicons name="location-outline" size={12} color={colors.textSecondary} />
+          <Text style={styles.feedLocation}>{location}</Text>
+        </View>
         <View style={styles.feedVpRow}>
           <Text style={[styles.feedVp, isWin ? styles.feedVpWin : styles.feedVpLoss]}>
             {vpChange} VP
@@ -140,7 +153,126 @@ function FeedCard({
   );
 }
 
+function createHomeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.lg,
+    },
+    switcherRow: {
+      flexDirection: 'row',
+      backgroundColor: colors.surface,
+      borderRadius: borderRadius.lg,
+      padding: spacing.xs,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: spacing.sm,
+    },
+    switcherTab: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+      paddingVertical: spacing.sm,
+      borderRadius: borderRadius.md,
+    },
+    switcherTabActive: { backgroundColor: colors.primary },
+    switcherLabel: { ...typography.label, color: colors.textSecondary },
+    switcherLabelActive: { color: colors.textOnPrimary },
+    switcherHint: {
+      ...typography.caption,
+      color: colors.textSecondary,
+      marginBottom: spacing.md,
+    },
+    listContent: { paddingBottom: spacing.xxl },
+    feedCard: {
+      backgroundColor: colors.surface,
+      borderRadius: borderRadius.lg,
+      padding: spacing.lg,
+      marginBottom: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    feedCardHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: spacing.sm,
+    },
+    feedTimePill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      borderRadius: borderRadius.full,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs / 2,
+      backgroundColor: colors.background,
+    },
+    feedImage: {
+      borderRadius: borderRadius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.offWhite,
+      paddingVertical: spacing.lg,
+      paddingHorizontal: spacing.md,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    feedImageText: { ...typography.caption, color: colors.textSecondary },
+    feedSport: { ...typography.label, color: colors.primary, textTransform: 'uppercase' },
+    feedTime: { ...typography.caption, color: colors.textSecondary },
+    feedMatchup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginBottom: spacing.xs,
+    },
+    feedPlayer: { ...typography.heading, color: colors.text },
+    feedVs: { ...typography.caption, color: colors.textSecondary, fontWeight: '600' },
+    feedScoreRow: {
+      alignItems: 'center',
+      marginBottom: spacing.sm,
+    },
+    feedScore: { ...typography.body, color: colors.textSecondary },
+    feedFooter: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingTop: spacing.sm,
+      borderTopWidth: 1,
+      borderTopColor: colors.divider,
+    },
+    feedLocationRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+    },
+    feedLocation: { ...typography.caption, color: colors.textSecondary },
+    feedVpRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    feedVp: { ...typography.label },
+    feedVpWin: { color: colors.success },
+    feedVpLoss: { color: colors.error },
+    feedWinner: { ...typography.caption, color: colors.textSecondary },
+    feedActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'flex-start',
+      gap: spacing.lg,
+      paddingTop: spacing.sm,
+    },
+    actionButton: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+    actionLabel: { ...typography.caption, color: colors.textSecondary },
+  });
+}
+
 export default function HomeScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createHomeStyles(colors), [colors]);
   const [feedMode, setFeedMode] = useState<FeedMode>('my');
   const items = feedMode === 'public' ? FEED_ITEMS_PUBLIC : FEED_ITEMS_MY;
 
@@ -207,6 +339,8 @@ export default function HomeScreen() {
             vpChange={item.vpChange}
             timeAgo={item.timeAgo}
             location={item.location}
+            styles={styles}
+            colors={colors}
           />
         )}
       />
@@ -214,152 +348,3 @@ export default function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-  },
-  switcherRow: {
-    flexDirection: 'row',
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    padding: spacing.xs,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: spacing.sm,
-  },
-  switcherTab: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md,
-  },
-  switcherTabActive: {
-    backgroundColor: colors.primary,
-  },
-  switcherLabel: {
-    ...typography.label,
-    color: colors.textSecondary,
-  },
-  switcherLabelActive: {
-    color: colors.textOnPrimary,
-  },
-  switcherHint: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginBottom: spacing.md,
-  },
-  listContent: {
-    paddingBottom: spacing.xxl,
-  },
-  feedCard: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  feedCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  feedImage: {
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.offWhite,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  feedImageText: {
-    ...typography.caption,
-    color: colors.textSecondary,
-  },
-  feedSport: {
-    ...typography.label,
-    color: colors.primary,
-    textTransform: 'uppercase',
-  },
-  feedTime: {
-    ...typography.caption,
-    color: colors.textSecondary,
-  },
-  feedMatchup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.xs,
-  },
-  feedPlayer: {
-    ...typography.heading,
-    color: colors.text,
-  },
-  feedVs: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    fontWeight: '600',
-  },
-  feedScore: {
-    ...typography.body,
-    color: colors.textSecondary,
-    marginBottom: spacing.sm,
-  },
-  feedFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.divider,
-  },
-  feedLocation: {
-    ...typography.caption,
-    color: colors.textSecondary,
-  },
-  feedVpRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  feedVp: {
-    ...typography.label,
-  },
-  feedVpWin: {
-    color: colors.success,
-  },
-  feedVpLoss: {
-    color: colors.error,
-  },
-  feedWinner: {
-    ...typography.caption,
-    color: colors.textSecondary,
-  },
-  feedActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    gap: spacing.lg,
-    paddingTop: spacing.sm,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  actionLabel: {
-    ...typography.caption,
-    color: colors.textSecondary,
-  },
-});

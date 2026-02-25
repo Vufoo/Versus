@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, typography, borderRadius } from '../constants/theme';
+import { spacing, typography, borderRadius } from '../constants/theme';
+import type { ThemeColors } from '../constants/theme';
+import { useTheme } from '../theme/ThemeProvider';
 
 const SPORTS = ['Pickleball', 'Basketball', 'Tennis', 'Bowling', 'Boxing', 'Badminton', 'Ping Pong'];
 
@@ -17,11 +19,161 @@ const SPORT_RANK: Record<string, string> = {
 
 type Flow = null | 'ranked' | 'casual' | 'local';
 
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.lg,
+    },
+    header: { marginBottom: spacing.lg },
+    subtitle: {
+      ...typography.body,
+      color: colors.textSecondary,
+      marginBottom: spacing.md,
+    },
+    scroll: { flex: 1 },
+    scrollContent: { paddingBottom: spacing.xxl },
+    sportsRow: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+      marginBottom: spacing.md,
+    },
+    sportChip: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm - 2,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+      marginRight: spacing.sm,
+    },
+    sportChipSelected: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primaryDark,
+    },
+    sportChipLabel: { ...typography.label, color: colors.textSecondary },
+    sportChipLabelSelected: { color: colors.textOnPrimary },
+    rankCard: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: spacing.md,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    rankLeft: {},
+    rankRight: { alignItems: 'flex-end', maxWidth: '55%' },
+    rankLabel: { ...typography.caption, color: colors.textSecondary },
+    rankSport: { ...typography.heading, color: colors.text },
+    rankValue: {
+      ...typography.label,
+      color: colors.primary,
+      marginBottom: spacing.xs,
+    },
+    rankHint: { ...typography.caption, color: colors.textSecondary },
+    primaryButton: {
+      borderRadius: borderRadius.lg,
+      padding: spacing.lg,
+      marginBottom: spacing.md,
+      borderWidth: 1,
+    },
+    buttonIconWrap: { marginBottom: spacing.sm },
+    primaryButtonTitle: {
+      ...typography.heading,
+      color: colors.textOnPrimary,
+      marginBottom: spacing.xs,
+    },
+    primaryButtonSub: {
+      ...typography.caption,
+      color: 'rgba(255,255,255,0.9)',
+    },
+    rankedButton: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primaryDark,
+    },
+    casualButton: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+    },
+    casualTitle: { color: colors.text },
+    casualSub: { color: colors.textSecondary },
+    localButton: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+    },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.4)',
+      justifyContent: 'flex-end',
+    },
+    modalCard: {
+      backgroundColor: colors.surface,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      padding: spacing.lg,
+      paddingBottom: spacing.xxl,
+      maxHeight: '85%',
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: spacing.lg,
+    },
+    modalTitle: { ...typography.title, color: colors.text },
+    modalBody: { paddingBottom: spacing.lg },
+    modalStep: {
+      ...typography.body,
+      color: colors.text,
+      marginBottom: spacing.sm,
+    },
+    modalPara: {
+      ...typography.body,
+      color: colors.text,
+      marginBottom: spacing.md,
+    },
+    modalHint: {
+      ...typography.caption,
+      color: colors.textSecondary,
+      marginTop: spacing.sm,
+      marginBottom: spacing.lg,
+    },
+    toggleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      padding: spacing.md,
+      borderRadius: borderRadius.md,
+      marginBottom: spacing.sm,
+      backgroundColor: colors.background,
+    },
+    toggleRowActive: { backgroundColor: colors.primary },
+    toggleLabel: { ...typography.body, color: colors.textSecondary },
+    toggleLabelActive: { color: colors.textOnPrimary },
+    modalCta: {
+      backgroundColor: colors.primary,
+      padding: spacing.md,
+      borderRadius: borderRadius.md,
+      alignItems: 'center',
+      marginTop: spacing.md,
+    },
+    modalCtaText: {
+      ...typography.heading,
+      color: colors.textOnPrimary,
+    },
+  });
+}
+
 export default function VersusScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [flow, setFlow] = useState<Flow>(null);
   const [localIsRanked, setLocalIsRanked] = useState(true);
   const [sport, setSport] = useState<string>(SPORTS[0]);
-
   const closeFlow = () => setFlow(null);
 
   return (
@@ -202,187 +354,3 @@ export default function VersusScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-  },
-  header: {
-    marginBottom: spacing.lg,
-  },
-  subtitle: {
-    ...typography.body,
-    color: colors.textSecondary,
-    marginBottom: spacing.md,
-  },
-  scroll: { flex: 1 },
-  scrollContent: { paddingBottom: spacing.xxl },
-  sportsRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  sportChip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm - 2,
-    borderRadius: borderRadius.full,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.background,
-    marginRight: spacing.sm,
-  },
-  sportChipSelected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primaryDark,
-  },
-  sportChipLabel: {
-    ...typography.label,
-    color: colors.textSecondary,
-  },
-  sportChipLabelSelected: {
-    color: colors.textOnPrimary,
-  },
-  rankCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: spacing.md,
-    borderRadius: borderRadius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  rankLeft: {},
-  rankRight: {
-    alignItems: 'flex-end',
-    maxWidth: '55%',
-  },
-  rankLabel: {
-    ...typography.caption,
-    color: colors.textSecondary,
-  },
-  rankSport: {
-    ...typography.heading,
-    color: colors.text,
-  },
-  rankValue: {
-    ...typography.label,
-    color: colors.primary,
-    marginBottom: spacing.xs,
-  },
-  rankHint: {
-    ...typography.caption,
-    color: colors.textSecondary,
-  },
-  primaryButton: {
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-  },
-  buttonIconWrap: {
-    marginBottom: spacing.sm,
-  },
-  primaryButtonTitle: {
-    ...typography.heading,
-    color: colors.textOnPrimary,
-    marginBottom: spacing.xs,
-  },
-  primaryButtonSub: {
-    ...typography.caption,
-    color: 'rgba(255,255,255,0.9)',
-  },
-  rankedButton: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primaryDark,
-  },
-  casualButton: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-  },
-  casualTitle: {
-    color: colors.text,
-  },
-  casualSub: {
-    color: colors.textSecondary,
-  },
-  localButton: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'flex-end',
-  },
-  modalCard: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: spacing.lg,
-    paddingBottom: spacing.xxl,
-    maxHeight: '85%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  modalTitle: {
-    ...typography.title,
-    color: colors.text,
-  },
-  modalBody: {
-    paddingBottom: spacing.lg,
-  },
-  modalStep: {
-    ...typography.body,
-    color: colors.text,
-    marginBottom: spacing.sm,
-  },
-  modalPara: {
-    ...typography.body,
-    color: colors.text,
-    marginBottom: spacing.md,
-  },
-  modalHint: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginTop: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    padding: spacing.md,
-    borderRadius: borderRadius.md,
-    marginBottom: spacing.sm,
-    backgroundColor: colors.background,
-  },
-  toggleRowActive: {
-    backgroundColor: colors.primary,
-  },
-  toggleLabel: {
-    ...typography.body,
-    color: colors.textSecondary,
-  },
-  toggleLabelActive: {
-    color: colors.textOnPrimary,
-  },
-  modalCta: {
-    backgroundColor: colors.primary,
-    padding: spacing.md,
-    borderRadius: borderRadius.md,
-    alignItems: 'center',
-    marginTop: spacing.md,
-  },
-  modalCtaText: {
-    ...typography.heading,
-    color: colors.textOnPrimary,
-  },
-});

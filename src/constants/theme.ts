@@ -1,7 +1,12 @@
 /**
  * Versus app theme: burnt orange + cream/off-white
+ *
+ * We support both light and dark palettes. Most components currently
+ * import `colors` (which is aliased to `lightColors`), and the
+ * ThemeProvider exposes `lightColors`/`darkColors` to screens that
+ * want fully dynamic theming.
  */
-export const colors = {
+export const lightColors = {
   // Primary: burnt orange
   primary: '#CC5500',
   primaryDark: '#A04400',
@@ -23,6 +28,30 @@ export const colors = {
   error: '#B91C1C',
   warning: '#B45309',
 } as const;
+
+export const darkColors = {
+  primary: '#FF8C38',
+  primaryDark: '#E56E12',
+  primaryLight: '#FFB066',
+  cream: '#201A14',
+  offWhite: '#14110E',
+  background: '#090806',
+  surface: '#15120E',
+  text: '#F5EEE4',
+  textSecondary: '#B8AFA5',
+  textOnPrimary: '#0C0602',
+  border: '#3A3228',
+  divider: '#2A241D',
+  success: '#4ADE80',
+  error: '#F97373',
+  warning: '#FBBF24',
+} as const;
+
+// Default export used by older imports – equivalent to the light theme.
+export const colors = lightColors;
+
+/** Union of light and dark palettes for theme-aware components */
+export type ThemeColors = typeof lightColors | typeof darkColors;
 
 export const spacing = {
   xs: 4,
