@@ -6,11 +6,13 @@ import {
   ScrollView,
   TouchableOpacity,
   Modal,
-  Pressable,
   TextInput,
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
+  Platform,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
@@ -19,6 +21,8 @@ import { supabase } from '../lib/supabase';
 import { SPORTS, sportLabel } from '../constants/sports';
 import UserSearch from './UserSearch';
 import type { SearchedUser } from './UserSearch';
+
+const SCREEN_H = Dimensions.get('window').height;
 
 type Props = {
   visible: boolean;
@@ -32,7 +36,8 @@ type Props = {
 
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
-    backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+    wrapper: { flex: 1, justifyContent: 'flex-end' },
+    backdropHit: { flex: 1 },
     card: {
       backgroundColor: c.surface,
       borderTopLeftRadius: 24,
@@ -40,7 +45,7 @@ function makeStyles(c: ThemeColors) {
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.lg,
       paddingBottom: spacing.xxl,
-      maxHeight: '90%',
+      maxHeight: SCREEN_H * 0.85,
     },
     header: {
       flexDirection: 'row',
@@ -49,8 +54,7 @@ function makeStyles(c: ThemeColors) {
       marginBottom: spacing.lg,
     },
     title: { ...typography.title, color: c.text },
-    scroll: { flex: 1 },
-    scrollContent: { paddingBottom: spacing.lg },
+    scrollContent: { paddingBottom: spacing.xl },
     label: { ...typography.label, color: c.textSecondary, marginBottom: spacing.xs },
     selectedOpp: {
       flexDirection: 'row',
@@ -108,7 +112,7 @@ function makeStyles(c: ThemeColors) {
     },
     ctaDisabled: { opacity: 0.5 },
     ctaText: { ...typography.heading, color: c.textOnPrimary },
-    tpBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.lg },
+    tpOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.lg },
     tpCard: { width: '100%', backgroundColor: c.surface, borderRadius: borderRadius.lg, padding: spacing.lg, borderWidth: 1, borderColor: c.border },
     tpHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
     tpTitle: { ...typography.heading, color: c.text },
@@ -138,6 +142,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   const [location, setLocation] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [startNow, setStartNow] = useState(false);
 
   const [timeHour, setTimeHour] = useState(5);
   const [timeMinute, setTimeMinute] = useState(0);
@@ -162,7 +167,8 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
       const { data: fRows } = await supabase
         .from('follows')
         .select('followed_id')
-        .eq('follower_id', user.id);
+        .eq('follower_id', user.id)
+        .eq('status', 'accepted');
       if (fRows && fRows.length > 0) {
         const ids = fRows.map((r: any) => r.followed_id);
         const { data: profiles } = await supabase
@@ -179,7 +185,6 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   const dateId = initialDate ?? new Date().toISOString().slice(0, 10);
 
   const handleSave = async () => {
-    if (!opponent) { Alert.alert('Invite someone', 'Search and select an opponent.'); return; }
     setSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -188,11 +193,20 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
       const { data: sportRow } = await supabase.from('sports').select('id').eq('name', sport).maybeSingle();
       if (!sportRow) { Alert.alert('Sport not found'); return; }
 
-      const d = new Date(dateId + 'T00:00:00');
-      let h = timeHour;
-      if (timeAmPm === 'PM' && h !== 12) h += 12;
-      if (timeAmPm === 'AM' && h === 12) h = 0;
-      d.setHours(h, timeMinute, 0, 0);
+      let scheduledAt: string;
+      let matchStatus: string;
+      if (startNow) {
+        scheduledAt = new Date().toISOString();
+        matchStatus = 'pending';
+      } else {
+        const d = new Date(dateId + 'T00:00:00');
+        let h = timeHour;
+        if (timeAmPm === 'PM' && h !== 12) h += 12;
+        if (timeAmPm === 'AM' && h === 12) h = 0;
+        d.setHours(h, timeMinute, 0, 0);
+        scheduledAt = d.toISOString();
+        matchStatus = 'pending';
+      }
 
       const { data: match, error: err } = await supabase
         .from('matches')
@@ -200,8 +214,8 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
           sport_id: sportRow.id,
           created_by: user.id,
           match_type: matchType,
-          status: 'pending' as const,
-          scheduled_at: d.toISOString(),
+          status: matchStatus,
+          scheduled_at: scheduledAt,
           location_name: location.trim() || null,
           notes: notes.trim() || null,
         })
@@ -209,24 +223,27 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
         .single();
       if (err) throw err;
 
-      await supabase.from('match_participants').insert([
-        { match_id: match.id, user_id: user.id, role: 'challenger' as const },
-        { match_id: match.id, user_id: opponent.user_id, role: 'opponent' as const },
-      ]);
-
-      const dateLabel = new Date(dateId).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      await supabase.from('notifications').insert({
-        user_id: opponent.user_id,
-        type: 'match_invite',
-        title: `${currentUsername ?? 'Someone'} challenged you!`,
-        body: `${sportLabel(sport)} ${matchType} match on ${dateLabel} at ${formatTime()}`,
-        data: { match_id: match.id, from_user_id: user.id },
-      });
+      const participants: { match_id: string; user_id: string; role: 'challenger' | 'opponent' }[] = [
+        { match_id: match.id, user_id: user.id, role: 'challenger' },
+      ];
+      if (opponent) {
+        participants.push({ match_id: match.id, user_id: opponent.user_id, role: 'opponent' });
+        const notifBody = startNow
+          ? `${sportLabel(sport)} ${matchType} match starting now!`
+          : `${sportLabel(sport)} ${matchType} match on ${new Date(dateId).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at ${formatTime()}`;
+        await supabase.from('notifications').insert({
+          user_id: opponent.user_id,
+          type: 'match_invite',
+          title: `${currentUsername ?? 'Someone'} challenged you!`,
+          body: notifBody,
+          data: { match_id: match.id, from_user_id: user.id },
+        });
+      }
+      await supabase.from('match_participants').insert(participants);
 
       reset();
       onClose();
       onCreated?.();
-      Alert.alert('Match created', `Invite sent to ${opponent.full_name ?? opponent.username}!`);
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Could not save match.');
     } finally { setSaving(false); }
@@ -238,6 +255,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
     setNotes('');
     setMatchType(initialMatchType ?? 'casual');
     setSport(initialSport ?? SPORTS[0]);
+    setStartNow(false);
   };
 
   const getInitials = (u: SearchedUser) =>
@@ -245,124 +263,163 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
 
   return (
     <Modal visible={visible} transparent animationType="slide">
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
-          <View style={styles.header}>
-            <Text style={styles.title}>New match</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={12}>
-              <Ionicons name="close" size={24} color={colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-            <Text style={styles.label}>Invite opponent</Text>
-            {opponent ? (
-              <View style={styles.selectedOpp}>
-                {opponent.avatar_url ? (
-                  <Image source={{ uri: opponent.avatar_url }} style={styles.oppAvatarImg} />
-                ) : (
-                  <View style={styles.oppAvatar}><Text style={styles.oppInitials}>{getInitials(opponent)}</Text></View>
-                )}
-                <Text style={styles.oppName}>
-                  {opponent.full_name ?? opponent.username}{opponent.username ? ` (@${opponent.username})` : ''}
-                </Text>
-                <TouchableOpacity style={styles.oppRemove} onPress={() => setOpponent(null)} hitSlop={8}>
-                  <Ionicons name="close-circle" size={22} color={colors.textSecondary} />
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <UserSearch
-                colors={colors}
-                excludeUserId={currentUserId ?? undefined}
-                onSelect={setOpponent}
-                placeholder="Search by username or name..."
-                suggestions={friends}
-                suggestionsTitle={friends.length > 0 ? 'Friends' : undefined}
-              />
-            )}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={styles.wrapper}>
+          {/* Tappable backdrop area above the card */}
+          <TouchableOpacity style={styles.backdropHit} activeOpacity={1} onPress={onClose} />
 
-            <Text style={[styles.label, { marginTop: spacing.md }]}>Match type</Text>
-            <View style={styles.matchTypeRow}>
-              {(['casual', 'ranked'] as const).map((t) => (
-                <TouchableOpacity key={t} style={[styles.matchTypeChip, matchType === t && styles.matchTypeChipSel]} onPress={() => setMatchType(t)} activeOpacity={0.8}>
-                  <Text style={[styles.matchTypeLbl, matchType === t && styles.matchTypeLblSel]}>{t === 'casual' ? 'Casual' : 'Ranked'}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={styles.label}>Sport</Text>
-            <View style={styles.sportsRow}>
-              {SPORTS.map((s) => (
-                <TouchableOpacity key={s} style={[styles.sportChip, s === sport && styles.sportChipSel]} onPress={() => setSport(s)}>
-                  <Text style={[styles.sportChipLbl, s === sport && styles.sportChipLblSel]}>{sportLabel(s)}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={styles.label}>Time</Text>
-            <View style={styles.timeRow}>
-              <TouchableOpacity style={styles.timeBtn} onPress={() => setTimePicker(true)} activeOpacity={0.8}>
-                <Ionicons name="time-outline" size={18} color={colors.primary} />
-                <Text style={styles.timeText}>{formatTime()}</Text>
+          {/* Card sits outside the backdrop — no Pressable wrapping it */}
+          <View style={styles.card}>
+            <View style={styles.header}>
+              <Text style={styles.title}>New match</Text>
+              <TouchableOpacity onPress={onClose} hitSlop={12}>
+                <Ionicons name="close" size={24} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.label}>Location</Text>
-            <TextInput style={styles.input} placeholder="Court or gym name" placeholderTextColor={colors.textSecondary} value={location} onChangeText={setLocation} />
-
-            <Text style={styles.label}>Notes</Text>
-            <TextInput style={[styles.input, styles.notesInput]} placeholder="Format, rules, anything else…" placeholderTextColor={colors.textSecondary} value={notes} onChangeText={setNotes} multiline />
-
-            <View style={styles.summaryRow}>
-              <Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
-              <Text style={styles.summaryText}>
-                Scheduled for {new Date(dateId).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at {formatTime()}.
-                {opponent ? ` ${opponent.full_name ?? opponent.username} will be notified.` : ''}
-              </Text>
-            </View>
-
-            <TouchableOpacity style={[styles.cta, !opponent && styles.ctaDisabled]} onPress={handleSave} disabled={saving || !opponent}>
-              {saving ? <ActivityIndicator color={colors.textOnPrimary} /> : <Text style={styles.ctaText}>Send invite</Text>}
-            </TouchableOpacity>
-          </ScrollView>
-
-          <Modal visible={timePicker} transparent animationType="fade">
-            <Pressable style={styles.tpBackdrop} onPress={() => setTimePicker(false)}>
-              <Pressable style={styles.tpCard} onPress={(e) => e.stopPropagation()}>
-                <View style={styles.tpHeader}>
-                  <Text style={styles.tpTitle}>Pick a time</Text>
-                  <TouchableOpacity onPress={() => setTimePicker(false)} hitSlop={12}><Ionicons name="close" size={22} color={colors.textSecondary} /></TouchableOpacity>
+            <ScrollView
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={true}
+              keyboardShouldPersistTaps="handled"
+              bounces={true}
+            >
+              <Text style={styles.label}>Invite opponent (optional)</Text>
+              {opponent ? (
+                <View style={styles.selectedOpp}>
+                  {opponent.avatar_url ? (
+                    <Image source={{ uri: opponent.avatar_url }} style={styles.oppAvatarImg} />
+                  ) : (
+                    <View style={styles.oppAvatar}><Text style={styles.oppInitials}>{getInitials(opponent)}</Text></View>
+                  )}
+                  <Text style={styles.oppName}>
+                    {opponent.full_name ?? opponent.username}{opponent.username ? ` (@${opponent.username})` : ''}
+                  </Text>
+                  <TouchableOpacity style={styles.oppRemove} onPress={() => setOpponent(null)} hitSlop={8}>
+                    <Ionicons name="close-circle" size={22} color={colors.textSecondary} />
+                  </TouchableOpacity>
                 </View>
-                <View style={styles.tpRow}>
-                  <View style={styles.tpCol}>
-                    <TouchableOpacity style={styles.tpArrow} onPress={() => setTimeHour((h) => h >= 12 ? 1 : h + 1)}><Ionicons name="chevron-up" size={28} color={colors.text} /></TouchableOpacity>
-                    <Text style={styles.tpValue}>{timeHour}</Text>
-                    <TouchableOpacity style={styles.tpArrow} onPress={() => setTimeHour((h) => h <= 1 ? 12 : h - 1)}><Ionicons name="chevron-down" size={28} color={colors.text} /></TouchableOpacity>
-                    <Text style={styles.tpSmall}>Hour</Text>
-                  </View>
-                  <Text style={[styles.tpValue, { marginTop: -20 }]}>:</Text>
-                  <View style={styles.tpCol}>
-                    <TouchableOpacity style={styles.tpArrow} onPress={() => setTimeMinute((m) => m >= 55 ? 0 : m + 5)}><Ionicons name="chevron-up" size={28} color={colors.text} /></TouchableOpacity>
-                    <Text style={styles.tpValue}>{timeMinute.toString().padStart(2, '0')}</Text>
-                    <TouchableOpacity style={styles.tpArrow} onPress={() => setTimeMinute((m) => m <= 0 ? 55 : m - 5)}><Ionicons name="chevron-down" size={28} color={colors.text} /></TouchableOpacity>
-                    <Text style={styles.tpSmall}>Min</Text>
-                  </View>
-                  <View style={[styles.tpCol, { marginLeft: spacing.md, gap: spacing.sm }]}>
-                    <TouchableOpacity style={[styles.amPm, timeAmPm === 'AM' && styles.amPmActive]} onPress={() => setTimeAmPm('AM')}>
-                      <Text style={[styles.amPmText, timeAmPm === 'AM' && styles.amPmTextActive]}>AM</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.amPm, timeAmPm === 'PM' && styles.amPmActive]} onPress={() => setTimeAmPm('PM')}>
-                      <Text style={[styles.amPmText, timeAmPm === 'PM' && styles.amPmTextActive]}>PM</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                <TouchableOpacity style={styles.tpDone} onPress={() => setTimePicker(false)} activeOpacity={0.9}>
-                  <Text style={styles.tpDoneText}>Done</Text>
+              ) : (
+                <UserSearch
+                  colors={colors}
+                  excludeUserId={currentUserId ?? undefined}
+                  onSelect={setOpponent}
+                  placeholder="Search by username or name..."
+                  suggestions={friends}
+                  suggestionsTitle={friends.length > 0 ? 'Friends' : undefined}
+                />
+              )}
+
+              <Text style={[styles.label, { marginTop: spacing.md }]}>Match type</Text>
+              <View style={styles.matchTypeRow}>
+                {(['casual', 'ranked'] as const).map((t) => (
+                  <TouchableOpacity key={t} style={[styles.matchTypeChip, matchType === t && styles.matchTypeChipSel]} onPress={() => setMatchType(t)} activeOpacity={0.8}>
+                    <Text style={[styles.matchTypeLbl, matchType === t && styles.matchTypeLblSel]}>{t === 'casual' ? 'Casual' : 'Ranked'}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.label}>Sport</Text>
+              <View style={styles.sportsRow}>
+                {SPORTS.map((s) => (
+                  <TouchableOpacity key={s} style={[styles.sportChip, s === sport && styles.sportChipSel]} onPress={() => setSport(s)}>
+                    <Text style={[styles.sportChipLbl, s === sport && styles.sportChipLblSel]}>{sportLabel(s)}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.label}>When</Text>
+              <View style={styles.matchTypeRow}>
+                <TouchableOpacity
+                  style={[styles.matchTypeChip, startNow && styles.matchTypeChipSel]}
+                  onPress={() => setStartNow(true)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="flash" size={16} color={startNow ? colors.textOnPrimary : colors.textSecondary} style={{ marginBottom: 2 }} />
+                  <Text style={[styles.matchTypeLbl, startNow && styles.matchTypeLblSel]}>Start now</Text>
                 </TouchableOpacity>
-              </Pressable>
-            </Pressable>
-          </Modal>
-        </Pressable>
-      </Pressable>
+                <TouchableOpacity
+                  style={[styles.matchTypeChip, !startNow && styles.matchTypeChipSel]}
+                  onPress={() => setStartNow(false)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="calendar-outline" size={16} color={!startNow ? colors.textOnPrimary : colors.textSecondary} style={{ marginBottom: 2 }} />
+                  <Text style={[styles.matchTypeLbl, !startNow && styles.matchTypeLblSel]}>Schedule</Text>
+                </TouchableOpacity>
+              </View>
+
+              {!startNow && (
+                <>
+                  <Text style={styles.label}>Time</Text>
+                  <View style={styles.timeRow}>
+                    <TouchableOpacity style={styles.timeBtn} onPress={() => setTimePicker(true)} activeOpacity={0.8}>
+                      <Ionicons name="time-outline" size={18} color={colors.primary} />
+                      <Text style={styles.timeText}>{formatTime()}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+
+              <Text style={styles.label}>Location</Text>
+              <TextInput style={styles.input} placeholder="Court or gym name" placeholderTextColor={colors.textSecondary} value={location} onChangeText={setLocation} />
+
+              <Text style={styles.label}>Notes</Text>
+              <TextInput style={[styles.input, styles.notesInput]} placeholder="Format, rules, anything else..." placeholderTextColor={colors.textSecondary} value={notes} onChangeText={setNotes} multiline />
+
+              <View style={styles.summaryRow}>
+                <Ionicons name={startNow ? 'flash' : 'calendar-outline'} size={18} color={colors.textSecondary} />
+                <Text style={styles.summaryText}>
+                  {startNow
+                    ? 'Match starts immediately.'
+                    : `Scheduled for ${new Date(dateId).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at ${formatTime()}.`}
+                  {opponent ? ` ${opponent.full_name ?? opponent.username} will be notified.` : ''}
+                </Text>
+              </View>
+
+              <TouchableOpacity style={[styles.cta, saving && styles.ctaDisabled]} onPress={handleSave} disabled={saving}>
+                {saving ? <ActivityIndicator color={colors.textOnPrimary} /> : <Text style={styles.ctaText}>{startNow ? 'Start match' : opponent ? 'Send invite' : 'Create match'}</Text>}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+
+        {/* Time picker sub-modal */}
+        <Modal visible={timePicker} transparent animationType="fade">
+          <View style={styles.tpOverlay}>
+            <View style={styles.tpCard}>
+              <View style={styles.tpHeader}>
+                <Text style={styles.tpTitle}>Pick a time</Text>
+                <TouchableOpacity onPress={() => setTimePicker(false)} hitSlop={12}><Ionicons name="close" size={22} color={colors.textSecondary} /></TouchableOpacity>
+              </View>
+              <View style={styles.tpRow}>
+                <View style={styles.tpCol}>
+                  <TouchableOpacity style={styles.tpArrow} onPress={() => setTimeHour((h) => h >= 12 ? 1 : h + 1)}><Ionicons name="chevron-up" size={28} color={colors.text} /></TouchableOpacity>
+                  <Text style={styles.tpValue}>{timeHour}</Text>
+                  <TouchableOpacity style={styles.tpArrow} onPress={() => setTimeHour((h) => h <= 1 ? 12 : h - 1)}><Ionicons name="chevron-down" size={28} color={colors.text} /></TouchableOpacity>
+                  <Text style={styles.tpSmall}>Hour</Text>
+                </View>
+                <Text style={[styles.tpValue, { marginTop: -20 }]}>:</Text>
+                <View style={styles.tpCol}>
+                  <TouchableOpacity style={styles.tpArrow} onPress={() => setTimeMinute((m) => m >= 55 ? 0 : m + 5)}><Ionicons name="chevron-up" size={28} color={colors.text} /></TouchableOpacity>
+                  <Text style={styles.tpValue}>{timeMinute.toString().padStart(2, '0')}</Text>
+                  <TouchableOpacity style={styles.tpArrow} onPress={() => setTimeMinute((m) => m <= 0 ? 55 : m - 5)}><Ionicons name="chevron-down" size={28} color={colors.text} /></TouchableOpacity>
+                  <Text style={styles.tpSmall}>Min</Text>
+                </View>
+                <View style={[styles.tpCol, { marginLeft: spacing.md, gap: spacing.sm }]}>
+                  <TouchableOpacity style={[styles.amPm, timeAmPm === 'AM' && styles.amPmActive]} onPress={() => setTimeAmPm('AM')}>
+                    <Text style={[styles.amPmText, timeAmPm === 'AM' && styles.amPmTextActive]}>AM</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.amPm, timeAmPm === 'PM' && styles.amPmActive]} onPress={() => setTimeAmPm('PM')}>
+                    <Text style={[styles.amPmText, timeAmPm === 'PM' && styles.amPmTextActive]}>PM</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <TouchableOpacity style={styles.tpDone} onPress={() => setTimePicker(false)} activeOpacity={0.9}>
+                <Text style={styles.tpDoneText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

@@ -9,6 +9,7 @@ import {
   Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
@@ -489,6 +490,7 @@ function createPlanStyles(colors: ThemeColors) {
 
 export default function PlanMatchScreen() {
   const { colors } = useTheme();
+  const navigation = useNavigation<any>();
   const styles = useMemo(() => createPlanStyles(colors), [colors]);
   const [calendarExpanded, setCalendarExpanded] = useState(false);
   const days = useMemo(() => buildUpcomingDays(), []);
@@ -659,18 +661,16 @@ export default function PlanMatchScreen() {
       <NewMatchModal
         visible={modalVisible}
         onClose={closeModal}
-        onCreated={loadUpcoming}
+        onCreated={() => { loadUpcoming(); navigation.navigate('Home'); }}
         colors={colors}
         initialDate={selectedDayId}
       />
 
       <Modal visible={calendarExpanded} transparent animationType="fade">
         <Pressable style={styles.expandBackdrop} onPress={() => setCalendarExpanded(false)}>
-          <Pressable
+          <View
             style={styles.expandCard}
-            onPress={(e) => {
-              e.stopPropagation();
-            }}
+            onStartShouldSetResponder={() => true}
           >
             <View style={styles.expandHeader}>
               <Text style={styles.expandTitle}>Pick a day</Text>
@@ -747,7 +747,7 @@ export default function PlanMatchScreen() {
                 schedule.
               </Text>
             )}
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
     </View>

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
@@ -102,6 +103,7 @@ function createStyles(colors: ThemeColors) {
 
 export default function VersusScreen() {
   const { colors } = useTheme();
+  const navigation = useNavigation<any>();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [flow, setFlow] = useState<Flow>(null);
   const [localIsRanked, setLocalIsRanked] = useState(true);
@@ -191,6 +193,22 @@ export default function VersusScreen() {
         showsVerticalScrollIndicator={false}
       >
         <TouchableOpacity
+          style={[styles.primaryButton, styles.localButton]}
+          onPress={() => setFlow('local')}
+          activeOpacity={0.85}
+        >
+          <View style={styles.buttonIconWrap}>
+            <Ionicons name="person-add-outline" size={28} color={colors.text} />
+          </View>
+          <Text style={[styles.primaryButtonTitle, styles.casualTitle]}>
+            New match
+          </Text>
+          <Text style={[styles.primaryButtonSub, styles.casualSub]}>
+            Set up with someone in person. Choose ranked or casual, pick settings, and send an invite.
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
           style={[styles.primaryButton, styles.rankedButton]}
           onPress={() => setFlow('ranked')}
           activeOpacity={0.85}
@@ -200,7 +218,7 @@ export default function VersusScreen() {
           </View>
           <Text style={styles.primaryButtonTitle}>Find ranked match</Text>
           <Text style={styles.primaryButtonSub}>
-            Invite a friend or find an opponent. Both must accept. VP and rank are on the line.
+           Get matched up with an opponent. VP and rank are impacted. Put your skills to the test.
           </Text>
         </TouchableOpacity>
 
@@ -216,30 +234,17 @@ export default function VersusScreen() {
             Find casual match
           </Text>
           <Text style={[styles.primaryButtonSub, styles.casualSub]}>
-            Same as ranked but no VP or rank impact. Great for practice or trying a new sport.
+            Get matched up with a casual player. No VP or rank impact. Great for a practice partner or trying a new sport.
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.primaryButton, styles.localButton]}
-          onPress={() => setFlow('local')}
-          activeOpacity={0.85}
-        >
-          <View style={styles.buttonIconWrap}>
-            <Ionicons name="person-add-outline" size={28} color={colors.text} />
-          </View>
-          <Text style={[styles.primaryButtonTitle, styles.casualTitle]}>
-            New match
-          </Text>
-          <Text style={[styles.primaryButtonSub, styles.casualSub]}>
-            Set up with someone in person. Choose ranked or casual, pick settings, and send an invite.
-          </Text>
-        </TouchableOpacity>
+        
       </ScrollView>
 
       <NewMatchModal
         visible={flow !== null}
         onClose={closeFlow}
+        onCreated={() => navigation.navigate('Home')}
         colors={colors}
         initialSport={sport}
         initialMatchType={flow === 'ranked' ? 'ranked' : flow === 'casual' ? 'casual' : (localIsRanked ? 'ranked' : 'casual')}

@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   ScrollView,
   Dimensions,
-  FlatList,
   ActivityIndicator,
   Alert,
   Image,
@@ -15,6 +14,7 @@ import {
   Switch,
   Share,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
@@ -261,6 +261,7 @@ function createStyles(colors: ThemeColors) {
 
 export default function ProfileScreen() {
   const { colors, mode, setMode, setSignedIn } = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [tab, setTab] = useState<ProfileTab>('overview');
   const [vpIdx, setVpIdx] = useState(0);
@@ -437,7 +438,7 @@ export default function ProfileScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.pageHeader}>
         <Text style={styles.pageTitle}>Profile</Text>
         <View style={styles.headerActions}>
@@ -507,16 +508,18 @@ export default function ProfileScreen() {
         {tab === 'overview' && (
           <>
             <View style={styles.vpSwiper}>
-              <FlatList
-                data={perSportVp}
-                keyExtractor={(item) => item.sport}
-                horizontal pagingEnabled showsHorizontalScrollIndicator={false}
+              <ScrollView
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
                 onScroll={(e) => setVpIdx(Math.round(e.nativeEvent.contentOffset.x / (SCREEN_W - spacing.lg * 2)))}
                 scrollEventThrottle={16}
                 snapToInterval={SCREEN_W - spacing.lg * 2}
                 decelerationRate="fast"
-                renderItem={({ item }) => (
-                  <View style={styles.vpPage}>
+                nestedScrollEnabled
+              >
+                {perSportVp.map((item) => (
+                  <View key={item.sport} style={styles.vpPage}>
                     <View style={styles.vpPageInner}>
                       <Text style={styles.vpEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
                       <Text style={styles.vpSportName}>{item.sport}</Text>
@@ -524,8 +527,8 @@ export default function ProfileScreen() {
                       <Text style={styles.vpLabel}>Victory Points</Text>
                     </View>
                   </View>
-                )}
-              />
+                ))}
+              </ScrollView>
               <View style={styles.dotsRow}>
                 {perSportVp.map((item, i) => (
                   <View key={item.sport} style={[styles.dot, i === vpIdx && styles.dotActive]} />
@@ -565,16 +568,18 @@ export default function ProfileScreen() {
         {/* Rankings */}
         {tab === 'rankings' && (
           <>
-            <FlatList
-              data={rankingsData}
-              keyExtractor={(item) => item.sport}
-              horizontal pagingEnabled showsHorizontalScrollIndicator={false}
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
               onScroll={(e) => setRankIdx(Math.round(e.nativeEvent.contentOffset.x / (SCREEN_W - spacing.lg * 2)))}
               scrollEventThrottle={16}
               snapToInterval={SCREEN_W - spacing.lg * 2}
               decelerationRate="fast"
-              renderItem={({ item }) => (
-                <View style={styles.rankPage}>
+              nestedScrollEnabled
+            >
+              {rankingsData.map((item) => (
+                <View key={item.sport} style={styles.rankPage}>
                   <View style={styles.rankPageInner}>
                     <Text style={styles.rankEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
                     <Text style={styles.rankSport}>{item.sport}</Text>
@@ -587,8 +592,8 @@ export default function ProfileScreen() {
                     <Text style={styles.rankHint}>Play ranked matches in {item.sport} to earn VP and climb the ranks.</Text>
                   </View>
                 </View>
-              )}
-            />
+              ))}
+            </ScrollView>
             <View style={styles.rankDotsRow}>
               {rankingsData.map((item, i) => (
                 <View key={item.sport} style={[styles.dot, i === rankIdx && styles.dotActive]} />
@@ -601,7 +606,7 @@ export default function ProfileScreen() {
       {/* ---- Settings modal ---- */}
       <Modal visible={settingsOpen} transparent animationType="slide">
         <Pressable style={styles.modalBackdrop} onPress={() => setSettingsOpen(false)}>
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+          <View style={styles.modalCard} onStartShouldSetResponder={() => true}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Settings</Text>
               <TouchableOpacity onPress={() => setSettingsOpen(false)} hitSlop={12}>
@@ -717,7 +722,7 @@ export default function ProfileScreen() {
                 <Text style={styles.signOutText}>Sign out</Text>
               </TouchableOpacity>
             </ScrollView>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
     </View>

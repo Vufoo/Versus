@@ -17,7 +17,7 @@ begin
   end if;
 
   if not exists (select 1 from pg_type where typname = 'match_status') then
-    create type match_status as enum ('planned', 'pending', 'confirmed', 'completed', 'canceled');
+    create type match_status as enum ('planned', 'pending', 'confirmed', 'in_progress', 'completed', 'canceled');
   end if;
 
   if not exists (select 1 from pg_type where typname = 'participant_role') then
@@ -190,6 +190,7 @@ create policy "Users can update their own ratings"
 create table if not exists public.follows (
   follower_id  uuid not null references auth.users (id) on delete cascade,
   followed_id  uuid not null references auth.users (id) on delete cascade,
+  status       text not null default 'pending' check (status in ('pending', 'accepted')),
   created_at   timestamptz not null default now(),
 
   primary key (follower_id, followed_id),
@@ -215,7 +216,12 @@ create policy "Users can follow others"
 drop policy if exists "Users can unfollow" on public.follows;
 create policy "Users can unfollow"
   on public.follows for delete
-  using (auth.uid() = follower_id);
+  using (auth.uid() = follower_id or auth.uid() = followed_id);
+
+drop policy if exists "Users can accept follow requests" on public.follows;
+create policy "Users can accept follow requests"
+  on public.follows for update
+  using (auth.uid() = followed_id);
 
 -- Matches --------------------------------------------------------------------
 
@@ -237,6 +243,10 @@ create table if not exists public.matches (
   notes           text,
 
   is_public       boolean not null default true,
+
+  started_at      timestamptz,
+  ended_at        timestamptz,
+  games_played    integer,
 
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
@@ -290,6 +300,14 @@ create policy "Creators and participants can update matches"
     or exists (select 1 from public.match_participants where match_id = id and user_id = auth.uid())
   );
 
+drop policy if exists "Creators and participants can delete matches" on public.matches;
+create policy "Creators and participants can delete matches"
+  on public.matches for delete
+  using (
+    auth.uid() = created_by
+    or exists (select 1 from public.match_participants where match_id = id and user_id = auth.uid())
+  );
+
 -- RLS for match_participants -------------------------------------------------
 alter table public.match_participants enable row level security;
 
@@ -311,6 +329,11 @@ drop policy if exists "Users can update their own participation" on public.match
 create policy "Users can update their own participation"
   on public.match_participants for update
   using (auth.uid() = user_id);
+
+drop policy if exists "Creators can update participants of their matches" on public.match_participants;
+create policy "Creators can update participants of their matches"
+  on public.match_participants for update
+  using (exists (select 1 from public.matches where id = match_id and created_by = auth.uid()));
 
 -- Likes & comments for the feed ---------------------------------------------
 
@@ -334,6 +357,55 @@ create table if not exists public.match_comments (
 
 create index if not exists match_comments_match_id_idx on public.match_comments (match_id);
 create index if not exists match_comments_user_id_idx on public.match_comments (user_id);
+
+-- Match games (per-game scores) -----------------------------------------------
+create table if not exists public.match_games (
+  id              uuid primary key default gen_random_uuid(),
+  match_id        uuid not null references public.matches (id) on delete cascade,
+  game_number     integer not null,
+  score_challenger integer not null default 0,
+  score_opponent  integer not null default 0,
+  created_at      timestamptz not null default now(),
+  unique (match_id, game_number)
+);
+create index if not exists match_games_match_id_idx on public.match_games (match_id);
+alter table public.match_games enable row level security;
+drop policy if exists "Anyone can read match games" on public.match_games;
+create policy "Anyone can read match games" on public.match_games for select using (true);
+drop policy if exists "Participants can manage match games" on public.match_games;
+create policy "Participants can manage match games" on public.match_games for all
+  using (
+    exists (select 1 from public.match_participants where match_id = match_games.match_id and user_id = auth.uid())
+    or exists (select 1 from public.matches where id = match_games.match_id and created_by = auth.uid())
+  )
+  with check (
+    exists (select 1 from public.match_participants where match_id = match_games.match_id and user_id = auth.uid())
+    or exists (select 1 from public.matches where id = match_games.match_id and created_by = auth.uid())
+  );
+
+-- Match images (photos on posts) -----------------------------------------------
+create table if not exists public.match_images (
+  id          uuid primary key default gen_random_uuid(),
+  match_id    uuid not null references public.matches (id) on delete cascade,
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  file_path   text not null,
+  sort_order  integer not null default 0,
+  created_at  timestamptz not null default now()
+);
+create index if not exists match_images_match_id_idx on public.match_images (match_id);
+alter table public.match_images enable row level security;
+drop policy if exists "Anyone can read match images" on public.match_images;
+create policy "Anyone can read match images" on public.match_images for select using (true);
+drop policy if exists "Participants can add match images" on public.match_images;
+create policy "Participants can add match images" on public.match_images for insert
+  with check (
+    auth.uid() = user_id
+    and (exists (select 1 from public.match_participants where match_id = match_images.match_id and user_id = auth.uid())
+         or exists (select 1 from public.matches where id = match_images.match_id and created_by = auth.uid()))
+  );
+drop policy if exists "Users can delete own match images" on public.match_images;
+create policy "Users can delete own match images" on public.match_images for delete
+  using (auth.uid() = user_id);
 
 -- RLS for match_likes --------------------------------------------------------
 alter table public.match_likes enable row level security;
@@ -410,13 +482,36 @@ create policy "Users can delete own notifications"
   on public.notifications for delete
   using (auth.uid() = user_id);
 
--- Simple helper view for feed items -----------------------------------------
+-- Migration: add in_progress to match_status, add started_at/ended_at/games_played to matches
+-- Must run before match_feed view which references these columns
+do $$
+begin
+  begin
+    alter type match_status add value 'in_progress';
+  exception when others then null;
+  end;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'matches' and column_name = 'started_at') then
+    alter table public.matches add column started_at timestamptz;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'matches' and column_name = 'ended_at') then
+    alter table public.matches add column ended_at timestamptz;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'matches' and column_name = 'games_played') then
+    alter table public.matches add column games_played integer;
+  end if;
+end $$;
 
-create or replace view public.match_feed as
+-- Simple helper view for feed items -----------------------------------------
+-- Drop first to avoid "cannot change name of view column" when adding columns
+drop view if exists public.match_feed cascade;
+
+create view public.match_feed as
 select
   m.id,
   m.created_at,
   m.scheduled_at,
+  m.started_at,
+  m.ended_at,
   m.match_type,
   m.status,
   m.location_name,
@@ -434,6 +529,8 @@ select
     'full_name', p.full_name,
     'avatar_url', p.avatar_url
   ) order by mp.role) as participants,
+  (select coalesce(jsonb_agg(jsonb_build_object('game_number', game_number, 'score_challenger', score_challenger, 'score_opponent', score_opponent) order by game_number), '[]'::jsonb) from public.match_games mg where mg.match_id = m.id) as games,
+  (select coalesce(jsonb_agg(jsonb_build_object('id', id, 'file_path', file_path, 'sort_order', sort_order) order by sort_order, created_at), '[]'::jsonb) from public.match_images mi where mi.match_id = m.id) as images,
   (select coalesce(count(*), 0) from public.match_likes ml where ml.match_id = m.id) as likes_count,
   (select coalesce(count(*), 0) from public.match_comments mc where mc.match_id = m.id) as comments_count
 from public.matches m
@@ -447,7 +544,7 @@ group by m.id, s.name, s.slug;
 -- Run this in the Supabase SQL editor or create the bucket via the dashboard.
 
 insert into storage.buckets (id, name, public)
-values ('avatars', 'avatars', false)
+values ('avatars', 'avatars', false), ('match-images', 'match-images', false)
 on conflict (id) do nothing;
 
 drop policy if exists "Authenticated users can upload avatars" on storage.objects;
@@ -471,3 +568,31 @@ drop policy if exists "Authenticated users can read avatars" on storage.objects;
 create policy "Authenticated users can read avatars"
   on storage.objects for select
   using (bucket_id = 'avatars' and auth.role() = 'authenticated');
+
+-- Storage for match images (path: match_id/user_id/filename)
+drop policy if exists "Authenticated users can upload match images" on storage.objects;
+create policy "Authenticated users can upload match images"
+  on storage.objects for insert
+  with check (
+    bucket_id = 'match-images'
+    and auth.role() = 'authenticated'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+drop policy if exists "Authenticated users can read match images" on storage.objects;
+create policy "Authenticated users can read match images"
+  on storage.objects for select
+  using (bucket_id = 'match-images' and auth.role() = 'authenticated');
+
+-- Migration: add status column to follows if it doesn't exist -----------------
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'follows' and column_name = 'status'
+  ) then
+    alter table public.follows add column status text not null default 'pending'
+      check (status in ('pending', 'accepted'));
+    update public.follows set status = 'accepted';
+  end if;
+end $$;
+

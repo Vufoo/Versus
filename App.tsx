@@ -14,6 +14,14 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 function AppShell() {
   const { colors, mode, isSignedIn, setSignedIn } = useTheme();
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) setSignedIn(true);
+      setAuthChecked(true);
+    });
+  }, [setSignedIn]);
 
   const navTheme = useMemo(
     () => ({
@@ -91,6 +99,14 @@ function AppShell() {
       cancelled = true;
     };
   }, [isSignedIn]);
+
+  if (!authChecked) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background }}>
+        <ActivityIndicator color={colors.primary} size="large" />
+      </View>
+    );
+  }
 
   return (
     <SafeAreaProvider>

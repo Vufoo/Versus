@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius, lightColors } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
-import { supabase } from '../lib/supabase';
+import { supabase, setRememberMe, getRememberMePreference } from '../lib/supabase';
 
 type Props = { onContinue: () => void };
 
@@ -112,6 +112,26 @@ function s(c: ThemeColors) {
       marginBottom: spacing.sm,
     },
     checkingText: { ...typography.caption, color: c.textSecondary },
+    rememberRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    checkbox: {
+      width: 20,
+      height: 20,
+      borderRadius: 4,
+      borderWidth: 2,
+      borderColor: c.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    checkboxChecked: {
+      backgroundColor: c.primary,
+      borderColor: c.primary,
+    },
+    rememberText: { ...typography.body, fontSize: 14, color: c.text },
 
     errorText: { ...typography.caption, color: c.error, textAlign: 'center', marginTop: spacing.sm },
     infoText: {
@@ -141,11 +161,16 @@ export default function LoginScreen({ onContinue }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [rememberMe, setRememberMeState] = useState(true);
 
   const [emailTaken, setEmailTaken] = useState(false);
   const [emailChecked, setEmailChecked] = useState(false);
   const [checkingEmail, setCheckingEmail] = useState(false);
   const lastCheckedRef = useRef('');
+
+  useEffect(() => {
+    getRememberMePreference().then(setRememberMeState);
+  }, []);
 
   const checkEmail = useCallback(async (value: string) => {
     const trimmed = value.trim().toLowerCase();
@@ -174,6 +199,7 @@ export default function LoginScreen({ onContinue }: Props) {
 
     try {
       if (isLoginMode) {
+        await setRememberMe(rememberMe);
         const { error: loginErr } = await supabase.auth.signInWithPassword({ email, password });
         if (loginErr) { setError('Incorrect password. Try again.'); return; }
         onContinue();
@@ -251,6 +277,19 @@ export default function LoginScreen({ onContinue }: Props) {
               value={password}
               onChangeText={setPassword}
             />
+
+            {isLoginMode && (
+              <TouchableOpacity
+                style={styles.rememberRow}
+                onPress={() => setRememberMeState((v) => !v)}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+                  {rememberMe && <Ionicons name="checkmark" size={14} color="#FFF" />}
+                </View>
+                <Text style={styles.rememberText}>Remember me</Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity
               style={[styles.continueBtn, loading && styles.continueBtnDisabled]}
