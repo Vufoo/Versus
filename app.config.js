@@ -8,18 +8,22 @@ module.exports = ({ config }) => ({
   userInterfaceStyle: 'light',
   newArchEnabled: true,
   splash: {
-    image: './assets/splash-icon.png',
+    image: './assets/versus-icon.png',
     resizeMode: 'contain',
     backgroundColor: '#FDF6ED',
   },
   ios: {
     supportsTablet: true,
+    bundleIdentifier: 'com.versus.app',
     infoPlist: {
       NSLocationWhenInUseUsageDescription:
         'Versus uses your location to show nearby players, courts, and matches on the map.',
+      NSPhotoLibraryUsageDescription:
+        'Versus needs photo access to set your profile picture.',
     },
   },
   android: {
+    package: 'com.versus.app',
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#FDF6ED',

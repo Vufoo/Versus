@@ -1,21 +1,13 @@
-import { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Pressable } from 'react-native';
+import { useState, useMemo, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
+import { supabase } from '../lib/supabase';
+import NewMatchModal from '../components/NewMatchModal';
 
-const SPORTS = ['Pickleball', 'Basketball', 'Tennis', 'Bowling', 'Boxing', 'Badminton', 'Ping Pong'];
-
-const SPORT_RANK: Record<string, string> = {
-  Pickleball: 'Gold II · 1320 VP',
-  Basketball: 'Silver I · 1180 VP',
-  Tennis: 'Gold I · 1290 VP',
-  Bowling: 'Bronze III · 980 VP',
-  Boxing: 'Unranked · —',
-  Badminton: 'Silver II · 1210 VP',
-  'Ping Pong': 'Platinum IV · 1450 VP',
-};
+import { SPORTS, sportLabel } from '../constants/sports';
 
 type Flow = null | 'ranked' | 'casual' | 'local';
 
@@ -105,66 +97,6 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.surface,
       borderColor: colors.border,
     },
-    modalBackdrop: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.4)',
-      justifyContent: 'flex-end',
-    },
-    modalCard: {
-      backgroundColor: colors.surface,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
-      padding: spacing.lg,
-      paddingBottom: spacing.xxl,
-      maxHeight: '85%',
-    },
-    modalHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: spacing.lg,
-    },
-    modalTitle: { ...typography.title, color: colors.text },
-    modalBody: { paddingBottom: spacing.lg },
-    modalStep: {
-      ...typography.body,
-      color: colors.text,
-      marginBottom: spacing.sm,
-    },
-    modalPara: {
-      ...typography.body,
-      color: colors.text,
-      marginBottom: spacing.md,
-    },
-    modalHint: {
-      ...typography.caption,
-      color: colors.textSecondary,
-      marginTop: spacing.sm,
-      marginBottom: spacing.lg,
-    },
-    toggleRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-      padding: spacing.md,
-      borderRadius: borderRadius.md,
-      marginBottom: spacing.sm,
-      backgroundColor: colors.background,
-    },
-    toggleRowActive: { backgroundColor: colors.primary },
-    toggleLabel: { ...typography.body, color: colors.textSecondary },
-    toggleLabelActive: { color: colors.textOnPrimary },
-    modalCta: {
-      backgroundColor: colors.primary,
-      padding: spacing.md,
-      borderRadius: borderRadius.md,
-      alignItems: 'center',
-      marginTop: spacing.md,
-    },
-    modalCtaText: {
-      ...typography.heading,
-      color: colors.textOnPrimary,
-    },
   });
 }
 
@@ -175,6 +107,39 @@ export default function VersusScreen() {
   const [localIsRanked, setLocalIsRanked] = useState(true);
   const [sport, setSport] = useState<string>(SPORTS[0]);
   const closeFlow = () => setFlow(null);
+
+  const [sportRatings, setSportRatings] = useState<Record<string, { rank_tier: string | null; rank_div: string | null; vp: number }>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data } = await supabase
+          .from('user_sport_ratings')
+          .select('vp, rank_tier, rank_div, sport_id, sports!inner(name)')
+          .eq('user_id', user.id);
+
+        if (!cancelled && data) {
+          const map: typeof sportRatings = {};
+          for (const r of data as any[]) {
+            const name = r.sports?.name;
+            if (name) map[name] = { rank_tier: r.rank_tier, rank_div: r.rank_div, vp: r.vp };
+          }
+          setSportRatings(map);
+        }
+      } catch { /* swallow */ }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const currentRating = sportRatings[sport];
+  const rankDisplay = currentRating
+    ? `${currentRating.rank_tier ?? 'Unranked'} ${currentRating.rank_div ?? ''} \u00b7 ${currentRating.vp} VP`.trim()
+    : 'Unranked \u00b7 0 VP';
 
   return (
     <View style={styles.container}>
@@ -202,7 +167,7 @@ export default function VersusScreen() {
                     isSelected && styles.sportChipLabelSelected,
                   ]}
                 >
-                  {s}
+                  {sportLabel(s)}
                 </Text>
               </TouchableOpacity>
             );
@@ -214,7 +179,7 @@ export default function VersusScreen() {
             <Text style={styles.rankSport}>{sport}</Text>
           </View>
           <View style={styles.rankRight}>
-            <Text style={styles.rankValue}>{SPORT_RANK[sport] ?? 'Unranked · —'}</Text>
+            <Text style={styles.rankValue}>{rankDisplay}</Text>
             <Text style={styles.rankHint}>Ranks update after verified matches.</Text>
           </View>
         </View>
@@ -225,7 +190,6 @@ export default function VersusScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Find ranked match */}
         <TouchableOpacity
           style={[styles.primaryButton, styles.rankedButton]}
           onPress={() => setFlow('ranked')}
@@ -236,11 +200,10 @@ export default function VersusScreen() {
           </View>
           <Text style={styles.primaryButtonTitle}>Find ranked match</Text>
           <Text style={styles.primaryButtonSub}>
-            Search for one person nearby. Accept or decline. Both must accept — then chat to set the time. Either player can change time or settings after.
+            Invite a friend or find an opponent. Both must accept. VP and rank are on the line.
           </Text>
         </TouchableOpacity>
 
-        {/* Find casual match */}
         <TouchableOpacity
           style={[styles.primaryButton, styles.casualButton]}
           onPress={() => setFlow('casual')}
@@ -253,11 +216,10 @@ export default function VersusScreen() {
             Find casual match
           </Text>
           <Text style={[styles.primaryButtonSub, styles.casualSub]}>
-            Same flow as ranked — we find one person for you. No VP or rank impact. Great for practice or trying a new sport.
+            Same as ranked but no VP or rank impact. Great for practice or trying a new sport.
           </Text>
         </TouchableOpacity>
 
-        {/* Local match */}
         <TouchableOpacity
           style={[styles.primaryButton, styles.localButton]}
           onPress={() => setFlow('local')}
@@ -267,90 +229,21 @@ export default function VersusScreen() {
             <Ionicons name="person-add-outline" size={28} color={colors.text} />
           </View>
           <Text style={[styles.primaryButtonTitle, styles.casualTitle]}>
-            Local match
+            New match
           </Text>
           <Text style={[styles.primaryButtonSub, styles.casualSub]}>
-            Set up with someone in person. Choose ranked or casual and match settings. Both must be on Versus — send an invite to link up.
+            Set up with someone in person. Choose ranked or casual, pick settings, and send an invite.
           </Text>
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Flow modals */}
-      <Modal visible={flow !== null} transparent animationType="slide">
-        <Pressable style={styles.modalBackdrop} onPress={closeFlow}>
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {flow === 'ranked' && 'Find ranked match'}
-                {flow === 'casual' && 'Find casual match'}
-                {flow === 'local' && 'Local match'}
-              </Text>
-              <TouchableOpacity onPress={closeFlow} hitSlop={12}>
-                <Ionicons name="close" size={24} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-            {flow === 'ranked' && (
-              <View style={styles.modalBody}>
-                <Text style={styles.modalStep}>1. We search for one person near you.</Text>
-                <Text style={styles.modalStep}>2. You can accept or decline the matchup.</Text>
-                <Text style={styles.modalStep}>3. Both must accept for the match to go through.</Text>
-                <Text style={styles.modalStep}>4. A chat opens to settle on time and place.</Text>
-                <Text style={styles.modalStep}>5. After acceptance, either player can change time or settings.</Text>
-                <TouchableOpacity style={styles.modalCta} onPress={closeFlow}>
-                  <Text style={styles.modalCtaText}>Start searching (coming soon)</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-            {flow === 'casual' && (
-              <View style={styles.modalBody}>
-                <Text style={styles.modalStep}>Same as ranked: we find one person, you accept/decline, both accept → chat to set time. No VP or rank impact.</Text>
-                <TouchableOpacity style={styles.modalCta} onPress={closeFlow}>
-                  <Text style={styles.modalCtaText}>Start searching (coming soon)</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-            {flow === 'local' && (
-              <View style={styles.modalBody}>
-                <Text style={styles.modalPara}>
-                  Set up a match with someone next to you. Both must be signed up on Versus.
-                </Text>
-                <TouchableOpacity
-                  style={[styles.toggleRow, localIsRanked && styles.toggleRowActive]}
-                  onPress={() => setLocalIsRanked(true)}
-                >
-                  <Ionicons
-                    name="trophy"
-                    size={20}
-                    color={localIsRanked ? colors.textOnPrimary : colors.textSecondary}
-                  />
-                  <Text style={[styles.toggleLabel, localIsRanked && styles.toggleLabelActive]}>
-                    Ranked
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.toggleRow, !localIsRanked && styles.toggleRowActive]}
-                  onPress={() => setLocalIsRanked(false)}
-                >
-                  <Ionicons
-                    name="happy-outline"
-                    size={20}
-                    color={!localIsRanked ? colors.textOnPrimary : colors.textSecondary}
-                  />
-                  <Text style={[styles.toggleLabel, !localIsRanked && styles.toggleLabelActive]}>
-                    Casual
-                  </Text>
-                </TouchableOpacity>
-                <Text style={styles.modalHint}>
-                  Match settings (sport, time, place) can be set here. You’ll send an invite; they accept to confirm.
-                </Text>
-                <TouchableOpacity style={styles.modalCta} onPress={closeFlow}>
-                  <Text style={styles.modalCtaText}>Send invite (coming soon)</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <NewMatchModal
+        visible={flow !== null}
+        onClose={closeFlow}
+        colors={colors}
+        initialSport={sport}
+        initialMatchType={flow === 'ranked' ? 'ranked' : flow === 'casual' ? 'casual' : (localIsRanked ? 'ranked' : 'casual')}
+      />
     </View>
   );
 }

@@ -73,7 +73,7 @@ export default function TabNavigator() {
       <Tab.Screen
         name="Home"
         component={HomeScreen}
-        options={{ title: 'Feed' }}
+        options={{ title: 'Feed', headerShown: false }}
       />
       <Tab.Screen
         name="Plan"
@@ -93,7 +93,7 @@ export default function TabNavigator() {
       <Tab.Screen
         name="Profile"
         component={ProfileScreen}
-        options={{ title: 'Profile' }}
+        options={{ title: 'Profile', headerShown: false }}
       />
     </Tab.Navigator>
   );
