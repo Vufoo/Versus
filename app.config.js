@@ -8,7 +8,7 @@ module.exports = ({ config }) => ({
   userInterfaceStyle: 'light',
   newArchEnabled: true,
   splash: {
-    image: './assets/versus-icon.png',
+    image: './assets/versus-icon2.png',
     resizeMode: 'contain',
     backgroundColor: '#FDF6ED',
   },

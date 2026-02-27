@@ -142,7 +142,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   const [location, setLocation] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
-  const [startNow, setStartNow] = useState(false);
+  const [startNow, setStartNow] = useState(true);
 
   const [timeHour, setTimeHour] = useState(5);
   const [timeMinute, setTimeMinute] = useState(0);
@@ -218,6 +218,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
           scheduled_at: scheduledAt,
           location_name: location.trim() || null,
           notes: notes.trim() || null,
+          invited_opponent_id: opponent?.user_id ?? null,
         })
         .select('id')
         .single();
@@ -227,7 +228,6 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
         { match_id: match.id, user_id: user.id, role: 'challenger' },
       ];
       if (opponent) {
-        participants.push({ match_id: match.id, user_id: opponent.user_id, role: 'opponent' });
         const notifBody = startNow
           ? `${sportLabel(sport)} ${matchType} match starting now!`
           : `${sportLabel(sport)} ${matchType} match on ${new Date(dateId).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at ${formatTime()}`;
@@ -255,7 +255,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
     setNotes('');
     setMatchType(initialMatchType ?? 'casual');
     setSport(initialSport ?? SPORTS[0]);
-    setStartNow(false);
+    setStartNow(true);
   };
 
   const getInitials = (u: SearchedUser) =>

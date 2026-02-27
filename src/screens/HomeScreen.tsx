@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -17,12 +17,12 @@ import {
   Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ThemeColors } from '../constants/theme';
-import { sportLabel, SPORT_EMOJI, validateGameScore } from '../constants/sports';
+import { sportLabel, SPORT_EMOJI, SPORT_SCORING, validateGameScore } from '../constants/sports';
 import { supabase } from '../lib/supabase';
 import { resolveAvatarUrl, resolveMatchImageUrl } from '../lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
@@ -37,6 +37,7 @@ type Participant = {
   result: string;
   score: string | null;
   vp_delta: number;
+  ready?: boolean;
   username: string | null;
   full_name: string | null;
   avatar_url: string | null;
@@ -53,6 +54,7 @@ type FeedMatch = {
   ended_at: string | null;
   match_type: string;
   status: string;
+  is_public?: boolean;
   location_name: string | null;
   notes: string | null;
   created_by: string;
@@ -88,10 +90,9 @@ function Avatar({
   colors: ThemeColors;
   isWinner?: boolean;
 }) {
-  if (avatarUrl) {
-    return <Image source={{ uri: avatarUrl }} style={{ width: size, height: size, borderRadius: size / 2 }} />;
-  }
-  return (
+  const avatarContent = avatarUrl ? (
+    <Image source={{ uri: avatarUrl }} style={{ width: size, height: size, borderRadius: size / 2 }} />
+  ) : (
     <View
       style={{
         width: size,
@@ -113,6 +114,40 @@ function Avatar({
       </Text>
     </View>
   );
+
+  if (isWinner) {
+    return (
+      <View style={{ alignItems: 'center', position: 'relative' }}>
+        <View
+          style={{
+            borderWidth: 3,
+            borderColor: colors.primary,
+            borderRadius: size / 2 + 4,
+            padding: 4,
+          }}
+        >
+          {avatarContent}
+        </View>
+        <View
+          style={{
+            position: 'absolute',
+            top: -6,
+            left: '50%',
+            marginLeft: -10,
+            width: 20,
+            height: 20,
+            borderRadius: 10,
+            backgroundColor: colors.primary,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Ionicons name="trophy" size={12} color={colors.textOnPrimary} />
+        </View>
+      </View>
+    );
+  }
+  return avatarContent;
 }
 
 function getInitials(p: Participant): string {
@@ -126,6 +161,40 @@ function getInitials(p: Participant): string {
 
 function getName(p: Participant): string {
   return p.full_name ?? p.username ?? 'Unknown';
+}
+
+function formatMatchScore(
+  sportName: string,
+  games: { score_challenger: number; score_opponent: number }[],
+  p1Name: string,
+  p2Name: string
+): { main: string; sub: string | null } {
+  const filtered = games.filter((g) => g.score_challenger > 0 || g.score_opponent > 0);
+  if (filtered.length === 0) return { main: '', sub: null };
+
+  const rules = SPORT_SCORING[sportName];
+  const isSetBased = rules === 'set';
+
+  if (isSetBased && filtered.length > 0) {
+    const setsP1 = filtered.filter((g) => g.score_challenger > g.score_opponent).length;
+    const setsP2 = filtered.filter((g) => g.score_opponent > g.score_challenger).length;
+    const setScores = filtered.map((g) => `${g.score_challenger}-${g.score_opponent}`).join(', ');
+    return {
+      main: `${setsP1} - ${setsP2}`,
+      sub: setScores,
+    };
+  }
+
+  const totalP1 = filtered.reduce((a, g) => a + g.score_challenger, 0);
+  const totalP2 = filtered.reduce((a, g) => a + g.score_opponent, 0);
+  if (filtered.length === 1) {
+    return { main: `${totalP1} - ${totalP2}`, sub: null };
+  }
+  const gameScores = filtered.map((g) => `${g.score_challenger}-${g.score_opponent}`).join(', ');
+  return {
+    main: `${totalP1} - ${totalP2}`,
+    sub: gameScores,
+  };
 }
 
 function formatDuration(ms: number): string {
@@ -170,7 +239,9 @@ function FeedCard({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveValidationError, setSaveValidationError] = useState<string | null>(null);
   const [startStopLoading, setStartStopLoading] = useState(false);
+  const [readyLoading, setReadyLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [winnerPickerVisible, setWinnerPickerVisible] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
 
@@ -204,6 +275,7 @@ function FeedCard({
   }, [item.id, item.games]);
 
   const isInProgress = item.status === 'in_progress';
+  const isPaused = item.status === 'paused';
   const isParticipant = currentUserId && (p1?.user_id === currentUserId || p2?.user_id === currentUserId);
   const canControl = isParticipant;
 
@@ -223,8 +295,28 @@ function FeedCard({
     ? new Date(item.ended_at).getTime() - new Date(item.started_at).getTime()
     : isInProgress ? elapsedMs : 0;
 
+  const isRanked = String(item.match_type || '').toLowerCase() === 'ranked';
+  const participantsRaw = item.participants ?? [];
+  const participants = (Array.isArray(participantsRaw) ? participantsRaw : (typeof participantsRaw === 'string' ? (() => { try { return JSON.parse(participantsRaw); } catch { return []; } })() : [])) as Participant[];
+  const myParticipant = participants.find((p) => p?.user_id && String(p.user_id) === String(currentUserId));
+  const isReady = (p: Participant) => p?.ready === true || (typeof p?.ready === 'string' && String(p.ready).toLowerCase() === 'true');
+  const readyCount = participants.filter((p) => isReady(p)).length;
+  const bothReady = participants.length >= 2 && participants.every((p) => isReady(p));
+  const isRankedConfirmed = isRanked && participants.length >= 2 && String(item.status || '').toLowerCase() === 'confirmed';
+
+  const handleReady = async () => {
+    if (!currentUserId || readyLoading) return;
+    setReadyLoading(true);
+    try {
+      await supabase.from('match_participants').update({ ready: true }).eq('match_id', item.id).eq('user_id', currentUserId);
+      onRefresh();
+    } catch { /* swallow */ }
+    finally { setReadyLoading(false); }
+  };
+
   const handleStart = async () => {
     if (!currentUserId || startStopLoading) return;
+    if (isRanked && !bothReady) return;
     setStartStopLoading(true);
     try {
       await supabase.from('matches').update({ status: 'in_progress', started_at: new Date().toISOString() }).eq('id', item.id);
@@ -233,14 +325,60 @@ function FeedCard({
     finally { setStartStopLoading(false); }
   };
 
-  const handleStop = async () => {
+  const handlePause = async () => {
     if (!currentUserId || startStopLoading) return;
     setStartStopLoading(true);
     try {
+      await supabase.from('matches').update({ status: 'paused' }).eq('id', item.id);
+      onRefresh();
+    } catch { /* swallow */ }
+    finally { setStartStopLoading(false); }
+  };
+
+  const handleResume = async () => {
+    if (!currentUserId || startStopLoading) return;
+    setStartStopLoading(true);
+    try {
+      await supabase.from('matches').update({ status: 'in_progress' }).eq('id', item.id);
+      onRefresh();
+    } catch { /* swallow */ }
+    finally { setStartStopLoading(false); }
+  };
+
+  const finishWithWinner = async (winnerUserId: string | null) => {
+    if (!currentUserId || startStopLoading) return;
+    setStartStopLoading(true);
+    try {
+      const p1Result = winnerUserId === p1?.user_id ? 'win' : winnerUserId === null ? 'draw' : 'loss';
+      const p2Result = winnerUserId === p2?.user_id ? 'win' : winnerUserId === null ? 'draw' : 'loss';
+      const vpWinner = item.match_type === 'ranked' ? 25 : 0;
+      const vpLoser = 0;
+      if (p1) {
+        await supabase.from('match_participants').update({
+          result: p1Result,
+          vp_delta: p1Result === 'win' ? vpWinner : p1Result === 'loss' ? vpLoser : 0,
+        }).eq('match_id', item.id).eq('user_id', p1.user_id);
+      }
+      if (p2) {
+        await supabase.from('match_participants').update({
+          result: p2Result,
+          vp_delta: p2Result === 'win' ? vpWinner : p2Result === 'loss' ? vpLoser : 0,
+        }).eq('match_id', item.id).eq('user_id', p2.user_id);
+      }
       await supabase.from('matches').update({ status: 'completed', ended_at: new Date().toISOString() }).eq('id', item.id);
       onRefresh();
     } catch { /* swallow */ }
     finally { setStartStopLoading(false); }
+  };
+
+  const handleFinish = () => {
+    if (!currentUserId || startStopLoading) return;
+    setWinnerPickerVisible(true);
+  };
+
+  const selectWinner = (userId: string | null) => {
+    setWinnerPickerVisible(false);
+    finishWithWinner(userId);
   };
 
   const handleAddGame = () => {
@@ -369,18 +507,27 @@ function FeedCard({
   const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
-  const statusLabel = item.status === 'pending' ? 'Pending' : item.status === 'confirmed' ? 'Confirmed' : item.status === 'in_progress' ? 'In progress' : item.status === 'completed' ? 'Completed' : item.status;
+  const statusLabel = item.status === 'pending' ? 'Pending' : item.status === 'confirmed' ? 'Confirmed' : item.status === 'in_progress' ? 'In progress' : item.status === 'paused' ? 'Paused' : item.status === 'completed' ? 'Completed' : item.status;
 
   const createdStr = new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   const startedStr = item.started_at ? new Date(item.started_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null;
 
-  const totalP1 = localGames.reduce((a, g) => a + (parseInt(g.score_challenger, 10) || 0), 0);
-  const totalP2 = localGames.reduce((a, g) => a + (parseInt(g.score_opponent, 10) || 0), 0);
-  const displayScore = (totalP1 || totalP2) ? `${totalP1} - ${totalP2}` : null;
+  const gamesForDisplay = localGames
+    .map((g) => ({ score_challenger: parseInt(g.score_challenger, 10) || 0, score_opponent: parseInt(g.score_opponent, 10) || 0 }))
+    .filter((g) => g.score_challenger > 0 || g.score_opponent > 0);
+  const { main: displayScoreMain, sub: displayScoreSub } = formatMatchScore(
+    item.sport_name,
+    gamesForDisplay,
+    p1 ? getName(p1) : 'Challenger',
+    p2 ? getName(p2) : 'Opponent'
+  );
+  const hasScore = gamesForDisplay.length > 0;
   const imagesList = (item.images ?? []) as MatchImage[];
-  const mediaWidth = Dimensions.get('window').width - 4 * spacing.lg;
+  const mediaRowWidth = Dimensions.get('window').width - 2 * spacing.lg;
+  const halfWidth = (mediaRowWidth - spacing.sm) / 2;
 
   return (
+    <>
     <View style={styles.feedCard}>
       {/* Header: Created by (left) + Sport (right) */}
       <View style={styles.stravaHeader}>
@@ -418,11 +565,43 @@ function FeedCard({
           <Text style={styles.playerName} numberOfLines={1}>
             {getName(p1!)}
           </Text>
+          {isRankedConfirmed && p1 && (
+            <Text style={[typography.caption, { fontSize: 12, fontWeight: '500', color: isReady(p1) ? colors.primary : colors.textSecondary }]}>
+              {isReady(p1) ? 'Ready ✓' : 'Not ready'}
+            </Text>
+          )}
         </View>
         <View style={styles.vsCol}>
           <Text style={styles.vsText}>vs</Text>
-          {(isCompleted || isInProgress) && displayScore ? (
-            <Text style={styles.scoreText}>{displayScore}</Text>
+          {(isCompleted || isInProgress || isPaused) && hasScore ? (
+            <View style={{ alignItems: 'center' }}>
+              <Text style={styles.scoreText}>{displayScoreMain}</Text>
+              {displayScoreSub && (
+                <Text style={[typography.caption, { fontSize: 11, color: colors.textSecondary, marginTop: 2 }]}>
+                  {displayScoreSub}
+                </Text>
+              )}
+              <Text style={[typography.caption, { fontSize: 10, color: colors.textSecondary, marginTop: 2 }]}>
+                {p1 ? getName(p1) : 'Challenger'} — {p2 ? getName(p2) : 'Opponent'}
+              </Text>
+            </View>
+          ) : isRankedConfirmed ? (
+            <View style={{ alignItems: 'center', gap: 6 }}>
+              <Text style={[styles.scoreText, { fontSize: 13, color: colors.textSecondary, fontWeight: '600' }]}>Ready {readyCount}/2</Text>
+              {p1 && isReady(p1) && <Text style={[typography.caption, { fontSize: 11, color: colors.primary }]}>{getName(p1)} ✓</Text>}
+              {p2 && isReady(p2) && <Text style={[typography.caption, { fontSize: 11, color: colors.primary }]}>{getName(p2)} ✓</Text>}
+              {myParticipant && !isReady(myParticipant) && (
+                <TouchableOpacity
+                  style={[styles.readyUpCenterButton, readyLoading && { opacity: 0.6 }]}
+                  onPress={handleReady}
+                  disabled={readyLoading}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="checkmark-circle" size={20} color={colors.textOnPrimary} />
+                  <Text style={styles.readyUpCenterText}>Ready up</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           ) : (
             <Text style={[styles.scoreText, { fontSize: 12, color: colors.textSecondary }]}>{statusLabel}</Text>
           )}
@@ -440,6 +619,11 @@ function FeedCard({
               <Text style={styles.playerName} numberOfLines={1}>
                 {getName(p2)}
               </Text>
+              {isRankedConfirmed && p2 && (
+                <Text style={[typography.caption, { fontSize: 12, fontWeight: '500', color: isReady(p2) ? colors.primary : colors.textSecondary }]}>
+                  {isReady(p2) ? 'Ready ✓' : 'Not ready'}
+                </Text>
+              )}
             </>
           ) : (
             <>
@@ -474,11 +658,11 @@ function FeedCard({
       {canControl && item.status !== 'canceled' && (
         <View style={styles.matchControlsRow}>
           <View style={styles.matchControlsButtonRow}>
-            {item.status !== 'in_progress' && item.status !== 'completed' && (
+            {item.status !== 'in_progress' && item.status !== 'completed' && item.status !== 'paused' && (
               <TouchableOpacity
-                style={[styles.startButton, startStopLoading && { opacity: 0.6 }]}
+                style={[styles.startButton, (startStopLoading || (isRanked && !bothReady)) && { opacity: 0.6 }]}
                 onPress={handleStart}
-                disabled={startStopLoading}
+                disabled={startStopLoading || (isRanked && !bothReady)}
                 activeOpacity={0.8}
               >
                 <Ionicons name="play" size={16} color={colors.textOnPrimary} />
@@ -487,28 +671,48 @@ function FeedCard({
             )}
             {item.status === 'in_progress' && (
               <TouchableOpacity
-                style={[styles.stopButton, startStopLoading && { opacity: 0.6 }]}
-                onPress={handleStop}
+                style={[styles.pauseButton, startStopLoading && { opacity: 0.6 }]}
+                onPress={handlePause}
                 disabled={startStopLoading}
                 activeOpacity={0.8}
               >
-                <Ionicons name="stop" size={16} color="#FFF" />
-                <Text style={styles.stopButtonText}>Stop</Text>
+                <Ionicons name="pause" size={16} color="#FFF" />
+                <Text style={styles.pauseButtonText}>Pause</Text>
               </TouchableOpacity>
             )}
-            {(item.status === 'in_progress' || item.status === 'completed') && (
-              <TouchableOpacity
-                style={[styles.deleteButton, deleteLoading && { opacity: 0.6 }]}
-                onPress={handleDelete}
-                disabled={deleteLoading}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="trash-outline" size={14} color={colors.error} />
-                <Text style={styles.deleteButtonText}>Delete</Text>
-              </TouchableOpacity>
+            {item.status === 'paused' && (
+              <>
+                <TouchableOpacity
+                  style={[styles.resumeButton, startStopLoading && { opacity: 0.6 }]}
+                  onPress={handleResume}
+                  disabled={startStopLoading}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="play" size={16} color="#FFF" />
+                  <Text style={styles.resumeButtonText}>Resume</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.startButton, startStopLoading && { opacity: 0.6 }]}
+                  onPress={handleFinish}
+                  disabled={startStopLoading}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="flag" size={16} color={colors.textOnPrimary} />
+                  <Text style={styles.startButtonText}>Finish</Text>
+                </TouchableOpacity>
+              </>
             )}
+            <TouchableOpacity
+              style={[styles.deleteButton, deleteLoading && { opacity: 0.6 }]}
+              onPress={handleDelete}
+              disabled={deleteLoading}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="trash-outline" size={14} color={colors.error} />
+              <Text style={styles.deleteButtonText}>Delete</Text>
+            </TouchableOpacity>
           </View>
-          {item.status === 'in_progress' && (
+          {(item.status === 'in_progress' || item.status === 'paused') && (
             <View style={styles.gamesEditSection}>
                 {localGames.map((game, idx) => (
                   <View key={idx} style={styles.gameRow}>
@@ -582,15 +786,10 @@ function FeedCard({
         </View>
       )}
 
-      {/* Map + Images (below delete button) */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.mediaScroll}
-        contentContainerStyle={styles.mediaScrollContent}
-      >
-        <View style={[styles.mapTile, { width: mediaWidth }]}>
-          <View style={[styles.mapPlaceholder, { width: mediaWidth, height: 140 }]}>
+      {/* Map (left half) + Add photos (right half) */}
+      <View style={[styles.mediaRow, { marginBottom: spacing.md }]}>
+        <View style={[styles.mapTile, { width: halfWidth, flex: 1 }]}>
+          <View style={[styles.mapPlaceholder, { width: halfWidth, height: 120 }]}>
             <View style={styles.mapGridLines}>
               <View style={[styles.mapGridH, { top: '25%' }]} />
               <View style={[styles.mapGridH, { top: '50%' }]} />
@@ -600,7 +799,7 @@ function FeedCard({
               <View style={[styles.mapGridV, { left: '75%' }]} />
             </View>
             <View style={styles.mapPinContainer}>
-              <Ionicons name="location" size={28} color={colors.primary} />
+              <Ionicons name="location" size={24} color={colors.primary} />
             </View>
             <View style={styles.mapLabelContainer}>
               <View style={styles.mapLabelPill}>
@@ -610,26 +809,35 @@ function FeedCard({
             </View>
           </View>
         </View>
-        {imagesList.map((img) => (
-          <View key={img.id} style={styles.mediaTile}>
-            {imageUrls[img.id] ? (
-              <Image source={{ uri: imageUrls[img.id] }} style={styles.mediaImage} resizeMode="cover" />
-            ) : (
-              <View style={[styles.mediaImage, styles.mediaPlaceholder]}>
-                <Ionicons name="image-outline" size={32} color={colors.textSecondary} />
-              </View>
-            )}
-          </View>
-        ))}
-        {isParticipant && (
-          <View style={[styles.addMediaTileWrap, { width: mediaWidth }]}>
-            <TouchableOpacity style={styles.addMediaTile} onPress={handleAddImage} disabled={saving} activeOpacity={0.8}>
-              <Ionicons name="add-circle-outline" size={36} color={colors.primary} />
+        <View style={[styles.photosHalf, { width: halfWidth }]}>
+          {imagesList.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.xs }} contentContainerStyle={{ gap: spacing.xs }}>
+              {imagesList.map((img) => (
+                <View key={img.id} style={{ width: 56, height: 56, borderRadius: borderRadius.sm, overflow: 'hidden', backgroundColor: colors.background }}>
+                  {imageUrls[img.id] ? (
+                    <Image source={{ uri: imageUrls[img.id] }} style={{ width: 56, height: 56 }} resizeMode="cover" />
+                  ) : (
+                    <View style={{ width: 56, height: 56, alignItems: 'center', justifyContent: 'center' }}>
+                      <Ionicons name="image-outline" size={20} color={colors.textSecondary} />
+                    </View>
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          )}
+          {isParticipant ? (
+            <TouchableOpacity style={[styles.addMediaTile, { flex: 1, minHeight: 80 }]} onPress={handleAddImage} disabled={saving} activeOpacity={0.8}>
+              <Ionicons name="add-circle-outline" size={32} color={colors.primary} />
               <Text style={styles.addMediaText}>Add photo</Text>
             </TouchableOpacity>
-          </View>
-        )}
-      </ScrollView>
+          ) : imagesList.length === 0 ? (
+            <View style={[styles.addMediaTile, { flex: 1, minHeight: 80, opacity: 0.5 }]}>
+              <Ionicons name="images-outline" size={32} color={colors.textSecondary} />
+              <Text style={[styles.addMediaText, { color: colors.textSecondary }]}>No photos</Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
 
       <View style={styles.actionsRow}>
         <TouchableOpacity style={styles.actionBtn} onPress={handleToggleLike} activeOpacity={0.8}>
@@ -648,6 +856,70 @@ function FeedCard({
         </TouchableOpacity>
       </View>
     </View>
+
+    <Modal visible={winnerPickerVisible} transparent animationType="fade">
+      <Pressable style={styles.winnerPickerBackdrop} onPress={() => setWinnerPickerVisible(false)}>
+        <View style={styles.winnerPickerCard} onStartShouldSetResponder={() => true}>
+          <Text style={styles.winnerPickerTitle}>Choose winner</Text>
+          <Text style={styles.winnerPickerSubtitle}>Who won this match?</Text>
+          <View style={styles.winnerPickerOptions}>
+            {p1 && (
+              <TouchableOpacity
+                style={styles.winnerPickerOption}
+                onPress={() => selectWinner(p1.user_id)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.winnerPickerAvatarWrap}>
+                  {p1AvatarUrl ? (
+                    <Image source={{ uri: p1AvatarUrl }} style={styles.winnerPickerAvatarImg} />
+                  ) : (
+                    <View style={[styles.winnerPickerAvatar, { backgroundColor: colors.primary }]}>
+                      <Text style={[styles.winnerPickerInitials, { color: colors.textOnPrimary }]}>{getInitials(p1)}</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.winnerPickerName}>{getName(p1)}</Text>
+                <Text style={styles.winnerPickerRole}>Challenger</Text>
+              </TouchableOpacity>
+            )}
+            {p2 && (
+              <TouchableOpacity
+                style={styles.winnerPickerOption}
+                onPress={() => selectWinner(p2.user_id)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.winnerPickerAvatarWrap}>
+                  {p2AvatarUrl ? (
+                    <Image source={{ uri: p2AvatarUrl }} style={styles.winnerPickerAvatarImg} />
+                  ) : (
+                    <View style={[styles.winnerPickerAvatar, { backgroundColor: colors.primary }]}>
+                      <Text style={[styles.winnerPickerInitials, { color: colors.textOnPrimary }]}>{getInitials(p2)}</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.winnerPickerName}>{getName(p2)}</Text>
+                <Text style={styles.winnerPickerRole}>Opponent</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.winnerPickerOption}
+              onPress={() => selectWinner(null)}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.winnerPickerAvatarWrap, styles.winnerPickerDrawWrap]}>
+                <Ionicons name="remove-circle-outline" size={36} color={colors.textSecondary} />
+              </View>
+              <Text style={styles.winnerPickerName}>Draw</Text>
+              <Text style={styles.winnerPickerRole}>Tie</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={styles.winnerPickerCancel} onPress={() => setWinnerPickerVisible(false)}>
+            <Text style={[styles.winnerPickerCancelText, { color: colors.textSecondary }]}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </Pressable>
+    </Modal>
+    </>
   );
 }
 
@@ -755,9 +1027,9 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       gap: spacing.xs,
     },
-    mediaScroll: { marginHorizontal: -spacing.lg, marginBottom: spacing.md },
-    mediaScrollContent: { paddingHorizontal: spacing.lg, gap: spacing.sm },
-    mapTile: { height: 140, borderRadius: borderRadius.md, overflow: 'hidden' },
+    mediaRow: { flexDirection: 'row', gap: spacing.sm },
+    mapTile: { borderRadius: borderRadius.md, overflow: 'hidden' },
+    photosHalf: { flex: 1, justifyContent: 'center' },
     mediaTile: { width: 140, height: 140, borderRadius: borderRadius.md, overflow: 'hidden' },
     mediaImage: { width: 140, height: 140, backgroundColor: colors.background },
     mediaPlaceholder: { alignItems: 'center', justifyContent: 'center' },
@@ -857,7 +1129,7 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'column',
       alignItems: 'center',
       marginBottom: spacing.md,
-      paddingTop: spacing.sm,
+      paddingTop: spacing.md,
       borderTopWidth: 1,
       borderTopColor: colors.divider,
     },
@@ -878,6 +1150,18 @@ function createHomeStyles(colors: ThemeColors) {
       borderRadius: borderRadius.md,
     },
     startButtonText: { ...typography.label, color: colors.textOnPrimary },
+    readyUpCenterButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.xs,
+      backgroundColor: colors.primary,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm + 2,
+      borderRadius: borderRadius.md,
+      marginTop: 4,
+    },
+    readyUpCenterText: { ...typography.label, fontSize: 14, fontWeight: '600', color: colors.textOnPrimary },
     stopButton: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -888,6 +1172,26 @@ function createHomeStyles(colors: ThemeColors) {
       borderRadius: borderRadius.md,
     },
     stopButtonText: { ...typography.label, color: '#FFF' },
+    pauseButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      backgroundColor: colors.error,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderRadius: borderRadius.md,
+    },
+    pauseButtonText: { ...typography.label, color: '#FFF' },
+    resumeButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      backgroundColor: colors.success,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderRadius: borderRadius.md,
+    },
+    resumeButtonText: { ...typography.label, color: '#FFF' },
     scoreEditRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1060,27 +1364,6 @@ function createHomeStyles(colors: ThemeColors) {
     },
     addBtnText: { ...typography.label, color: colors.textOnPrimary },
 
-    msgModalCard: {
-      backgroundColor: colors.surface,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
-      paddingHorizontal: spacing.lg,
-      paddingTop: spacing.lg,
-      paddingBottom: spacing.xxl,
-      maxHeight: '85%',
-    },
-    chatRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.md,
-      paddingVertical: spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.divider,
-    },
-    chatInfo: { flex: 1 },
-    chatName: { ...typography.body, fontWeight: '600', color: colors.text },
-    chatPreview: { ...typography.caption, color: colors.textSecondary },
-    chatTime: { ...typography.caption, color: colors.textSecondary },
     emptyText: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xl },
 
     /* ---- Notifications modal ---- */
@@ -1141,14 +1424,48 @@ function createHomeStyles(colors: ThemeColors) {
       backgroundColor: colors.primary,
       marginTop: 6,
     },
+    winnerPickerBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: spacing.lg,
+    },
+    winnerPickerCard: {
+      backgroundColor: colors.surface,
+      borderRadius: borderRadius.lg,
+      padding: spacing.xl,
+      width: '100%',
+      maxWidth: 340,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    winnerPickerTitle: { ...typography.heading, color: colors.text, textAlign: 'center', marginBottom: spacing.xs },
+    winnerPickerSubtitle: { ...typography.caption, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.lg },
+    winnerPickerOptions: { flexDirection: 'row', justifyContent: 'center', gap: spacing.lg, marginBottom: spacing.lg },
+    winnerPickerOption: { alignItems: 'center', flex: 1 },
+    winnerPickerAvatarWrap: {
+      width: 72,
+      height: 72,
+      borderRadius: 36,
+      backgroundColor: colors.background,
+      borderWidth: 2,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: spacing.sm,
+      overflow: 'hidden',
+    },
+    winnerPickerAvatar: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center' },
+    winnerPickerAvatarImg: { width: 72, height: 72, borderRadius: 36 },
+    winnerPickerDrawWrap: { borderStyle: 'dashed' },
+    winnerPickerInitials: { fontSize: 24, fontWeight: '700' },
+    winnerPickerName: { ...typography.body, fontWeight: '600', color: colors.text, textAlign: 'center' },
+    winnerPickerRole: { ...typography.caption, fontSize: 11, color: colors.textSecondary, marginTop: 2 },
+    winnerPickerCancel: { paddingVertical: spacing.sm, alignItems: 'center' },
+    winnerPickerCancelText: { ...typography.label, fontSize: 14 },
   });
 }
-
-const PLACEHOLDER_CHATS = [
-  { id: '1', name: 'Alex M.', initials: 'AM', preview: 'Good game yesterday!', time: '2h ago' },
-  { id: '2', name: 'Jamie P.', initials: 'JP', preview: 'Rematch this weekend?', time: '5h ago' },
-  { id: '3', name: 'Pickleball Group', initials: 'PG', preview: "Who's free Saturday?", time: '1d ago' },
-];
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -1168,8 +1485,8 @@ export default function HomeScreen() {
   const styles = useMemo(() => createHomeStyles(colors), [colors]);
   const [feedMode, setFeedMode] = useState<FeedMode>('my');
   const [searchVisible, setSearchVisible] = useState(false);
-  const [messagesVisible, setMessagesVisible] = useState(false);
   const [notifsVisible, setNotifsVisible] = useState(false);
+  const navigation = useNavigation<any>();
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [feedItems, setFeedItems] = useState<FeedMatch[]>([]);
@@ -1252,17 +1569,18 @@ export default function HomeScreen() {
     } catch { /* swallow */ }
   };
 
-  const loadFeed = useCallback(async () => {
-    setLoadingFeed(true);
+  const loadFeed = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoadingFeed(true);
     try {
       const { data } = await supabase
         .from('match_feed')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(50);
-      setFeedItems((data ?? []) as FeedMatch[]);
+      const newItems = (data ?? []) as FeedMatch[];
+      setFeedItems(newItems);
     } catch { /* swallow */ }
-    finally { setLoadingFeed(false); }
+    finally { if (showLoading) setLoadingFeed(false); }
   }, []);
 
   const loadNotifications = useCallback(async () => {
@@ -1284,12 +1602,37 @@ export default function HomeScreen() {
     if (isFocused) { loadFeed(); loadNotifications(); }
   }, [isFocused, loadFeed, loadNotifications]);
 
+  useEffect(() => {
+    if (!isFocused || !currentUserId) return;
+    const channel = supabase
+      .channel('matches-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => {
+        loadFeed(false);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'match_participants' }, () => {
+        loadFeed(false);
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isFocused, currentUserId, loadFeed]);
+
+  useEffect(() => {
+    if (!isFocused) return;
+    const interval = setInterval(() => {
+      loadFeed(false);
+      loadNotifications();
+    }, 20000);
+    return () => clearInterval(interval);
+  }, [isFocused, loadFeed, loadNotifications]);
+
   const myFeed = useMemo(
     () => feedItems.filter((m) => (m.participants ?? []).some((p) => p.user_id === currentUserId)),
     [feedItems, currentUserId],
   );
   const publicFeed = useMemo(
-    () => feedItems.filter((m) => m.status === 'confirmed' || m.status === 'completed'),
+    () => feedItems.filter((m) => (m.status === 'confirmed' || m.status === 'completed') && (m.is_public !== false)),
     [feedItems],
   );
   const displayedItems = feedMode === 'my' ? myFeed : publicFeed;
@@ -1298,7 +1641,12 @@ export default function HomeScreen() {
     const matchId = notif.data?.match_id;
     if (!matchId || !currentUserId) return;
     try {
-      await supabase.from('matches').update({ status: 'confirmed' }).eq('id', matchId);
+      await supabase.from('match_participants').insert({
+        match_id: matchId,
+        user_id: currentUserId,
+        role: 'opponent',
+      });
+      await supabase.from('matches').update({ status: 'confirmed', invited_opponent_id: null }).eq('id', matchId);
       await supabase.from('notifications').update({ read: true }).eq('id', notif.id);
 
       const fromUserId = notif.data?.from_user_id;
@@ -1328,7 +1676,7 @@ export default function HomeScreen() {
     const matchId = notif.data?.match_id;
     if (!matchId || !currentUserId) return;
     try {
-      await supabase.from('matches').update({ status: 'canceled' }).eq('id', matchId);
+      await supabase.from('matches').update({ status: 'canceled', invited_opponent_id: null }).eq('id', matchId);
       await supabase.from('notifications').update({ read: true }).eq('id', notif.id);
 
       const fromUserId = notif.data?.from_user_id;
@@ -1413,7 +1761,7 @@ export default function HomeScreen() {
           <TouchableOpacity
             style={styles.topBarIcon}
             activeOpacity={0.8}
-            onPress={() => setMessagesVisible(true)}
+            onPress={() => navigation.navigate('Messages')}
           >
             <Ionicons name="chatbubbles-outline" size={20} color={colors.text} />
           </TouchableOpacity>
@@ -1463,7 +1811,7 @@ export default function HomeScreen() {
       ) : (
         <FlatList
           data={displayedItems}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => `${item.id}-${item.status}-${(item.participants ?? []).length}-${(item.participants ?? []).map((p: Participant) => p?.ready).join(',')}`}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           onRefresh={() => { loadFeed(); loadNotifications(); }}
@@ -1531,9 +1879,24 @@ export default function HomeScreen() {
           <View style={styles.notifModalCard} onStartShouldSetResponder={() => true}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Notifications</Text>
-              <TouchableOpacity onPress={() => setNotifsVisible(false)} hitSlop={12}>
-                <Ionicons name="close" size={24} color={colors.textSecondary} />
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                {notifications.some((n) => n.read) && currentUserId && (
+                  <TouchableOpacity
+                    onPress={async () => {
+                      try {
+                        await supabase.from('notifications').delete().eq('user_id', currentUserId).eq('read', true);
+                        loadNotifications();
+                      } catch { /* swallow */ }
+                    }}
+                    hitSlop={8}
+                  >
+                    <Text style={{ ...typography.label, color: colors.primary, fontSize: 14 }}>Clear read</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={() => setNotifsVisible(false)} hitSlop={12}>
+                  <Ionicons name="close" size={24} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
             </View>
             <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled={true}>
               {notifications.length === 0 && (
@@ -1604,39 +1967,6 @@ export default function HomeScreen() {
         </Pressable>
       </Modal>
 
-      {/* ---- Messages modal ---- */}
-      <Modal visible={messagesVisible} transparent animationType="slide">
-        <Pressable
-          style={[styles.modalBackdrop, { justifyContent: 'flex-end' }]}
-          onPress={() => setMessagesVisible(false)}
-        >
-          <View style={styles.msgModalCard} onStartShouldSetResponder={() => true}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Messages</Text>
-              <TouchableOpacity onPress={() => setMessagesVisible(false)} hitSlop={12}>
-                <Ionicons name="close" size={24} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled={true}>
-              {PLACEHOLDER_CHATS.map((chat) => (
-                <TouchableOpacity key={chat.id} style={styles.chatRow} activeOpacity={0.7}>
-                  <Avatar initials={chat.initials} size={44} colors={colors} />
-                  <View style={styles.chatInfo}>
-                    <Text style={styles.chatName}>{chat.name}</Text>
-                    <Text style={styles.chatPreview} numberOfLines={1}>
-                      {chat.preview}
-                    </Text>
-                  </View>
-                  <Text style={styles.chatTime}>{chat.time}</Text>
-                </TouchableOpacity>
-              ))}
-              <Text style={styles.emptyText}>
-                More chats will appear as you play matches and connect with friends.
-              </Text>
-            </ScrollView>
-          </View>
-        </Pressable>
-      </Modal>
     </View>
   );
 }

@@ -9,12 +9,10 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  Modal,
-  Pressable,
-  Switch,
   Share,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
@@ -260,15 +258,13 @@ function createStyles(colors: ThemeColors) {
 }
 
 export default function ProfileScreen() {
-  const { colors, mode, setMode, setSignedIn } = useTheme();
+  const { colors } = useTheme();
+  const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [tab, setTab] = useState<ProfileTab>('overview');
   const [vpIdx, setVpIdx] = useState(0);
   const [rankIdx, setRankIdx] = useState(0);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [emailNotifs, setEmailNotifs] = useState(true);
-  const [pushNotifs, setPushNotifs] = useState(true);
 
   const [profile, setProfile] = useState<{
     username: string | null;
@@ -445,7 +441,7 @@ export default function ProfileScreen() {
           <TouchableOpacity style={styles.headerActionBtn} activeOpacity={0.8} onPress={shareProfile}>
             <Ionicons name="share-outline" size={20} color={colors.text} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerActionBtn} activeOpacity={0.8} onPress={() => setSettingsOpen(true)}>
+          <TouchableOpacity style={styles.headerActionBtn} activeOpacity={0.8} onPress={() => navigation.navigate('Settings')}>
             <Ionicons name="settings-outline" size={20} color={colors.text} />
           </TouchableOpacity>
         </View>
@@ -602,129 +598,6 @@ export default function ProfileScreen() {
           </>
         )}
       </ScrollView>
-
-      {/* ---- Settings modal ---- */}
-      <Modal visible={settingsOpen} transparent animationType="slide">
-        <Pressable style={styles.modalBackdrop} onPress={() => setSettingsOpen(false)}>
-          <View style={styles.modalCard} onStartShouldSetResponder={() => true}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Settings</Text>
-              <TouchableOpacity onPress={() => setSettingsOpen(false)} hitSlop={12}>
-                <Ionicons name="close" size={24} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Account */}
-              <View style={styles.settingSection}>
-                <Text style={styles.settingSectionTitle}>Account</Text>
-                <View style={styles.settingRow}>
-                  <View style={styles.settingRowLeft}>
-                    <Ionicons name="mail-outline" size={20} color={colors.textSecondary} />
-                    <View>
-                      <Text style={styles.settingLabel}>Email</Text>
-                      <Text style={styles.settingValue}>{userEmail ?? '—'}</Text>
-                    </View>
-                  </View>
-                </View>
-                <View style={styles.settingRow}>
-                  <View style={styles.settingRowLeft}>
-                    <Ionicons name="person-outline" size={20} color={colors.textSecondary} />
-                    <View>
-                      <Text style={styles.settingLabel}>Username</Text>
-                      <Text style={styles.settingValue}>@{profile?.username ?? '—'}</Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              {/* Appearance */}
-              <View style={styles.settingSection}>
-                <Text style={styles.settingSectionTitle}>Appearance</Text>
-                <View style={styles.settingRow}>
-                  <View style={styles.settingRowLeft}>
-                    <Ionicons name="color-palette-outline" size={20} color={colors.textSecondary} />
-                    <Text style={styles.settingLabel}>Theme</Text>
-                  </View>
-                  <View style={styles.themeChips}>
-                    <TouchableOpacity
-                      style={[styles.themeChip, mode === 'light' && styles.themeChipSelected]}
-                      activeOpacity={0.8}
-                      onPress={() => setMode('light')}
-                    >
-                      <Ionicons name="sunny-outline" size={14} color={mode === 'light' ? colors.textOnPrimary : colors.textSecondary} />
-                      <Text style={[styles.themeChipText, mode === 'light' && styles.themeChipTextSelected]}>Light</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.themeChip, mode === 'dark' && styles.themeChipSelected]}
-                      activeOpacity={0.8}
-                      onPress={() => setMode('dark')}
-                    >
-                      <Ionicons name="moon-outline" size={14} color={mode === 'dark' ? colors.textOnPrimary : colors.textSecondary} />
-                      <Text style={[styles.themeChipText, mode === 'dark' && styles.themeChipTextSelected]}>Dark</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-
-              {/* Notifications */}
-              <View style={styles.settingSection}>
-                <Text style={styles.settingSectionTitle}>Notifications</Text>
-                <View style={styles.settingRow}>
-                  <View style={styles.settingRowLeft}>
-                    <Ionicons name="mail-unread-outline" size={20} color={colors.textSecondary} />
-                    <Text style={styles.settingLabel}>Email notifications</Text>
-                  </View>
-                  <Switch
-                    value={emailNotifs}
-                    onValueChange={setEmailNotifs}
-                    trackColor={{ false: colors.border, true: colors.primary }}
-                    thumbColor="#FFF"
-                  />
-                </View>
-                <View style={styles.settingRow}>
-                  <View style={styles.settingRowLeft}>
-                    <Ionicons name="notifications-outline" size={20} color={colors.textSecondary} />
-                    <Text style={styles.settingLabel}>Push notifications</Text>
-                  </View>
-                  <Switch
-                    value={pushNotifs}
-                    onValueChange={setPushNotifs}
-                    trackColor={{ false: colors.border, true: colors.primary }}
-                    thumbColor="#FFF"
-                  />
-                </View>
-              </View>
-
-              {/* About */}
-              <View style={styles.settingSection}>
-                <Text style={styles.settingSectionTitle}>About</Text>
-                <View style={styles.settingRow}>
-                  <View style={styles.settingRowLeft}>
-                    <Ionicons name="information-circle-outline" size={20} color={colors.textSecondary} />
-                    <Text style={styles.settingLabel}>Version</Text>
-                  </View>
-                  <Text style={styles.settingValue}>1.0.0</Text>
-                </View>
-              </View>
-
-              {/* Sign out */}
-              <TouchableOpacity
-                style={styles.signOutBtn}
-                activeOpacity={0.8}
-                onPress={async () => {
-                  setSettingsOpen(false);
-                  await supabase.auth.signOut();
-                  setSignedIn(false);
-                }}
-              >
-                <Ionicons name="log-out-outline" size={20} color={colors.error} />
-                <Text style={styles.signOutText}>Sign out</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        </Pressable>
-      </Modal>
     </View>
   );
 }

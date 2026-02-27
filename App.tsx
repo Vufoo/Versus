@@ -3,12 +3,13 @@ import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { View, ActivityIndicator } from 'react-native';
-import TabNavigator from './src/navigation/TabNavigator';
+import RootNavigator from './src/navigation/RootNavigator';
 import { ThemeProvider, useTheme } from './src/theme/ThemeProvider';
 import LoginScreen from './src/screens/LoginScreen';
 import SignupScreen from './src/screens/SignupScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
 import { supabase } from './src/lib/supabase';
+import { lightColors } from './src/constants/theme';
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -121,7 +122,7 @@ function AppShell() {
           ) : needsOnboarding ? (
             <OnboardingScreen onComplete={() => setNeedsOnboarding(false)} />
           ) : (
-            <TabNavigator />
+            <RootNavigator />
           )
         ) : authScreen === 'signup' ? (
           <SignupScreen
@@ -135,8 +136,8 @@ function AppShell() {
           />
         )}
         <StatusBar
-          style={mode === 'dark' ? 'light' : 'dark'}
-          backgroundColor={colors.background}
+          style={!isSignedIn ? 'dark' : mode === 'dark' ? 'light' : 'dark'}
+          backgroundColor={!isSignedIn ? lightColors.background : colors.background}
         />
       </NavigationContainer>
     </SafeAreaProvider>

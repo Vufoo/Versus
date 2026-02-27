@@ -106,7 +106,7 @@ export default function VersusScreen() {
   const navigation = useNavigation<any>();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [flow, setFlow] = useState<Flow>(null);
-  const [localIsRanked, setLocalIsRanked] = useState(true);
+  const [localIsRanked, setLocalIsRanked] = useState(false);
   const [sport, setSport] = useState<string>(SPORTS[0]);
   const closeFlow = () => setFlow(null);
 
@@ -193,31 +193,31 @@ export default function VersusScreen() {
         showsVerticalScrollIndicator={false}
       >
         <TouchableOpacity
-          style={[styles.primaryButton, styles.localButton]}
+          style={[styles.primaryButton, styles.rankedButton]}
           onPress={() => setFlow('local')}
           activeOpacity={0.85}
         >
           <View style={styles.buttonIconWrap}>
-            <Ionicons name="person-add-outline" size={28} color={colors.text} />
+            <Ionicons name="person-add-outline" size={28} color={colors.textOnPrimary} />
           </View>
-          <Text style={[styles.primaryButtonTitle, styles.casualTitle]}>
+          <Text style={styles.primaryButtonTitle}>
             New match
           </Text>
-          <Text style={[styles.primaryButtonSub, styles.casualSub]}>
+          <Text style={styles.primaryButtonSub}>
             Set up with someone in person. Choose ranked or casual, pick settings, and send an invite.
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.primaryButton, styles.rankedButton]}
+          style={[styles.primaryButton, styles.casualButton]}
           onPress={() => setFlow('ranked')}
           activeOpacity={0.85}
         >
           <View style={styles.buttonIconWrap}>
-            <Ionicons name="trophy" size={28} color={colors.textOnPrimary} />
+            <Ionicons name="trophy" size={28} color={colors.text} />
           </View>
-          <Text style={styles.primaryButtonTitle}>Find ranked match</Text>
-          <Text style={styles.primaryButtonSub}>
+          <Text style={[styles.primaryButtonTitle, styles.casualTitle]}>Find ranked match</Text>
+          <Text style={[styles.primaryButtonSub, styles.casualSub]}>
            Get matched up with an opponent. VP and rank are impacted. Put your skills to the test.
           </Text>
         </TouchableOpacity>

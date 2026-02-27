@@ -17,7 +17,7 @@ begin
   end if;
 
   if not exists (select 1 from pg_type where typname = 'match_status') then
-    create type match_status as enum ('planned', 'pending', 'confirmed', 'in_progress', 'completed', 'canceled');
+    create type match_status as enum ('planned', 'pending', 'confirmed', 'in_progress', 'paused', 'completed', 'canceled');
   end if;
 
   if not exists (select 1 from pg_type where typname = 'participant_role') then
@@ -482,12 +482,51 @@ create policy "Users can delete own notifications"
   on public.notifications for delete
   using (auth.uid() = user_id);
 
+-- Migration: add invited_opponent_id to matches (opponent only added to participants after accept)
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'matches' and column_name = 'invited_opponent_id') then
+    alter table public.matches add column invited_opponent_id uuid references auth.users (id) on delete set null;
+  end if;
+end $$;
+
+-- Migration: add ready to match_participants for ranked ready-up
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'match_participants' and column_name = 'ready') then
+    alter table public.match_participants add column ready boolean not null default false;
+  end if;
+end $$;
+
+-- RLS: allow invited opponent to update match (for accept flow)
+drop policy if exists "Creators and participants can update matches" on public.matches;
+create policy "Creators and participants can update matches"
+  on public.matches for update
+  using (
+    auth.uid() = created_by
+    or auth.uid() = invited_opponent_id
+    or exists (select 1 from public.match_participants where match_id = id and user_id = auth.uid())
+  );
+
+-- RLS: allow invited user to add themselves as participant (for accept flow)
+drop policy if exists "Auth users can add participants" on public.match_participants;
+create policy "Auth users can add participants"
+  on public.match_participants for insert
+  with check (
+    auth.uid() = user_id
+    or exists (select 1 from public.matches where id = match_id and created_by = auth.uid())
+  );
+
 -- Migration: add in_progress to match_status, add started_at/ended_at/games_played to matches
 -- Must run before match_feed view which references these columns
 do $$
 begin
   begin
     alter type match_status add value 'in_progress';
+  exception when others then null;
+  end;
+  begin
+    alter type match_status add value 'paused';
   exception when others then null;
   end;
   if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'matches' and column_name = 'started_at') then
@@ -514,6 +553,7 @@ select
   m.ended_at,
   m.match_type,
   m.status,
+  m.is_public,
   m.location_name,
   m.notes,
   m.created_by,
@@ -525,6 +565,7 @@ select
     'result', mp.result,
     'score', mp.score,
     'vp_delta', mp.vp_delta,
+    'ready', coalesce(mp.ready, false),
     'username', p.username,
     'full_name', p.full_name,
     'avatar_url', p.avatar_url
@@ -537,7 +578,6 @@ from public.matches m
 join public.sports s on s.id = m.sport_id
 left join public.match_participants mp on mp.match_id = m.id
 left join public.profiles p on p.user_id = mp.user_id
-where m.is_public = true
 group by m.id, s.name, s.slug;
 
 -- Storage bucket for avatars --------------------------------------------------

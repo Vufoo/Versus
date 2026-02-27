@@ -191,7 +191,7 @@ export default function LoginScreen({ onContinue, onGoToSignup }: Props) {
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <View style={styles.wrapper}>
-          <Image source={require('../../assets/versus-icon.png')} style={styles.logo} resizeMode="contain" />
+          <Image source={require('../../assets/versus-icon2.png')} style={styles.logo} resizeMode="contain" />
           <Text style={styles.appName}>Versus</Text>
           <Text style={styles.tagline}>Plan 1v1s. Earn VP. Prove it in the game.</Text>
 
