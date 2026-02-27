@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   View,
   Text,
@@ -14,9 +14,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius, lightColors } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
-import { supabase, setRememberMe, getRememberMePreference } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
-type Props = { onContinue: () => void; onGoToSignup: () => void };
+type Props = {
+  onBackToLogin: () => void;
+  onContinue: () => void;
+};
 
 const colors = lightColors;
 
@@ -59,7 +62,7 @@ function s(c: ThemeColors) {
     },
     inputError: { borderColor: c.error },
 
-    continueBtn: {
+    signupBtn: {
       backgroundColor: c.primary,
       paddingVertical: 14,
       borderRadius: borderRadius.md,
@@ -69,70 +72,19 @@ function s(c: ThemeColors) {
       gap: spacing.sm,
       marginTop: spacing.sm,
     },
-    continueBtnDisabled: { opacity: 0.5 },
-    continueBtnText: { ...typography.body, fontWeight: '600', color: c.textOnPrimary },
+    signupBtnDisabled: { opacity: 0.5 },
+    signupBtnText: { ...typography.body, fontWeight: '600', color: c.textOnPrimary },
 
-    dividerRow: {
+    backBtn: {
+      marginTop: spacing.lg,
+      paddingVertical: spacing.sm,
       flexDirection: 'row',
       alignItems: 'center',
-      marginVertical: spacing.md,
+      gap: spacing.xs,
     },
-    dividerLine: { flex: 1, height: 1, backgroundColor: c.border },
-    dividerText: {
-      ...typography.caption,
-      color: c.textSecondary,
-      paddingHorizontal: spacing.md,
-    },
-
-    socialBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: spacing.sm,
-      paddingVertical: 13,
-      borderRadius: borderRadius.md,
-      borderWidth: 1,
-      borderColor: c.border,
-      backgroundColor: c.background,
-      marginBottom: spacing.sm,
-    },
-    socialBtnText: { ...typography.body, fontWeight: '500', color: c.text },
-    appleBtnText: { color: '#000' },
-
-    inlineError: {
-      ...typography.caption,
-      color: c.error,
-      marginBottom: spacing.sm,
-    },
-    rememberRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-      marginBottom: spacing.sm,
-    },
-    checkbox: {
-      width: 20,
-      height: 20,
-      borderRadius: 4,
-      borderWidth: 2,
-      borderColor: c.border,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    checkboxChecked: {
-      backgroundColor: c.primary,
-      borderColor: c.primary,
-    },
-    rememberText: { ...typography.body, fontSize: 14, color: c.text },
+    backBtnText: { ...typography.body, color: c.primary, fontWeight: '500' },
 
     errorText: { ...typography.caption, color: c.error, textAlign: 'center', marginTop: spacing.sm },
-    infoText: {
-      ...typography.caption,
-      color: c.textSecondary,
-      textAlign: 'center',
-      marginBottom: spacing.md,
-      lineHeight: 18,
-    },
 
     footerText: {
       ...typography.caption,
@@ -147,18 +99,13 @@ function s(c: ThemeColors) {
 
 const styles = s(colors);
 
-export default function LoginScreen({ onContinue, onGoToSignup }: Props) {
+export default function SignupScreen({ onBackToLogin, onContinue }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [rememberMe, setRememberMeState] = useState(true);
 
-  useEffect(() => {
-    getRememberMePreference().then(setRememberMeState);
-  }, []);
-
-  const handleLogin = async () => {
+  const handleSignup = async () => {
     if (!email || !password) {
       setError('Enter your email and password.');
       return;
@@ -167,15 +114,18 @@ export default function LoginScreen({ onContinue, onGoToSignup }: Props) {
     setError(null);
 
     try {
-      await setRememberMe(rememberMe);
-      const { error: loginErr } = await supabase.auth.signInWithPassword({
+      const { data, error: signupErr } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(),
         password,
       });
-      if (loginErr) {
-        setError(loginErr.message?.includes('Invalid login') ? 'Invalid email or password. Try again.' : loginErr.message);
+      if (signupErr) throw signupErr;
+
+      const identities = data?.user?.identities ?? [];
+      if (identities.length === 0) {
+        setError('That email is already registered. Go back and log in.');
         return;
       }
+
       onContinue();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Something went wrong.');
@@ -193,7 +143,7 @@ export default function LoginScreen({ onContinue, onGoToSignup }: Props) {
         <View style={styles.wrapper}>
           <Image source={require('../../assets/versus-icon.png')} style={styles.logo} resizeMode="contain" />
           <Text style={styles.appName}>Versus</Text>
-          <Text style={styles.tagline}>Plan 1v1s. Earn VP. Prove it in the game.</Text>
+          <Text style={styles.tagline}>Create an account to get started.</Text>
 
           <View style={styles.card}>
             <TextInput
@@ -220,50 +170,23 @@ export default function LoginScreen({ onContinue, onGoToSignup }: Props) {
             />
 
             <TouchableOpacity
-              style={styles.rememberRow}
-              onPress={() => setRememberMeState((v) => !v)}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
-                {rememberMe && <Ionicons name="checkmark" size={14} color="#FFF" />}
-              </View>
-              <Text style={styles.rememberText}>Remember me</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.continueBtn, loading && styles.continueBtnDisabled]}
+              style={[styles.signupBtn, loading && styles.signupBtnDisabled]}
               activeOpacity={0.9}
-              onPress={handleLogin}
+              onPress={handleSignup}
               disabled={loading}
             >
               {loading ? (
                 <ActivityIndicator color={colors.textOnPrimary} />
               ) : (
-                <Text style={styles.continueBtnText}>Log in</Text>
+                <Text style={styles.signupBtnText}>Sign up</Text>
               )}
             </TouchableOpacity>
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-            <View style={styles.dividerRow}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            <TouchableOpacity style={styles.socialBtn} activeOpacity={0.8}>
-              <Ionicons name="logo-google" size={20} color="#DB4437" />
-              <Text style={styles.socialBtnText}>Continue with Google</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={[styles.socialBtn, { backgroundColor: '#000' }]} activeOpacity={0.8}>
-              <Ionicons name="logo-apple" size={20} color="#FFF" />
-              <Text style={[styles.socialBtnText, { color: '#FFF' }]}>Continue with Apple</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.socialBtn} activeOpacity={0.8} onPress={onGoToSignup}>
-              <Ionicons name="mail-outline" size={20} color={colors.text} />
-              <Text style={styles.socialBtnText}>Continue with email</Text>
+            <TouchableOpacity style={styles.backBtn} onPress={onBackToLogin} activeOpacity={0.8}>
+              <Ionicons name="arrow-back" size={18} color={colors.primary} />
+              <Text style={styles.backBtnText}>Back to login</Text>
             </TouchableOpacity>
           </View>
 

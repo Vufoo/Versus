@@ -596,3 +596,7 @@ begin
   end if;
 end $$;
 
+-- Grant table access to Supabase auth roles (required for RLS to work)
+-- Run this if you get "permission denied for table profiles" or similar
+grant usage on schema public to anon, authenticated;
+grant all on all tables in schema public to anon, authenticated;

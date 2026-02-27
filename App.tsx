@@ -6,6 +6,7 @@ import { View, ActivityIndicator } from 'react-native';
 import TabNavigator from './src/navigation/TabNavigator';
 import { ThemeProvider, useTheme } from './src/theme/ThemeProvider';
 import LoginScreen from './src/screens/LoginScreen';
+import SignupScreen from './src/screens/SignupScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
 import { supabase } from './src/lib/supabase';
 
@@ -15,6 +16,7 @@ function AppShell() {
   const { colors, mode, isSignedIn, setSignedIn } = useTheme();
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [authScreen, setAuthScreen] = useState<'login' | 'signup'>('login');
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -121,8 +123,16 @@ function AppShell() {
           ) : (
             <TabNavigator />
           )
+        ) : authScreen === 'signup' ? (
+          <SignupScreen
+            onBackToLogin={() => setAuthScreen('login')}
+            onContinue={() => setSignedIn(true)}
+          />
         ) : (
-          <LoginScreen onContinue={() => setSignedIn(true)} />
+          <LoginScreen
+            onContinue={() => setSignedIn(true)}
+            onGoToSignup={() => setAuthScreen('signup')}
+          />
         )}
         <StatusBar
           style={mode === 'dark' ? 'light' : 'dark'}
