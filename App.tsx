@@ -113,7 +113,31 @@ function AppShell() {
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer theme={navTheme}>
+      <NavigationContainer
+        theme={navTheme}
+        linking={{
+          prefixes: ['/'],
+          config: {
+            screens: {
+              MainTabs: {
+                path: '',
+                screens: {
+                  Home: 'home',
+                  Plan: 'plan',
+                  Versus: 'versus',
+                  Map: 'map',
+                  Profile: 'profile',
+                },
+              },
+              Messages: 'messages',
+              Settings: 'settings',
+              Search: 'search',
+              FollowList: 'follow-list',
+              UserProfile: 'user/:userId',
+            },
+          },
+        } as any}
+      >
         {isSignedIn ? (
           needsOnboarding === null ? (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>

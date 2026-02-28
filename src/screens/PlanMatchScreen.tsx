@@ -85,6 +85,31 @@ function buildMonthGrid(year: number, month: number): CalendarDay[][] {
 const WEEKDAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
+type CalendarViewMode = 'month' | 'week' | 'day';
+
+function getWeekContaining(dateId: string): CalendarDay[][] {
+  const d = new Date(dateId + 'T12:00:00');
+  const dayOfWeek = d.getDay();
+  const start = new Date(d);
+  start.setDate(d.getDate() - dayOfWeek);
+  const year = start.getFullYear();
+  const month = start.getMonth();
+  const cells: CalendarDay[] = [];
+  const todayStr = new Date().toISOString().slice(0, 10);
+  for (let i = 0; i < 7; i++) {
+    const cellDate = new Date(start);
+    cellDate.setDate(start.getDate() + i);
+    const id = cellDate.toISOString().slice(0, 10);
+    cells.push({
+      id,
+      day: cellDate.getDate(),
+      isCurrentMonth: cellDate.getMonth() === month,
+      isToday: id === todayStr,
+    });
+  }
+  return [cells];
+}
+
 function createPlanStyles(colors: ThemeColors) {
   return StyleSheet.create({
     container: {
@@ -122,7 +147,11 @@ function createPlanStyles(colors: ThemeColors) {
       justifyContent: 'space-between',
       marginBottom: spacing.sm,
     },
-    calendarExpandButton: { padding: spacing.xs },
+    expandMonthNav: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+    },
     daysRow: { gap: spacing.sm },
     dayChip: {
       width: 64,
@@ -424,11 +453,6 @@ function createPlanStyles(colors: ThemeColors) {
       marginBottom: spacing.md,
     },
     expandTitle: { ...typography.heading, color: colors.text },
-    expandMonthNav: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.md,
-    },
     expandMonthLabel: { ...typography.heading, color: colors.text, minWidth: 140, textAlign: 'center' },
     weekdayRow: {
       flexDirection: 'row',
@@ -485,6 +509,57 @@ function createPlanStyles(colors: ThemeColors) {
       marginTop: spacing.sm,
     },
     expandHintStrong: { fontWeight: '600', color: colors.text },
+    viewModeRow: {
+      flexDirection: 'row',
+      marginBottom: spacing.md,
+      borderRadius: borderRadius.md,
+      backgroundColor: colors.surface,
+      padding: spacing.xs,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    viewModeBtn: {
+      flex: 1,
+      paddingVertical: spacing.sm,
+      borderRadius: borderRadius.md,
+      alignItems: 'center',
+    },
+    viewModeBtnActive: { backgroundColor: colors.primary },
+    viewModeText: { ...typography.label, color: colors.textSecondary },
+    viewModeTextActive: { color: colors.textOnPrimary },
+    dayDetailBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.4)',
+      justifyContent: 'flex-end',
+    },
+    dayDetailCard: {
+      backgroundColor: colors.surface,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.xxl,
+      maxHeight: '70%',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    dayDetailHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: spacing.lg,
+    },
+    dayDetailTitle: { ...typography.title, color: colors.text },
+    dayDetailCreateBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      backgroundColor: colors.primary,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      borderRadius: borderRadius.md,
+    },
+    dayDetailCreateText: { ...typography.heading, color: colors.textOnPrimary },
   });
 }
 
@@ -492,13 +567,30 @@ export default function PlanMatchScreen() {
   const { colors } = useTheme();
   const navigation = useNavigation<any>();
   const styles = useMemo(() => createPlanStyles(colors), [colors]);
-  const [calendarExpanded, setCalendarExpanded] = useState(false);
-  const days = useMemo(() => buildUpcomingDays(), []);
+  const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>('month');
 
   const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
   const [calMonth, setCalMonth] = useState(today.getMonth());
   const [calYear, setCalYear] = useState(today.getFullYear());
+  const [selectedDayId, setSelectedDayId] = useState<string>(todayStr);
+  const [dayDetailVisible, setDayDetailVisible] = useState(false);
+  const [dayDetailDateId, setDayDetailDateId] = useState<string | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [matchForDateId, setMatchForDateId] = useState<string | null>(null);
+
   const monthGrid = useMemo(() => buildMonthGrid(calYear, calMonth), [calYear, calMonth]);
+  const weekGrid = useMemo(() => getWeekContaining(selectedDayId), [selectedDayId]);
+  const dayGrid = useMemo(() => {
+    const d = new Date(selectedDayId + 'T12:00:00');
+    const todayStr2 = new Date().toISOString().slice(0, 10);
+    return [[{
+      id: selectedDayId,
+      day: d.getDate(),
+      isCurrentMonth: true,
+      isToday: selectedDayId === todayStr2,
+    }]];
+  }, [selectedDayId]);
 
   const goToPrevMonth = () => {
     if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); }
@@ -508,8 +600,26 @@ export default function PlanMatchScreen() {
     if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); }
     else setCalMonth(calMonth + 1);
   };
-  const [selectedDayId, setSelectedDayId] = useState<string>(days[0]?.id ?? '');
-  const [modalVisible, setModalVisible] = useState(false);
+  const goToPrevWeek = () => {
+    const d = new Date(selectedDayId + 'T12:00:00');
+    d.setDate(d.getDate() - 7);
+    setSelectedDayId(d.toISOString().slice(0, 10));
+  };
+  const goToNextWeek = () => {
+    const d = new Date(selectedDayId + 'T12:00:00');
+    d.setDate(d.getDate() + 7);
+    setSelectedDayId(d.toISOString().slice(0, 10));
+  };
+  const goToPrevDay = () => {
+    const d = new Date(selectedDayId + 'T12:00:00');
+    d.setDate(d.getDate() - 1);
+    setSelectedDayId(d.toISOString().slice(0, 10));
+  };
+  const goToNextDay = () => {
+    const d = new Date(selectedDayId + 'T12:00:00');
+    d.setDate(d.getDate() + 1);
+    setSelectedDayId(d.toISOString().slice(0, 10));
+  };
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   type UpcomingMatch = {
@@ -523,9 +633,18 @@ export default function PlanMatchScreen() {
   const [upcomingMatches, setUpcomingMatches] = useState<UpcomingMatch[]>([]);
   const [loadingUpcoming, setLoadingUpcoming] = useState(true);
 
-  const selectedDay = days.find((d) => d.id === selectedDayId);
-  const openModal = () => setModalVisible(true);
-  const closeModal = () => setModalVisible(false);
+  const openModal = (dateId?: string) => {
+    setModalVisible(true);
+  };
+  const closeModal = () => { setModalVisible(false); setMatchForDateId(null); };
+  const openDayDetail = (dateId: string) => {
+    setDayDetailDateId(dateId);
+    setDayDetailVisible(true);
+  };
+  const closeDayDetail = () => {
+    setDayDetailVisible(false);
+    setDayDetailDateId(null);
+  };
 
   const matchDayIds = useMemo(
     () => new Set(upcomingMatches.map((m) => m.scheduled_at?.slice(0, 10)).filter(Boolean)),
@@ -568,64 +687,128 @@ export default function PlanMatchScreen() {
       </Text>
 
       <View style={styles.calendarCard}>
-        <View style={styles.calendarHeaderRow}>
-          <Text style={styles.calendarTitle}>Calendar</Text>
+        <View style={styles.viewModeRow}>
           <TouchableOpacity
-            onPress={() => setCalendarExpanded(true)}
-            style={styles.calendarExpandButton}
-            hitSlop={12}
+            style={[styles.viewModeBtn, calendarViewMode === 'month' && styles.viewModeBtnActive]}
+            onPress={() => setCalendarViewMode('month')}
+            activeOpacity={0.8}
           >
-            <Ionicons name="expand-outline" size={18} color={colors.textSecondary} />
+            <Text style={[styles.viewModeText, calendarViewMode === 'month' && styles.viewModeTextActive]}>Month</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.viewModeBtn, calendarViewMode === 'week' && styles.viewModeBtnActive]}
+            onPress={() => setCalendarViewMode('week')}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.viewModeText, calendarViewMode === 'week' && styles.viewModeTextActive]}>Week</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.viewModeBtn, calendarViewMode === 'day' && styles.viewModeBtnActive]}
+            onPress={() => setCalendarViewMode('day')}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.viewModeText, calendarViewMode === 'day' && styles.viewModeTextActive]}>Day</Text>
           </TouchableOpacity>
         </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.daysRow}
-        >
-          {days.map((day) => {
-            const isSelected = day.id === selectedDayId;
-            return (
-              <TouchableOpacity
-                key={day.id}
-                style={[styles.dayChip, isSelected && styles.dayChipSelected]}
-                onPress={() => setSelectedDayId(day.id)}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.dayWeekday,
-                    isSelected && styles.dayTextSelected,
-                  ]}
-                >
-                  {day.weekday}
-                </Text>
-                <Text
-                  style={[
-                    styles.dayLabel,
-                    isSelected && styles.dayTextSelected,
-                  ]}
-                >
-                  {day.label}
-                </Text>
-                {matchDayIds.has(day.id) && <View style={[styles.dayChipDot, isSelected && { backgroundColor: colors.textOnPrimary }]} />}
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-        {selectedDay && (
-          <Text style={styles.calendarHint}>
-            Planning for{' '}
-            <Text style={styles.calendarHintStrong}>{selectedDay.weekday}</Text>.
+
+        <View style={styles.calendarHeaderRow}>
+          <Text style={styles.calendarTitle}>
+            {calendarViewMode === 'month'
+              ? `${MONTH_NAMES[calMonth]} ${calYear}`
+              : calendarViewMode === 'week'
+                ? `Week of ${new Date(selectedDayId).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                : new Date(selectedDayId).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
           </Text>
-        )}
+          <View style={styles.expandMonthNav}>
+            {calendarViewMode === 'month' ? (
+              <>
+                <TouchableOpacity onPress={goToPrevMonth} hitSlop={12}>
+                  <Ionicons name="chevron-back" size={22} color={colors.text} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={goToNextMonth} hitSlop={12}>
+                  <Ionicons name="chevron-forward" size={22} color={colors.text} />
+                </TouchableOpacity>
+              </>
+            ) : calendarViewMode === 'week' ? (
+              <>
+                <TouchableOpacity onPress={goToPrevWeek} hitSlop={12}>
+                  <Ionicons name="chevron-back" size={22} color={colors.text} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={goToNextWeek} hitSlop={12}>
+                  <Ionicons name="chevron-forward" size={22} color={colors.text} />
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity onPress={goToPrevDay} hitSlop={12}>
+                  <Ionicons name="chevron-back" size={22} color={colors.text} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={goToNextDay} hitSlop={12}>
+                  <Ionicons name="chevron-forward" size={22} color={colors.text} />
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.weekdayRow}>
+          {WEEKDAY_HEADERS.map((wd) => (
+            <View key={wd} style={styles.weekdayCell}>
+              <Text style={styles.weekdayText}>{wd}</Text>
+            </View>
+          ))}
+        </View>
+
+        {(calendarViewMode === 'month' ? monthGrid : calendarViewMode === 'week' ? weekGrid : dayGrid).map((week, wi) => (
+          <View key={wi} style={styles.calendarWeekRow}>
+            {week.map((cell) => {
+              const isSelected = cell.id === selectedDayId;
+              return (
+                <TouchableOpacity
+                  key={cell.id}
+                  style={styles.calendarCell}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    setSelectedDayId(cell.id);
+                    openDayDetail(cell.id);
+                  }}
+                >
+                  <View
+                    style={[
+                      styles.calendarCellInner,
+                      cell.isToday && !isSelected && styles.calendarCellToday,
+                      isSelected && styles.calendarCellSelected,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.calendarDayText,
+                        !cell.isCurrentMonth && styles.calendarDayTextMuted,
+                        isSelected && styles.calendarDayTextSelected,
+                      ]}
+                    >
+                      {cell.day}
+                    </Text>
+                  </View>
+                  {matchDayIds.has(cell.id) && (
+                    <View style={[styles.dayChipDot, { marginTop: 2 }, isSelected && { backgroundColor: colors.textOnPrimary }]} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ))}
+
+        <Text style={styles.calendarHint}>
+          Tap a day to view events and create a match.
+        </Text>
       </View>
 
       <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
         <View style={styles.inlineRow}>
           <Text style={styles.nextTitle}>Upcoming matches</Text>
           <Text style={styles.nextSubtitle}>
-            {loadingUpcoming ? 'Loading...' : upcomingMatches.length === 0 ? 'No upcoming matches. Create one!' : ''}
+            {/* {loadingUpcoming ? 'Loading...' : upcomingMatches.length === 0 ? 'No upcoming matches. Create one!' : ''} */}
           </Text>
         </View>
         {upcomingMatches.map((m) => {
@@ -653,55 +836,81 @@ export default function PlanMatchScreen() {
         })}
       </ScrollView>
 
-      <TouchableOpacity style={styles.newMatchButton} onPress={openModal} activeOpacity={0.9}>
+      {/* <TouchableOpacity style={styles.newMatchButton} onPress={openModal} activeOpacity={0.9}>
         <Ionicons name="add-circle" size={28} color={colors.textOnPrimary} />
         <Text style={styles.newMatchText}>New match</Text>
-      </TouchableOpacity>
+      </TouchableOpacity> */}
 
       <NewMatchModal
         visible={modalVisible}
         onClose={closeModal}
         onCreated={() => { loadUpcoming(); navigation.navigate('Home'); }}
         colors={colors}
-        initialDate={selectedDayId}
+        initialDate={matchForDateId ?? dayDetailDateId ?? selectedDayId}
       />
 
-      <Modal visible={calendarExpanded} transparent animationType="fade">
-        <Pressable style={styles.expandBackdrop} onPress={() => setCalendarExpanded(false)}>
+      <Modal visible={dayDetailVisible} transparent animationType="slide">
+        <Pressable style={styles.dayDetailBackdrop} onPress={closeDayDetail}>
           <View
-            style={styles.expandCard}
+            style={styles.dayDetailCard}
             onStartShouldSetResponder={() => true}
           >
-            <View style={styles.expandHeader}>
-              <Text style={styles.expandTitle}>Pick a day</Text>
-              <TouchableOpacity
-                onPress={() => setCalendarExpanded(false)}
-                hitSlop={12}
-              >
-                <Ionicons name="close" size={22} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.expandMonthNav}>
-              <TouchableOpacity onPress={goToPrevMonth} hitSlop={12}>
-                <Ionicons name="chevron-back" size={22} color={colors.text} />
-              </TouchableOpacity>
-              <Text style={styles.expandMonthLabel}>
-                {MONTH_NAMES[calMonth]} {calYear}
+            <View style={styles.dayDetailHeader}>
+              <Text style={styles.dayDetailTitle}>
+                {dayDetailDateId
+                  ? new Date(dayDetailDateId + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+                  : 'Day'}
               </Text>
-              <TouchableOpacity onPress={goToNextMonth} hitSlop={12}>
-                <Ionicons name="chevron-forward" size={22} color={colors.text} />
+              <TouchableOpacity onPress={closeDayDetail} hitSlop={12}>
+                <Ionicons name="close" size={24} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
-
-            <View style={styles.weekdayRow}>
-              {WEEKDAY_HEADERS.map((wd) => (
-                <View key={wd} style={styles.weekdayCell}>
-                  <Text style={styles.weekdayText}>{wd}</Text>
-                </View>
-              ))}
-            </View>
-
-            {monthGrid.map((week, wi) => (
+            <TouchableOpacity
+              style={styles.dayDetailCreateBtn}
+              onPress={() => {
+                setMatchForDateId(dayDetailDateId);
+                closeDayDetail();
+                setModalVisible(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add-circle" size={24} color={colors.textOnPrimary} />
+              <Text style={styles.dayDetailCreateText}>Create match</Text>
+            </TouchableOpacity>
+            <Text style={[styles.nextSubtitle, { marginTop: spacing.md, marginBottom: spacing.sm }]}>Events this day</Text>
+            <ScrollView style={{ maxHeight: 200 }} showsVerticalScrollIndicator={false}>
+              {dayDetailDateId &&
+                upcomingMatches
+                  .filter((m) => m.scheduled_at?.slice(0, 10) === dayDetailDateId)
+                  .map((m) => {
+                    const d = m.scheduled_at ? new Date(m.scheduled_at) : null;
+                    const timeStr = d ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+                    const opponent = (m.participants ?? []).find((p: any) => p.user_id !== currentUserId);
+                    const statusColor = m.status === 'confirmed' ? colors.success : m.status === 'pending' ? colors.warning : colors.textSecondary;
+                    return (
+                      <View key={m.id} style={styles.upcomingCard}>
+                        <View style={[styles.upcomingDot, { backgroundColor: statusColor }]} />
+                        <View style={styles.upcomingInfo}>
+                          <Text style={styles.upcomingTitle}>
+                            {sportLabel(m.sport_name)} vs {opponent?.full_name ?? opponent?.username ?? 'TBD'}
+                          </Text>
+                          <Text style={styles.upcomingSub}>
+                            {timeStr}{m.location_name ? ` · ${m.location_name}` : ''}
+                          </Text>
+                        </View>
+                        <Text style={[styles.upcomingStatus, { backgroundColor: `${statusColor}18`, color: statusColor }]}>
+                          {m.status}
+                        </Text>
+                      </View>
+                    );
+                  })}
+              {dayDetailDateId &&
+                upcomingMatches.filter((m) => m.scheduled_at?.slice(0, 10) === dayDetailDateId).length === 0 && (
+                  <Text style={styles.nextSubtitle}>No events scheduled.</Text>
+                )}
+            </ScrollView>
+            {/* Removed old calendar grid - day detail only */}
+            {false && monthGrid.map((week, wi) => (
               <View key={wi} style={styles.calendarWeekRow}>
                 {week.map((cell) => {
                   const isSelected = cell.id === selectedDayId;
@@ -712,7 +921,7 @@ export default function PlanMatchScreen() {
                       activeOpacity={0.7}
                       onPress={() => {
                         setSelectedDayId(cell.id);
-                        setCalendarExpanded(false);
+                        closeDayDetail();
                       }}
                     >
                       <View
@@ -740,10 +949,10 @@ export default function PlanMatchScreen() {
                 })}
               </View>
             ))}
-            {selectedDay && (
+            {false && (
               <Text style={styles.expandHint}>
                 You’re planning for{' '}
-                <Text style={styles.expandHintStrong}>{selectedDay.weekday}</Text>. Tap "New match" to
+                <Text style={styles.expandHintStrong}>{new Date(selectedDayId + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}</Text>. Tap "New match" to
                 schedule.
               </Text>
             )}

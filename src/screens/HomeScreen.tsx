@@ -17,7 +17,8 @@ import {
   Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useIsFocused, useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import type { TabParamList } from '../navigation/TabNavigator';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
@@ -28,6 +29,7 @@ import { resolveAvatarUrl, resolveMatchImageUrl } from '../lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
 import UserSearch from '../components/UserSearch';
 import type { SearchedUser } from '../components/UserSearch';
+import EditMatchModal from '../components/EditMatchModal';
 
 type FeedMode = 'public' | 'my';
 
@@ -214,6 +216,7 @@ function FeedCard({
   colors,
   onRefresh,
   onInviteOpponent,
+  onEditMatch,
 }: {
   item: FeedMatch;
   currentUserId: string | null;
@@ -221,6 +224,7 @@ function FeedCard({
   colors: ThemeColors;
   onRefresh: () => void;
   onInviteOpponent?: (match: FeedMatch) => void;
+  onEditMatch?: (match: FeedMatch) => void;
 }) {
   const challenger = (item.participants ?? []).find((p) => p.role === 'challenger');
   const opponent = (item.participants ?? []).find((p) => p.role === 'opponent');
@@ -578,9 +582,20 @@ function FeedCard({
             {durationMs > 0 && <Text style={styles.timestampText}>Duration: {formatDuration(durationMs)}</Text>}
           </View>
         </View>
-        <View style={styles.sportBadge}>
-          <Text style={styles.sportEmoji}>{SPORT_EMOJI[item.sport_name] ?? '🏆'}</Text>
-          <Text style={styles.sportName}>{item.sport_name}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <View style={styles.sportBadge}>
+            <Text style={styles.sportEmoji}>{SPORT_EMOJI[item.sport_name] ?? '🏆'}</Text>
+            <Text style={styles.sportName}>{item.sport_name}</Text>
+          </View>
+          {isParticipant && onEditMatch && (
+            <TouchableOpacity
+              style={{ padding: spacing.xs }}
+              onPress={() => onEditMatch(item)}
+              hitSlop={8}
+            >
+              <Ionicons name="pencil" size={18} color={colors.textSecondary} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -1589,11 +1604,12 @@ export default function HomeScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
+  const route = useRoute<RouteProp<TabParamList, 'Home'>>();
   const styles = useMemo(() => createHomeStyles(colors), [colors]);
   const [feedMode, setFeedMode] = useState<FeedMode>('my');
-  const [searchVisible, setSearchVisible] = useState(false);
   const [notifsVisible, setNotifsVisible] = useState(false);
   const navigation = useNavigation<any>();
+  const feedListRef = useRef<FlatList>(null);
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [feedItems, setFeedItems] = useState<FeedMatch[]>([]);
@@ -1601,9 +1617,9 @@ export default function HomeScreen() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  const [followStates, setFollowStates] = useState<Record<string, 'none' | 'pending' | 'accepted'>>({});
-  const [togglingFollow, setTogglingFollow] = useState<string | null>(null);
   const [inviteOpponentMatch, setInviteOpponentMatch] = useState<FeedMatch | null>(null);
+  const [editMatch, setEditMatch] = useState<FeedMatch | null>(null);
+  const [followStates, setFollowStates] = useState<Record<string, 'none' | 'pending' | 'accepted'>>({});
 
   useEffect(() => {
     (async () => {
@@ -1616,37 +1632,11 @@ export default function HomeScreen() {
         .eq('follower_id', user.id);
       if (fRows) {
         const map: Record<string, 'pending' | 'accepted'> = {};
-        for (const r of fRows as any[]) map[r.followed_id] = r.status;
+        for (const r of fRows as { followed_id: string; status: string }[]) map[r.followed_id] = r.status as 'pending' | 'accepted';
         setFollowStates(map);
       }
     })();
   }, []);
-
-  const sendFollowRequest = async (targetUserId: string) => {
-    if (!currentUserId || togglingFollow) return;
-    setTogglingFollow(targetUserId);
-    try {
-      const current = followStates[targetUserId];
-      if (current === 'pending' || current === 'accepted') {
-        await supabase.from('follows').delete().eq('follower_id', currentUserId).eq('followed_id', targetUserId);
-        setFollowStates((prev) => { const next = { ...prev }; delete next[targetUserId]; return next; });
-      } else {
-        await supabase.from('follows').insert({ follower_id: currentUserId, followed_id: targetUserId, status: 'pending' });
-        setFollowStates((prev) => ({ ...prev, [targetUserId]: 'pending' }));
-
-        const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
-        const displayName = myProfile?.full_name ?? myProfile?.username ?? 'Someone';
-        await supabase.from('notifications').insert({
-          user_id: targetUserId,
-          type: 'follow_request',
-          title: `${displayName} wants to follow you`,
-          body: 'Accept or ignore this follow request.',
-          data: { from_user_id: currentUserId },
-        });
-      }
-    } catch { /* swallow */ }
-    finally { setTogglingFollow(null); }
-  };
 
   const handleAcceptFollow = async (notif: NotificationItem) => {
     const fromUserId = notif.data?.from_user_id;
@@ -1673,6 +1663,25 @@ export default function HomeScreen() {
     try {
       await supabase.from('follows').delete().eq('follower_id', fromUserId).eq('followed_id', currentUserId);
       await supabase.from('notifications').update({ read: true }).eq('id', notif.id);
+      loadNotifications();
+    } catch { /* swallow */ }
+  };
+
+  const handleFollowBack = async (notif: NotificationItem) => {
+    const fromUserId = notif.data?.from_user_id;
+    if (!fromUserId || !currentUserId) return;
+    try {
+      await supabase.from('follows').insert({ follower_id: currentUserId, followed_id: fromUserId, status: 'pending' });
+      setFollowStates((prev) => ({ ...prev, [fromUserId]: 'pending' }));
+      const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
+      const displayName = (myProfile as { full_name?: string; username?: string })?.full_name ?? (myProfile as { full_name?: string; username?: string })?.username ?? 'Someone';
+      await supabase.from('notifications').insert({
+        user_id: fromUserId,
+        type: 'follow_request',
+        title: `${displayName} wants to follow you`,
+        body: 'Accept or ignore this follow request.',
+        data: { from_user_id: currentUserId },
+      });
       loadNotifications();
     } catch { /* swallow */ }
   };
@@ -1758,6 +1767,17 @@ export default function HomeScreen() {
     [feedItems],
   );
   const displayedItems = feedMode === 'my' ? myFeed : publicFeed;
+
+  useEffect(() => {
+    const matchId = route.params?.scrollToMatchId;
+    if (!matchId) return;
+    setFeedMode('my');
+    const idx = myFeed.findIndex((i) => i.id === matchId);
+    if (idx >= 0) {
+      setTimeout(() => feedListRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.3 }), 400);
+    }
+    navigation.setParams({ scrollToMatchId: undefined } as any);
+  }, [route.params?.scrollToMatchId, myFeed]);
 
   const inviteExcludeIds = useMemo(() => {
     if (!inviteOpponentMatch) return undefined;
@@ -1916,7 +1936,7 @@ export default function HomeScreen() {
         <TouchableOpacity
           style={styles.topBarIcon}
           activeOpacity={0.8}
-          onPress={() => setSearchVisible(true)}
+          onPress={() => navigation.navigate('Search')}
         >
           <Ionicons name="search" size={20} color={colors.text} />
         </TouchableOpacity>
@@ -1975,9 +1995,9 @@ export default function HomeScreen() {
           </Text>
         </TouchableOpacity>
       </View>
-      {feedMode === 'public' && (
+      {/* {feedMode === 'public' && (
         <Text style={styles.switcherHint}>All confirmed & completed matches</Text>
-      )}
+      )} */}
 
       {/* ---- Feed ---- */}
       {loadingFeed ? (
@@ -1986,8 +2006,12 @@ export default function HomeScreen() {
         </View>
       ) : (
         <FlatList
+          ref={feedListRef}
           data={displayedItems}
           keyExtractor={(item) => `${item.id}-${item.status}-${(item.participants ?? []).length}-${(item.participants ?? []).map((p: Participant) => p?.ready).join(',')}`}
+          onScrollToIndexFailed={(info) => {
+            setTimeout(() => feedListRef.current?.scrollToIndex({ index: info.index, animated: true }), 100);
+          }}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           onRefresh={() => { loadFeed(); loadNotifications(); }}
@@ -2007,10 +2031,30 @@ export default function HomeScreen() {
               colors={colors}
               onRefresh={loadFeed}
               onInviteOpponent={setInviteOpponentMatch}
+              onEditMatch={setEditMatch}
             />
           )}
         />
       )}
+
+      {/* ---- Edit match modal ---- */}
+      <EditMatchModal
+        visible={!!editMatch}
+        onClose={() => setEditMatch(null)}
+        onSaved={() => { loadFeed(); setEditMatch(null); }}
+        colors={colors}
+        match={editMatch ? {
+          id: editMatch.id,
+          sport_name: editMatch.sport_name,
+          match_type: editMatch.match_type ?? 'casual',
+          status: editMatch.status,
+          location_name: editMatch.location_name ?? null,
+          notes: editMatch.notes ?? null,
+          is_public: editMatch.is_public,
+          match_format: editMatch.match_format ?? '1v1',
+          scheduled_at: editMatch.scheduled_at ?? null,
+        } : null}
+      />
 
       {/* ---- Invite opponent modal ---- */}
       <Modal visible={!!inviteOpponentMatch} transparent animationType="fade">
@@ -2033,47 +2077,6 @@ export default function HomeScreen() {
             />
           </View>
         </View>
-      </Modal>
-
-      {/* ---- Search modal ---- */}
-      <Modal visible={searchVisible} transparent animationType="fade">
-        <Pressable style={styles.modalBackdrop} onPress={() => setSearchVisible(false)}>
-          <View style={styles.modalCard} onStartShouldSetResponder={() => true}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Find people</Text>
-              <TouchableOpacity onPress={() => setSearchVisible(false)} hitSlop={12}>
-                <Ionicons name="close" size={24} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-            <UserSearch
-              colors={colors}
-              excludeUserId={currentUserId ?? undefined}
-              placeholder="Search by username or name..."
-              onSelect={() => {}}
-              renderAction={(user) => {
-                const state = followStates[user.user_id] ?? 'none';
-                const label = state === 'accepted' ? 'Following' : state === 'pending' ? 'Requested' : 'Follow';
-                const isMuted = state !== 'none';
-                return (
-                  <TouchableOpacity
-                    style={[styles.addBtn, isMuted && { backgroundColor: colors.border }]}
-                    activeOpacity={0.8}
-                    onPress={() => sendFollowRequest(user.user_id)}
-                    disabled={togglingFollow === user.user_id}
-                  >
-                    {togglingFollow === user.user_id ? (
-                      <ActivityIndicator size="small" color={isMuted ? colors.text : colors.textOnPrimary} />
-                    ) : (
-                      <Text style={[styles.addBtnText, isMuted && { color: colors.text }]}>
-                        {label}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                );
-              }}
-            />
-          </View>
-        </Pressable>
       </Modal>
 
       {/* ---- Notifications modal ---- */}
@@ -2160,6 +2163,17 @@ export default function HomeScreen() {
                           >
                             <Ionicons name="close" size={16} color={colors.error} />
                             <Text style={styles.notifDeclineText}>Ignore</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      {n.type === 'follow_request' && n.read && n.data?.from_user_id && !followStates[n.data.from_user_id] && (
+                        <View style={[styles.notifActions, { marginTop: spacing.xs }]}>
+                          <TouchableOpacity
+                            style={styles.notifAccept}
+                            activeOpacity={0.8}
+                            onPress={() => handleFollowBack(n)}
+                          >
+                            <Text style={styles.notifAcceptText}>Follow back</Text>
                           </TouchableOpacity>
                         </View>
                       )}

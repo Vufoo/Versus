@@ -10,7 +10,7 @@ import MapScreen from '../screens/MapScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 
 export type TabParamList = {
-  Home: undefined;
+  Home: { scrollToMatchId?: string } | undefined;
   Plan: undefined;
   Versus: undefined;
   Map: undefined;

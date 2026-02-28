@@ -141,19 +141,42 @@ function createStyles(colors: ThemeColors) {
     tabText: { ...typography.label, color: colors.textSecondary },
     tabTextActive: { color: colors.textOnPrimary },
 
-    /* ---- VP swiper ---- */
-    vpSwiper: { marginBottom: spacing.lg },
-    vpPage: { width: SCREEN_W - spacing.lg * 2, paddingHorizontal: spacing.lg },
-    vpPageInner: {
-      backgroundColor: colors.primary,
-      borderRadius: borderRadius.lg,
-      padding: spacing.lg,
-      alignItems: 'center',
+    /* ---- Ranks overview grid ---- */
+    ranksSection: {
+      marginHorizontal: spacing.lg,
+      marginBottom: spacing.lg,
     },
-    vpEmoji: { fontSize: 32, marginBottom: spacing.xs },
-    vpSportName: { ...typography.label, color: colors.textOnPrimary, opacity: 0.9, marginBottom: spacing.xs },
-    vpValue: { fontSize: 36, fontWeight: '700', color: colors.textOnPrimary },
-    vpLabel: { ...typography.caption, color: colors.textOnPrimary, opacity: 0.8, marginTop: spacing.xs },
+    ranksSectionTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.md },
+    ranksGrid: {
+      flexDirection: 'row',
+      gap: spacing.md,
+      justifyContent: 'center',
+    },
+    rankCard: {
+      flex: 1,
+      minWidth: 0,
+      backgroundColor: colors.surface,
+      borderRadius: borderRadius.lg,
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: 120,
+    },
+    rankCardEmoji: { fontSize: 28, marginBottom: spacing.xs },
+    rankCardSport: { ...typography.label, color: colors.text, marginBottom: spacing.xs, textAlign: 'center' },
+    rankCardTier: { ...typography.caption, color: colors.primary, fontWeight: '600', marginBottom: spacing.xs },
+    rankCardVp: { ...typography.heading, fontSize: 22, color: colors.text },
+    rankCardVpLabel: { ...typography.caption, color: colors.textSecondary, fontSize: 11 },
+    rankCardStats: {
+      flexDirection: 'row',
+      marginTop: spacing.xs,
+      gap: spacing.sm,
+    },
+    rankCardStat: { alignItems: 'center' },
+    rankCardStatValue: { ...typography.label, fontSize: 14, color: colors.text },
+    rankCardStatLabel: { ...typography.caption, fontSize: 10, color: colors.textSecondary },
     dotsRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.xs, marginTop: spacing.sm },
     dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.border },
     dotActive: { backgroundColor: colors.primary },
@@ -426,6 +449,30 @@ export default function ProfileScreen() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    if (!currentUserId) return;
+    const refreshCounts = async () => {
+      const { count: fing } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', currentUserId);
+      const { count: fers } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('followed_id', currentUserId);
+      setFollowingCount(fing ?? 0);
+      setFollowerCount(fers ?? 0);
+    };
+    const channel = supabase
+      .channel(`profile-follows-${currentUserId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'follows', filter: `follower_id=eq.${currentUserId}` },
+        refreshCounts,
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'follows', filter: `followed_id=eq.${currentUserId}` },
+        refreshCounts,
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [currentUserId]);
+
   const initials = (profile?.full_name ?? profile?.username ?? 'U')
     .split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2);
 
@@ -441,6 +488,19 @@ export default function ProfileScreen() {
       return { sport: s, rank_tier: r?.rank_tier ?? null, rank_div: r?.rank_div ?? null, vp: r?.vp ?? 0, wins: r?.wins ?? 0, losses: r?.losses ?? 0 };
     });
   }, [sportRatings]);
+
+  const top3Rankings = useMemo(() => {
+    const withStats = rankingsData.filter((r) => r.vp > 0 || r.rank_tier);
+    if (withStats.length > 0) {
+      return [...withStats].sort((a, b) => b.vp - a.vp).slice(0, 3);
+    }
+    const preferred = profile?.preferred_sports ?? [];
+    const sportsToShow = preferred.length >= 3 ? preferred.slice(0, 3) : SPORTS.slice(0, 3);
+    return sportsToShow.map((s) => {
+      const r = rankingsData.find((rd) => rd.sport === s);
+      return r ?? { sport: s, rank_tier: null, rank_div: null, vp: 0, wins: 0, losses: 0 };
+    });
+  }, [rankingsData, profile?.preferred_sports]);
 
   const shareProfile = async () => {
     const name = profile?.full_name || profile?.username || 'a Versus player';
@@ -521,14 +581,22 @@ export default function ProfileScreen() {
                   <Text style={styles.socialValue}>{profile?.vp_total ?? 0}</Text>
                   <Text style={styles.socialLabel}>Total VP</Text>
                 </View>
-                <View style={styles.socialItem}>
+                <TouchableOpacity
+                  style={styles.socialItem}
+                  onPress={() => currentUserId && navigation.navigate('FollowList', { userId: currentUserId, initialTab: 'following' })}
+                  activeOpacity={0.8}
+                >
                   <Text style={styles.socialValue}>{followingCount}</Text>
                   <Text style={styles.socialLabel}>Following</Text>
-                </View>
-                <View style={styles.socialItem}>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.socialItem}
+                  onPress={() => currentUserId && navigation.navigate('FollowList', { userId: currentUserId, initialTab: 'followers' })}
+                  activeOpacity={0.8}
+                >
                   <Text style={styles.socialValue}>{followerCount}</Text>
                   <Text style={styles.socialLabel}>Followers</Text>
-                </View>
+                </TouchableOpacity>
               </View>
             </>
           )}
@@ -547,31 +615,29 @@ export default function ProfileScreen() {
         {/* Overview */}
         {tab === 'overview' && (
           <>
-            <View style={styles.vpSwiper}>
-              <ScrollView
-                horizontal
-                pagingEnabled
-                showsHorizontalScrollIndicator={false}
-                onScroll={(e) => setVpIdx(Math.round(e.nativeEvent.contentOffset.x / (SCREEN_W - spacing.lg * 2)))}
-                scrollEventThrottle={16}
-                snapToInterval={SCREEN_W - spacing.lg * 2}
-                decelerationRate="fast"
-                nestedScrollEnabled
-              >
-                {perSportVp.map((item) => (
-                  <View key={item.sport} style={styles.vpPage}>
-                    <View style={styles.vpPageInner}>
-                      <Text style={styles.vpEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
-                      <Text style={styles.vpSportName}>{item.sport}</Text>
-                      <Text style={styles.vpValue}>{item.vp}</Text>
-                      <Text style={styles.vpLabel}>Victory Points</Text>
+            <View style={styles.ranksSection}>
+              <Text style={styles.ranksSectionTitle}>Top 3 ranks</Text>
+              <View style={styles.ranksGrid}>
+                {top3Rankings.map((item) => (
+                  <View key={item.sport} style={styles.rankCard}>
+                    <Text style={styles.rankCardEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
+                    <Text style={styles.rankCardSport} numberOfLines={1}>{item.sport}</Text>
+                    <Text style={styles.rankCardTier}>
+                      {item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}
+                    </Text>
+                    <Text style={styles.rankCardVp}>{item.vp}</Text>
+                    <Text style={styles.rankCardVpLabel}>VP</Text>
+                    <View style={styles.rankCardStats}>
+                      <View style={styles.rankCardStat}>
+                        <Text style={styles.rankCardStatValue}>{item.wins}</Text>
+                        <Text style={styles.rankCardStatLabel}>W</Text>
+                      </View>
+                      <View style={styles.rankCardStat}>
+                        <Text style={styles.rankCardStatValue}>{item.losses}</Text>
+                        <Text style={styles.rankCardStatLabel}>L</Text>
+                      </View>
                     </View>
                   </View>
-                ))}
-              </ScrollView>
-              <View style={styles.dotsRow}>
-                {perSportVp.map((item, i) => (
-                  <View key={item.sport} style={[styles.dot, i === vpIdx && styles.dotActive]} />
                 ))}
               </View>
             </View>
@@ -636,7 +702,12 @@ export default function ProfileScreen() {
                   const locationStr = m.location_name?.trim() || null;
                   const resultColor = result === 'Win' ? colors.primary : result === 'Loss' ? colors.error : colors.textSecondary;
                   return (
-                    <View key={m.id} style={[styles.matchHistoryItem, idx === matchHistory.length - 1 && styles.matchHistoryItemLast]}>
+                    <TouchableOpacity
+                      key={m.id}
+                      style={[styles.matchHistoryItem, idx === matchHistory.length - 1 && styles.matchHistoryItemLast]}
+                      onPress={() => navigation.navigate('Home', { scrollToMatchId: m.id })}
+                      activeOpacity={0.8}
+                    >
                       <View style={styles.matchHistoryRow}>
                         <View style={styles.matchHistoryLeft}>
                           <Text style={styles.matchHistorySport}>{SPORT_EMOJI[m.sport_name] ?? '🏆'} {m.sport_name}</Text>
@@ -649,7 +720,7 @@ export default function ProfileScreen() {
                         </View>
                         <Text style={[styles.matchHistoryResult, { color: resultColor }]}>{result}</Text>
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   );
                 })
               )}
