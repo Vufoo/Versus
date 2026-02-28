@@ -11,10 +11,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, typography } from '../constants/theme';
+import { spacing, typography, borderRadius } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ThemeColors } from '../constants/theme';
 import { supabase } from '../lib/supabase';
+import { useMembership } from '../hooks/useMembership';
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
@@ -75,6 +76,36 @@ function createStyles(colors: ThemeColors) {
       marginHorizontal: spacing.lg,
     },
     signOutText: { ...typography.body, fontWeight: '600' as const, color: colors.error },
+    membershipCard: {
+      marginHorizontal: spacing.lg,
+      marginBottom: spacing.lg,
+      padding: spacing.lg,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      backgroundColor: colors.surface,
+    },
+    membershipTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.xs },
+    membershipSub: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md },
+    membershipBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+      paddingVertical: spacing.md,
+      borderRadius: borderRadius.md,
+      backgroundColor: colors.primary,
+    },
+    membershipBtnText: { ...typography.label, color: colors.textOnPrimary },
+    membershipBadge: {
+      alignSelf: 'flex-start',
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      borderRadius: borderRadius.sm,
+      backgroundColor: colors.primary,
+      marginBottom: spacing.sm,
+    },
+    membershipBadgeText: { ...typography.caption, color: colors.textOnPrimary, fontWeight: '600' },
   });
 }
 
@@ -82,21 +113,36 @@ export default function SettingsScreen() {
   const { colors, mode, setMode, setSignedIn } = useTheme();
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const { hasMembership, isAdmin } = useMembership();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [emailNotifs, setEmailNotifs] = useState(true);
   const [pushNotifs, setPushNotifs] = useState(true);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [profile, setProfile] = useState<{ username: string | null } | null>(null);
+  const [locationVisibility, setLocationVisibility] = useState<'public' | 'private'>('private');
 
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setUserEmail(user.email ?? null);
-      const { data: p } = await supabase.from('profiles').select('username').eq('user_id', user.id).maybeSingle();
+      const { data: p } = await supabase.from('profiles').select('username, location_visibility').eq('user_id', user.id).maybeSingle();
       setProfile(p ? { username: p.username } : null);
+      setLocationVisibility((p as { location_visibility?: string })?.location_visibility === 'public' ? 'public' : 'private');
     })();
   }, []);
+
+  const updateLocationVisibility = async (value: 'public' | 'private') => {
+    setLocationVisibility(value);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const update: { location_visibility: string; last_lat?: null; last_lng?: null } = { location_visibility: value };
+    if (value === 'private') {
+      update.last_lat = null;
+      update.last_lng = null;
+    }
+    await supabase.from('profiles').update(update).eq('user_id', user.id);
+  };
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -115,6 +161,35 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+        <View style={styles.settingSection}>
+          <Text style={styles.settingSectionTitle}>Membership</Text>
+          <View style={styles.membershipCard}>
+            {(hasMembership || isAdmin) && (
+              <View style={styles.membershipBadge}>
+                <Text style={styles.membershipBadgeText}>{isAdmin ? 'Admin' : 'Member'}</Text>
+              </View>
+            )}
+            <Text style={styles.membershipTitle}>
+              {hasMembership ? 'You have Versus membership' : 'Get Versus membership'}
+            </Text>
+            <Text style={styles.membershipSub}>
+              {hasMembership
+                ? 'Unlock Find ranked match and Find casual match. Enjoy full access to all features.'
+                : 'Upgrade to unlock Find ranked match and Find casual match. Get matched with opponents and practice partners.'}
+            </Text>
+            {!hasMembership && (
+              <TouchableOpacity
+                style={styles.membershipBtn}
+                onPress={() => Alert.alert('Coming soon', 'Membership subscriptions will be available soon. Stay tuned!')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="diamond-outline" size={20} color={colors.textOnPrimary} />
+                <Text style={styles.membershipBtnText}>Get membership</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
         <View style={styles.settingSection}>
           <Text style={styles.settingSectionTitle}>Account</Text>
           <View style={styles.settingRow}>
@@ -191,6 +266,35 @@ export default function SettingsScreen() {
 
         <View style={styles.settingSection}>
           <Text style={styles.settingSectionTitle}>Privacy & Security</Text>
+          <View style={styles.settingRow}>
+            <View style={styles.settingRowLeft}>
+              <Ionicons name="location-outline" size={20} color={colors.textSecondary} />
+              <View>
+                <Text style={styles.settingLabel}>Location on map</Text>
+                <Text style={styles.settingValue}>
+                  {locationVisibility === 'public' ? 'Public — others can see you nearby' : 'Private — only you see your location'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.themeChips}>
+              <TouchableOpacity
+                style={[styles.themeChip, locationVisibility === 'private' && styles.themeChipSelected]}
+                activeOpacity={0.8}
+                onPress={() => updateLocationVisibility('private')}
+              >
+                <Ionicons name="lock-closed-outline" size={14} color={locationVisibility === 'private' ? colors.textOnPrimary : colors.textSecondary} />
+                <Text style={[styles.themeChipText, locationVisibility === 'private' && styles.themeChipTextSelected]}>Private</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.themeChip, locationVisibility === 'public' && styles.themeChipSelected]}
+                activeOpacity={0.8}
+                onPress={() => updateLocationVisibility('public')}
+              >
+                <Ionicons name="globe-outline" size={14} color={locationVisibility === 'public' ? colors.textOnPrimary : colors.textSecondary} />
+                <Text style={[styles.themeChipText, locationVisibility === 'public' && styles.themeChipTextSelected]}>Public</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
           <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Coming soon', 'Blocked users will be available in a future update.')} activeOpacity={0.7}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="ban-outline" size={20} color={colors.textSecondary} />

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { spacing, typography, borderRadius } from '../constants/theme';
@@ -7,6 +7,7 @@ import type { ThemeColors } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
 import { supabase } from '../lib/supabase';
 import NewMatchModal from '../components/NewMatchModal';
+import { useMembership } from '../hooks/useMembership';
 
 import { SPORTS, sportLabel } from '../constants/sports';
 
@@ -98,12 +99,30 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.surface,
       borderColor: colors.border,
     },
+    lockedButton: {
+      opacity: 0.7,
+      position: 'relative',
+    },
+    lockedBadge: {
+      position: 'absolute',
+      top: spacing.sm,
+      right: spacing.sm,
+      backgroundColor: colors.textSecondary,
+      borderRadius: borderRadius.sm,
+      paddingHorizontal: spacing.xs,
+      paddingVertical: 2,
+    },
+    lockedBadgeText: { ...typography.caption, color: colors.background, fontSize: 10, fontWeight: '600' },
   });
 }
+
+const MEMBERSHIP_LOCK_MESSAGE =
+  'Find ranked match and Find casual match are only available in the membership version of Versus. Upgrade in Settings to unlock.';
 
 export default function VersusScreen() {
   const { colors } = useTheme();
   const navigation = useNavigation<any>();
+  const { hasMembership } = useMembership();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [flow, setFlow] = useState<Flow>(null);
   const [localIsRanked, setLocalIsRanked] = useState(false);
@@ -209,10 +228,24 @@ export default function VersusScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.primaryButton, styles.casualButton]}
-          onPress={() => setFlow('ranked')}
+          style={[styles.primaryButton, styles.casualButton, !hasMembership && styles.lockedButton]}
+          onPress={() => {
+            if (!hasMembership) {
+              Alert.alert('Membership required', MEMBERSHIP_LOCK_MESSAGE, [
+                { text: 'OK' },
+                { text: 'Settings', onPress: () => navigation.navigate('Settings') },
+              ]);
+              return;
+            }
+            setFlow('ranked');
+          }}
           activeOpacity={0.85}
         >
+          {!hasMembership && (
+            <View style={styles.lockedBadge}>
+              <Text style={styles.lockedBadgeText}>Membership</Text>
+            </View>
+          )}
           <View style={styles.buttonIconWrap}>
             <Ionicons name="trophy" size={28} color={colors.text} />
           </View>
@@ -223,10 +256,24 @@ export default function VersusScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.primaryButton, styles.casualButton]}
-          onPress={() => setFlow('casual')}
+          style={[styles.primaryButton, styles.casualButton, !hasMembership && styles.lockedButton]}
+          onPress={() => {
+            if (!hasMembership) {
+              Alert.alert('Membership required', MEMBERSHIP_LOCK_MESSAGE, [
+                { text: 'OK' },
+                { text: 'Settings', onPress: () => navigation.navigate('Settings') },
+              ]);
+              return;
+            }
+            setFlow('casual');
+          }}
           activeOpacity={0.85}
         >
+          {!hasMembership && (
+            <View style={styles.lockedBadge}>
+              <Text style={styles.lockedBadgeText}>Membership</Text>
+            </View>
+          )}
           <View style={styles.buttonIconWrap}>
             <Ionicons name="happy-outline" size={28} color={colors.text} />
           </View>

@@ -52,11 +52,21 @@ create table if not exists public.profiles (
 
   theme          theme_preference not null default 'system',
 
+  is_admin       boolean not null default false,
+  membership_status text not null default 'free',
+  location_visibility text not null default 'private',
+
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now()
 );
 
 create index if not exists profiles_username_idx on public.profiles (username);
+
+-- Add membership/admin columns if table already existed (safe to re-run)
+alter table public.profiles
+  add column if not exists is_admin boolean not null default false,
+  add column if not exists membership_status text not null default 'free',
+  add column if not exists location_visibility text not null default 'private';
 
 -- RLS for profiles -----------------------------------------------------------
 alter table public.profiles enable row level security;
@@ -76,6 +86,25 @@ create policy "Users can update their own profile"
   on public.profiles for update
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+-- Prevent users from setting is_admin on themselves (only service role / dashboard can)
+create or replace function public.prevent_self_admin()
+returns trigger language plpgsql security definer set search_path = ''
+as $$
+begin
+  if new.is_admin = true and (old.is_admin is null or old.is_admin = false) then
+    if auth.uid() = new.user_id then
+      raise exception 'Cannot set yourself as admin';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists prevent_self_admin_trigger on public.profiles;
+create trigger prevent_self_admin_trigger
+  before update on public.profiles
+  for each row execute function public.prevent_self_admin();
 
 -- RPC: let the client check if an email is already registered ----------------
 

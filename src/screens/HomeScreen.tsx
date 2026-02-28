@@ -538,14 +538,13 @@ function FeedCard({
   const vpChange = winnerVp > 0 ? `+${winnerVp}` : '0';
   const isWin = winnerVp > 0;
 
-  const d = item.scheduled_at ? new Date(item.scheduled_at) : new Date(item.created_at);
-  const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-
   const statusLabel = item.status === 'pending' ? 'Pending' : item.status === 'confirmed' ? 'Confirmed' : item.status === 'in_progress' ? 'In progress' : item.status === 'paused' ? 'Paused' : item.status === 'completed' ? 'Completed' : item.status;
 
-  const createdStr = new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  const startedStr = item.started_at ? new Date(item.started_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null;
+  const createdDate = new Date(item.created_at);
+  const dateStr = createdDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const createdTime = createdDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const scheduledTime = item.scheduled_at ? new Date(item.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null;
+  const startedTime = item.started_at ? new Date(item.started_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null;
 
   const gamesForDisplay = localGames
     .map((g) => ({ score_challenger: parseInt(g.score_challenger, 10) || 0, score_opponent: parseInt(g.score_opponent, 10) || 0 }))
@@ -576,11 +575,6 @@ function FeedCard({
             />
             <Text style={styles.creatorLabel}>Created by {creator ? getName(creator) : 'Unknown'}</Text>
           </View>
-          <View style={styles.timestampsRow}>
-            <Text style={styles.timestampText}>Created: {createdStr}</Text>
-            {startedStr && <Text style={styles.timestampText}>Started: {startedStr}</Text>}
-            {durationMs > 0 && <Text style={styles.timestampText}>Duration: {formatDuration(durationMs)}</Text>}
-          </View>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <View style={styles.sportBadge}>
@@ -597,6 +591,31 @@ function FeedCard({
             </TouchableOpacity>
           )}
         </View>
+      </View>
+
+      {/* Timestamps: date once, then times */}
+      <View style={styles.timestampsRow}>
+        <Text style={styles.timestampText}>{dateStr}</Text>
+        <Text style={styles.timestampText}>·</Text>
+        <Text style={styles.timestampText}>Created {createdTime}</Text>
+        {scheduledTime && (
+          <>
+            <Text style={styles.timestampText}>·</Text>
+            <Text style={styles.timestampText}>Scheduled {scheduledTime}</Text>
+          </>
+        )}
+        {startedTime && (
+          <>
+            <Text style={styles.timestampText}>·</Text>
+            <Text style={styles.timestampText}>Started {startedTime}</Text>
+          </>
+        )}
+        {durationMs > 0 && (
+          <>
+            <Text style={styles.timestampText}>·</Text>
+            <Text style={styles.timestampText}>Duration {formatDuration(durationMs)}</Text>
+          </>
+        )}
       </View>
 
       <View style={styles.playersRow}>
@@ -1126,10 +1145,16 @@ function createHomeStyles(colors: ThemeColors) {
     timestampsRow: {
       flexDirection: 'row',
       flexWrap: 'wrap',
+      alignItems: 'center',
       gap: spacing.sm,
       marginTop: spacing.sm,
+      marginBottom: spacing.md,
+      paddingBottom: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.divider,
+      width: '100%',
     },
-    timestampText: { ...typography.caption, fontSize: 11, color: colors.textSecondary },
+    timestampText: { ...typography.caption, fontSize: 13, color: colors.textSecondary, lineHeight: 20 },
     sportBadge: {
       flexDirection: 'row',
       alignItems: 'center',
