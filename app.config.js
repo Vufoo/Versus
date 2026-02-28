@@ -14,8 +14,9 @@ module.exports = ({ config }) => ({
   },
   ios: {
     supportsTablet: true,
-    bundleIdentifier: 'com.versus.app',
+    bundleIdentifier: 'com.vufoo.versus',
     infoPlist: {
+      ITSAppUsesNonExemptEncryption: false,
       NSLocationWhenInUseUsageDescription:
         'Versus uses your location to show nearby players, courts, and matches on the map.',
       NSPhotoLibraryUsageDescription:
@@ -23,7 +24,7 @@ module.exports = ({ config }) => ({
     },
   },
   android: {
-    package: 'com.versus.app',
+    package: 'com.vufoo.versus',
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#FDF6ED',
@@ -34,6 +35,9 @@ module.exports = ({ config }) => ({
   },
   web: { favicon: './assets/favicon.png' },
   extra: {
+    eas: {
+      projectId: 'b30a31d9-2ac1-4919-93b0-2433d66f6f20',
+    },
     supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
     supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
   },
