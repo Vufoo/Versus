@@ -78,17 +78,17 @@ export default function TabNavigator() {
       <Tab.Screen
         name="Plan"
         component={PlanMatchScreen}
-        options={{ title: 'Plan match' }}
+        options={{ title: 'Plan', headerShown: false }}
       />
       <Tab.Screen
         name="Versus"
         component={VersusScreen}
-        options={{ title: 'Versus' }}
+        options={{ title: 'Versus', headerShown: false }}
       />
       <Tab.Screen
         name="Map"
         component={MapScreen}
-        options={{ title: 'Map' }}
+        options={{ title: 'Map', headerShown: false }}
       />
       <Tab.Screen
         name="Profile"

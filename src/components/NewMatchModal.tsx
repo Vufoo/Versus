@@ -42,7 +42,7 @@ function makeStyles(c: ThemeColors) {
       backgroundColor: c.surface,
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
-      paddingHorizontal: spacing.lg,
+      paddingHorizontal: spacing.xl,
       paddingTop: spacing.lg,
       paddingBottom: spacing.xxl,
       maxHeight: SCREEN_H * 0.85,

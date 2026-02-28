@@ -16,6 +16,7 @@ export const lightColors = {
   offWhite: '#FDF6ED',
   background: '#FDF6ED',
   surface: '#FFF8F0',
+  cardBg: '#FFFFFF', // Slightly lighter than background for cards (Strava-style elevation)
   // Text
   text: '#2D2420',
   textSecondary: '#5C5048',
@@ -37,6 +38,7 @@ export const darkColors = {
   offWhite: '#14110E',
   background: '#090806',
   surface: '#15120E',
+  cardBg: '#1C1814', // Slightly lighter than background for cards
   text: '#F5EEE4',
   textSecondary: '#B8AFA5',
   textOnPrimary: '#0C0602',

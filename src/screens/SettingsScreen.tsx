@@ -83,7 +83,7 @@ function createStyles(colors: ThemeColors) {
       borderRadius: borderRadius.lg,
       borderWidth: 1,
       borderColor: colors.primary,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
     },
     membershipTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.xs },
     membershipSub: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md },

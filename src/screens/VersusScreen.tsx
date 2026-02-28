@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { spacing, typography, borderRadius } from '../constants/theme';
@@ -19,8 +20,9 @@ function createStyles(colors: ThemeColors) {
       flex: 1,
       backgroundColor: colors.background,
       paddingHorizontal: spacing.lg,
-      paddingTop: spacing.lg,
     },
+    pageHeader: { marginBottom: spacing.sm },
+    pageTitle: { ...typography.heading, color: colors.text },
     header: { marginBottom: spacing.lg },
     subtitle: {
       ...typography.body,
@@ -57,7 +59,7 @@ function createStyles(colors: ThemeColors) {
       borderRadius: borderRadius.lg,
       borderWidth: 1,
       borderColor: colors.border,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
     },
     rankLeft: {},
     rankRight: { alignItems: 'flex-end', maxWidth: '55%' },
@@ -90,13 +92,13 @@ function createStyles(colors: ThemeColors) {
       borderColor: colors.primaryDark,
     },
     casualButton: {
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       borderColor: colors.border,
     },
     casualTitle: { color: colors.text },
     casualSub: { color: colors.textSecondary },
     localButton: {
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       borderColor: colors.border,
     },
     lockedButton: {
@@ -121,6 +123,7 @@ const MEMBERSHIP_LOCK_MESSAGE =
 
 export default function VersusScreen() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { hasMembership } = useMembership();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -163,7 +166,10 @@ export default function VersusScreen() {
     : 'Unranked \u00b7 0 VP';
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top + spacing.lg }]}>
+      <View style={styles.pageHeader}>
+        <Text style={styles.pageTitle}>Versus</Text>
+      </View>
       <View style={styles.header}>
         <Text style={styles.subtitle}>
           Choose your sport, see your rank, then find someone to play.

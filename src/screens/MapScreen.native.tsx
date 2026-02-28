@@ -3,11 +3,25 @@ import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'rea
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker } from 'react-native-maps';
+import * as Location from 'expo-location';
 import { spacing, typography } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
 import { useLocation } from '../hooks/useLocation';
 import { supabase } from '../lib/supabase';
+
+function formatNearbyPlace(addr: Location.LocationGeocodedAddress | null): string {
+  if (!addr) return '';
+  const parts: string[] = [];
+  if (addr.name) parts.push(addr.name);
+  else if (addr.street) parts.push([addr.streetNumber, addr.street].filter(Boolean).join(' '));
+  if (addr.district) parts.push(addr.district);
+  if (addr.city) parts.push(addr.city);
+  if (addr.region && addr.region !== addr.city) parts.push(addr.region);
+  if (parts.length > 0) return parts.slice(0, 3).join(' · ');
+  if (addr.formattedAddress) return addr.formattedAddress.split(',')[0]?.trim() ?? '';
+  return '';
+}
 
 const DEFAULT_REGION = {
   latitude: 37.78825,
@@ -34,14 +48,15 @@ function createStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.md,
+      paddingVertical: spacing.sm,
+      paddingBottom: spacing.md,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
       backgroundColor: colors.background,
     },
     title: { ...typography.heading, color: colors.text },
     subtitle: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
-    mapContainer: { flex: 1, minHeight: 300 },
+    mapContainer: { flex: 1, minHeight: 400 },
     map: { width: '100%', height: '100%' },
     centerBtn: {
       position: 'absolute',
@@ -50,7 +65,7 @@ function createStyles(colors: ThemeColors) {
       width: 48,
       height: 48,
       borderRadius: 24,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: 'center',
@@ -67,7 +82,7 @@ function createStyles(colors: ThemeColors) {
       justifyContent: 'space-between',
       paddingHorizontal: spacing.lg,
       paddingVertical: spacing.sm,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       borderTopWidth: 1,
       borderTopColor: colors.border,
     },
@@ -87,6 +102,7 @@ export default function MapScreen() {
   const mapRef = useRef<MapView>(null);
   const [nearbyUsers, setNearbyUsers] = useState<NearbyUser[]>([]);
   const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
+  const [nearbyPlace, setNearbyPlace] = useState<string | null>(null);
 
   const region = useMemo(() => {
     if (coords) {
@@ -168,6 +184,24 @@ export default function MapScreen() {
     return () => clearInterval(interval);
   }, [loadNearby]);
 
+  // Reverse geocode to show nearby place instead of coordinates
+  useEffect(() => {
+    if (!coords || status !== 'granted') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [addr] = await Location.reverseGeocodeAsync({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+        });
+        if (!cancelled) setNearbyPlace(formatNearbyPlace(addr ?? null) || null);
+      } catch {
+        if (!cancelled) setNearbyPlace(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [coords?.latitude, coords?.longitude, status]);
+
   useEffect(() => {
     if (coords && mapRef.current) {
       mapRef.current.animateToRegion(region, 500);
@@ -181,8 +215,8 @@ export default function MapScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
+    <View style={styles.container}>
+      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         <View>
           <Text style={styles.title}>Map</Text>
           <Text style={styles.subtitle}>
@@ -231,8 +265,8 @@ export default function MapScreen() {
           <Text style={styles.statusError}>{error ?? 'Location error'}</Text>
         )}
         {status === 'granted' && coords && (
-          <Text style={styles.coordsValue}>
-            {nearbyUsers.length} nearby · {coords.latitude.toFixed(4)}, {coords.longitude.toFixed(4)}
+          <Text style={styles.coordsValue} numberOfLines={1}>
+            {nearbyUsers.length} nearby{nearbyPlace ? ` · ${nearbyPlace}` : ` · ${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`}
           </Text>
         )}
       </View>

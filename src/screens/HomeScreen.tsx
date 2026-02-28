@@ -15,6 +15,7 @@ import {
   Platform,
   Share,
   Dimensions,
+  Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -207,6 +208,14 @@ function formatDuration(ms: number): string {
   if (h > 0) return `${h}h ${m % 60}m`;
   if (m > 0) return `${m}m ${s % 60}s`;
   return `${s}s`;
+}
+
+function formatDurationDigital(ms: number): string {
+  const s = Math.floor(ms / 1000) % 60;
+  const m = Math.floor(ms / 60000) % 60;
+  const h = Math.floor(ms / 3600000);
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
 
 function FeedCard({
@@ -593,28 +602,15 @@ function FeedCard({
         </View>
       </View>
 
-      {/* Timestamps: date once, then times */}
+      {/* Timestamps: date/created/scheduled on line 1, started/duration on line 2 */}
       <View style={styles.timestampsRow}>
-        <Text style={styles.timestampText}>{dateStr}</Text>
-        <Text style={styles.timestampText}>·</Text>
-        <Text style={styles.timestampText}>Created {createdTime}</Text>
-        {scheduledTime && (
-          <>
-            <Text style={styles.timestampText}>·</Text>
-            <Text style={styles.timestampText}>Scheduled {scheduledTime}</Text>
-          </>
-        )}
-        {startedTime && (
-          <>
-            <Text style={styles.timestampText}>·</Text>
-            <Text style={styles.timestampText}>Started {startedTime}</Text>
-          </>
-        )}
-        {durationMs > 0 && (
-          <>
-            <Text style={styles.timestampText}>·</Text>
-            <Text style={styles.timestampText}>Duration {formatDuration(durationMs)}</Text>
-          </>
+        <Text style={styles.timestampText}>
+          {dateStr} · Created {createdTime}{scheduledTime ? ` · Scheduled ${scheduledTime}` : ''}
+        </Text>
+        {(startedTime || durationMs > 0) && (
+          <Text style={styles.timestampText}>
+            {startedTime ? `Started ${startedTime}` : ''}{startedTime && durationMs > 0 ? ' · ' : ''}{durationMs > 0 ? formatDurationDigital(durationMs) : ''}
+          </Text>
         )}
       </View>
 
@@ -644,10 +640,15 @@ function FeedCard({
           {((isCompleted || isInProgress || isPaused) && hasScore) || (isCompleted && !hasScore) ? (
             <View style={{ alignItems: 'center' }}>
               {isCompleted && participants.every((p) => p?.result === 'draw') ? (
-                <>
+                <View style={{ alignItems: 'center' }}>
                   <Text style={[styles.scoreText, { color: colors.textSecondary }]}>Draw</Text>
                   {hasScore && displayScoreMain ? <Text style={[typography.caption, { fontSize: 12, color: colors.textSecondary, marginTop: 2 }]}>{displayScoreMain}</Text> : null}
-                </>
+                  {durationMs > 0 && (
+                    <Text style={[typography.caption, { fontSize: 12, color: colors.textSecondary, marginTop: 2 }]}>
+                      {formatDurationDigital(durationMs)}
+                    </Text>
+                  )}
+                </View>
               ) : (
                 <>
                   {hasScore && <Text style={styles.scoreText}>{displayScoreMain}</Text>}
@@ -659,9 +660,16 @@ function FeedCard({
                   {isCompleted && (() => {
                     const winner = participants.find((p) => p?.result === 'win');
                     return winner ? (
-                      <Text style={{ fontSize: 15, fontWeight: '700', color: colors.primary, marginTop: hasScore ? 6 : 0, letterSpacing: 0.5 }}>
-                        🏆 {getName(winner)} wins!
-                      </Text>
+                      <View style={{ alignItems: 'center' }}>
+                        <Text style={{ fontSize: 15, fontWeight: '700', color: colors.primary, marginTop: hasScore ? 6 : 0, letterSpacing: 0.5 }}>
+                          🏆 {getName(winner)} wins!
+                        </Text>
+                        {durationMs > 0 && (
+                          <Text style={[typography.caption, { fontSize: 12, color: colors.textSecondary, marginTop: 2 }]}>
+                            {formatDurationDigital(durationMs)}
+                          </Text>
+                        )}
+                      </View>
                     ) : null;
                   })()}
                 </>
@@ -1119,7 +1127,7 @@ function createHomeStyles(colors: ThemeColors) {
     loadingCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xxl },
 
     feedCard: {
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       borderRadius: borderRadius.lg,
       padding: spacing.lg,
       marginBottom: spacing.md,
@@ -1143,10 +1151,8 @@ function createHomeStyles(colors: ThemeColors) {
     },
     creatorLabel: { ...typography.caption, fontSize: 12, color: colors.textSecondary },
     timestampsRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      alignItems: 'center',
-      gap: spacing.sm,
+      flexDirection: 'column',
+      gap: spacing.xs,
       marginTop: spacing.sm,
       marginBottom: spacing.md,
       paddingBottom: spacing.md,
@@ -1154,7 +1160,7 @@ function createHomeStyles(colors: ThemeColors) {
       borderBottomColor: colors.divider,
       width: '100%',
     },
-    timestampText: { ...typography.caption, fontSize: 13, color: colors.textSecondary, lineHeight: 20 },
+    timestampText: { ...typography.caption, fontSize: 13, color: colors.textSecondary },
     sportBadge: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1466,7 +1472,7 @@ function createHomeStyles(colors: ThemeColors) {
       justifyContent: 'flex-start',
     },
     modalCard: {
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       marginTop: 60,
       marginHorizontal: spacing.lg,
       borderRadius: borderRadius.lg,
@@ -1515,9 +1521,9 @@ function createHomeStyles(colors: ThemeColors) {
 
     /* ---- Notifications modal ---- */
     notifModalCard: {
-      backgroundColor: colors.surface,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
+      backgroundColor: colors.cardBg,
+      borderBottomLeftRadius: 24,
+      borderBottomRightRadius: 24,
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.lg,
       paddingBottom: spacing.xxl,
@@ -1635,12 +1641,35 @@ export default function HomeScreen() {
   const [notifsVisible, setNotifsVisible] = useState(false);
   const navigation = useNavigation<any>();
   const feedListRef = useRef<FlatList>(null);
+  const notifSlideAnim = useRef(new Animated.Value(-400)).current;
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [feedItems, setFeedItems] = useState<FeedMatch[]>([]);
   const [loadingFeed, setLoadingFeed] = useState(true);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (notifsVisible) {
+      notifSlideAnim.setValue(-400);
+      Animated.spring(notifSlideAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 65,
+        friction: 11,
+      }).start();
+    }
+  }, [notifsVisible]);
+
+  const closeNotifications = useCallback(() => {
+    Animated.timing(notifSlideAnim, {
+      toValue: -400,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) setNotifsVisible(false);
+    });
+  }, []);
 
   const [inviteOpponentMatch, setInviteOpponentMatch] = useState<FeedMatch | null>(null);
   const [editMatch, setEditMatch] = useState<FeedMatch | null>(null);
@@ -1965,7 +1994,7 @@ export default function HomeScreen() {
         >
           <Ionicons name="search" size={20} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.topBarTitle}>Versus</Text>
+        <Text style={styles.topBarTitle}>Home</Text>
         <View style={styles.topBarRight}>
           <TouchableOpacity
             style={styles.topBarIcon}
@@ -2105,12 +2134,18 @@ export default function HomeScreen() {
       </Modal>
 
       {/* ---- Notifications modal ---- */}
-      <Modal visible={notifsVisible} transparent animationType="slide">
+      <Modal visible={notifsVisible} transparent animationType="fade">
         <Pressable
-          style={[styles.modalBackdrop, { justifyContent: 'flex-end' }]}
-          onPress={() => setNotifsVisible(false)}
+          style={[styles.modalBackdrop, { justifyContent: 'flex-start' }]}
+          onPress={closeNotifications}
         >
-          <View style={styles.notifModalCard} onStartShouldSetResponder={() => true}>
+          <Animated.View
+            style={[
+              styles.notifModalCard,
+              { paddingTop: insets.top + spacing.lg, transform: [{ translateY: notifSlideAnim }] },
+            ]}
+            onStartShouldSetResponder={() => true}
+          >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Notifications</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
@@ -2127,12 +2162,12 @@ export default function HomeScreen() {
                     <Text style={{ ...typography.label, color: colors.primary, fontSize: 14 }}>Clear read</Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity onPress={() => setNotifsVisible(false)} hitSlop={12}>
+                <TouchableOpacity onPress={closeNotifications} hitSlop={12}>
                   <Ionicons name="close" size={24} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
             </View>
-            <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled={true}>
+            <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled>
               {notifications.length === 0 && (
                 <Text style={styles.emptyText}>No notifications yet.</Text>
               )}
@@ -2208,7 +2243,7 @@ export default function HomeScreen() {
                 );
               })}
             </ScrollView>
-          </View>
+          </Animated.View>
         </Pressable>
       </Modal>
 

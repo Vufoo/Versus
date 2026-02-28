@@ -8,6 +8,7 @@ import {
   Modal,
   Pressable,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { spacing, typography, borderRadius } from '../constants/theme';
@@ -116,8 +117,14 @@ function createPlanStyles(colors: ThemeColors) {
       flex: 1,
       backgroundColor: colors.background,
       paddingHorizontal: spacing.lg,
-      paddingTop: spacing.lg,
     },
+    pageHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingBottom: spacing.sm,
+    },
+    pageTitle: { ...typography.heading, color: colors.text },
     title: {
       ...typography.title,
       color: colors.primary,
@@ -129,7 +136,7 @@ function createPlanStyles(colors: ThemeColors) {
       marginBottom: spacing.lg,
     },
     calendarCard: {
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       borderRadius: borderRadius.lg,
       padding: spacing.lg,
       borderWidth: 1,
@@ -211,7 +218,7 @@ function createPlanStyles(colors: ThemeColors) {
       justifyContent: 'flex-end',
     },
     modalCard: {
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
       paddingHorizontal: spacing.lg,
@@ -332,7 +339,7 @@ function createPlanStyles(colors: ThemeColors) {
     },
     timePickerCard: {
       width: '100%',
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       borderRadius: borderRadius.lg,
       padding: spacing.lg,
       borderWidth: 1,
@@ -398,7 +405,7 @@ function createPlanStyles(colors: ThemeColors) {
       color: colors.textOnPrimary,
     },
     upcomingCard: {
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       borderRadius: borderRadius.lg,
       padding: spacing.md,
       marginBottom: spacing.sm,
@@ -441,7 +448,7 @@ function createPlanStyles(colors: ThemeColors) {
     expandCard: {
       width: '100%',
       borderRadius: borderRadius.lg,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       padding: spacing.lg,
       borderWidth: 1,
       borderColor: colors.border,
@@ -513,7 +520,7 @@ function createPlanStyles(colors: ThemeColors) {
       flexDirection: 'row',
       marginBottom: spacing.md,
       borderRadius: borderRadius.md,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       padding: spacing.xs,
       borderWidth: 1,
       borderColor: colors.border,
@@ -533,7 +540,7 @@ function createPlanStyles(colors: ThemeColors) {
       justifyContent: 'flex-end',
     },
     dayDetailCard: {
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
       paddingHorizontal: spacing.lg,
@@ -565,6 +572,7 @@ function createPlanStyles(colors: ThemeColors) {
 
 export default function PlanMatchScreen() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const styles = useMemo(() => createPlanStyles(colors), [colors]);
   const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>('month');
@@ -680,8 +688,10 @@ export default function PlanMatchScreen() {
   useEffect(() => { loadUpcoming(); }, [loadUpcoming]);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Plan a match</Text>
+    <View style={[styles.container, { paddingTop: insets.top + spacing.lg }]}>
+      <View style={styles.pageHeader}>
+        <Text style={styles.pageTitle}>Plan</Text>
+      </View>
       <Text style={styles.subtitle}>
         Tap a day on the calendar, then create a match with a friend.
       </Text>

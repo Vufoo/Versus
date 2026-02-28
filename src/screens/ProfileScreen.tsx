@@ -88,7 +88,7 @@ function createStyles(colors: ThemeColors) {
       marginTop: spacing.sm,
       padding: spacing.lg,
       borderRadius: borderRadius.lg,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: 'center',
@@ -130,7 +130,7 @@ function createStyles(colors: ThemeColors) {
       marginHorizontal: spacing.lg,
       marginTop: spacing.lg,
       borderRadius: borderRadius.lg,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       borderWidth: 1,
       borderColor: colors.border,
       padding: spacing.xs,
@@ -155,7 +155,7 @@ function createStyles(colors: ThemeColors) {
     rankCard: {
       flex: 1,
       minWidth: 0,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       borderRadius: borderRadius.lg,
       padding: spacing.md,
       borderWidth: 1,
@@ -184,7 +184,7 @@ function createStyles(colors: ThemeColors) {
     /* ---- Cards ---- */
     card: {
       marginHorizontal: spacing.lg,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.cardBg,
       borderRadius: borderRadius.lg,
       padding: spacing.lg,
       marginBottom: spacing.md,
@@ -212,9 +212,10 @@ function createStyles(colors: ThemeColors) {
     savingText: { ...typography.caption, color: colors.textSecondary },
 
     /* ---- Rankings ---- */
-    rankPage: { width: SCREEN_W - spacing.lg * 2, paddingHorizontal: spacing.lg },
+    rankPage: { width: SCREEN_W, alignItems: 'center', justifyContent: 'center' },
     rankPageInner: {
-      backgroundColor: colors.surface,
+      width: SCREEN_W - spacing.lg * 2,
+      backgroundColor: colors.cardBg,
       borderRadius: borderRadius.lg,
       padding: spacing.lg,
       borderWidth: 1,
@@ -735,9 +736,10 @@ export default function ProfileScreen() {
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
-              onScroll={(e) => setRankIdx(Math.round(e.nativeEvent.contentOffset.x / (SCREEN_W - spacing.lg * 2)))}
+              onScroll={(e) => setRankIdx(Math.round(e.nativeEvent.contentOffset.x / SCREEN_W))}
               scrollEventThrottle={16}
-              snapToInterval={SCREEN_W - spacing.lg * 2}
+              snapToInterval={SCREEN_W}
+              snapToAlignment="center"
               decelerationRate="fast"
               nestedScrollEnabled
             >
