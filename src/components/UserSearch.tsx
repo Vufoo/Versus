@@ -25,6 +25,7 @@ type Props = {
   colors: ThemeColors;
   onSelect: (user: SearchedUser) => void;
   excludeUserId?: string;
+  excludeUserIds?: string[];
   placeholder?: string;
   renderAction?: (user: SearchedUser) => ReactNode;
   suggestions?: SearchedUser[];
@@ -72,7 +73,7 @@ function makeStyles(c: ThemeColors) {
   });
 }
 
-export default function UserSearch({ colors, onSelect, excludeUserId, placeholder, renderAction, suggestions, suggestionsTitle }: Props) {
+export default function UserSearch({ colors, onSelect, excludeUserId, excludeUserIds, placeholder, renderAction, suggestions, suggestionsTitle }: Props) {
   const styles = makeStyles(colors);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchedUser[]>([]);
@@ -97,8 +98,9 @@ export default function UserSearch({ colors, onSelect, excludeUserId, placeholde
           .or(`username.ilike.${pattern},full_name.ilike.${pattern}`)
           .limit(10);
 
+        const exclude = new Set([excludeUserId, ...(excludeUserIds ?? [])].filter(Boolean));
         const filtered = (data ?? []).filter(
-          (u) => u.user_id !== excludeUserId,
+          (u) => !exclude.has(u.user_id),
         ) as SearchedUser[];
         const resolved = await Promise.all(
           filtered.map(async (u) => ({
@@ -114,7 +116,7 @@ export default function UserSearch({ colors, onSelect, excludeUserId, placeholde
         setLoading(false);
       }
     },
-    [excludeUserId],
+    [excludeUserId, excludeUserIds],
   );
 
   useEffect(() => {

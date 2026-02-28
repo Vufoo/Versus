@@ -23,6 +23,21 @@ import { SPORTS, sportLabel, SPORT_EMOJI } from '../constants/sports';
 
 type ProfileTab = 'overview' | 'rankings';
 
+type MatchHistoryItem = {
+  id: string;
+  sport_name: string;
+  match_type: string;
+  status: string;
+  created_at: string;
+  scheduled_at: string | null;
+  started_at: string | null;
+  location_name: string | null;
+  match_format?: string;
+  is_public?: boolean;
+  participants: { user_id: string; role: string; result: string; vp_delta?: number; username: string | null; full_name: string | null }[];
+  games: { game_number: number; score_challenger: number; score_opponent: number }[];
+};
+
 const SCREEN_W = Dimensions.get('window').width;
 const MAX_PREFERRED = 3;
 
@@ -156,14 +171,16 @@ function createStyles(colors: ThemeColors) {
     cardTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.sm },
     cardSubtitle: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md },
     placeholder: { ...typography.caption, color: colors.textSecondary },
-    sportsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+    sportsGrid: { flexDirection: 'column', gap: spacing.sm },
+    sportsGridRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs },
     sportChip: {
-      paddingHorizontal: spacing.md,
+      paddingHorizontal: spacing.sm,
       paddingVertical: spacing.sm - 2,
       borderRadius: borderRadius.full,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.background,
+      flex: 1,
     },
     sportChipSelected: { backgroundColor: colors.primary, borderColor: colors.primaryDark },
     sportChipLabel: { ...typography.label, color: colors.textSecondary },
@@ -254,6 +271,17 @@ function createStyles(colors: ThemeColors) {
       marginTop: spacing.md,
     },
     signOutText: { ...typography.body, fontWeight: '600', color: colors.error },
+    matchHistoryItem: {
+      paddingVertical: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.divider,
+    },
+    matchHistoryItemLast: { borderBottomWidth: 0 },
+    matchHistoryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs },
+    matchHistoryLeft: { flex: 1 },
+    matchHistorySport: { ...typography.body, fontSize: 15, fontWeight: '600', color: colors.text },
+    matchHistoryMeta: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginTop: 4, lineHeight: 18 },
+    matchHistoryResult: { ...typography.label, fontSize: 14, fontWeight: '600' },
   });
 }
 
@@ -281,6 +309,8 @@ export default function ProfileScreen() {
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [matchHistory, setMatchHistory] = useState<MatchHistoryItem[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const pickAvatar = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -337,7 +367,10 @@ export default function ProfileScreen() {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
-        if (!cancelled) setUserEmail(user.email ?? null);
+        if (!cancelled) {
+          setUserEmail(user.email ?? null);
+          setCurrentUserId(user.id);
+        }
 
         const { data: p } = await supabase
           .from('profiles')
@@ -375,6 +408,17 @@ export default function ProfileScreen() {
             })));
           }
         }
+
+        const { data: feedRows } = await supabase
+          .from('match_feed')
+          .select('id, sport_name, match_type, status, created_at, scheduled_at, started_at, location_name, match_format, is_public, participants, games')
+          .order('created_at', { ascending: false })
+          .limit(80);
+        const rows = (feedRows ?? []) as MatchHistoryItem[];
+        const myMatches = rows.filter((m) =>
+          (m.participants ?? []).some((p: { user_id?: string }) => String(p?.user_id) === String(user.id))
+        );
+        if (!cancelled) setMatchHistory(myMatches.slice(0, 30));
       } catch { /* swallow */ } finally { if (!cancelled) setLoadingProfile(false); }
     };
 
@@ -536,15 +580,28 @@ export default function ProfileScreen() {
               <Text style={styles.cardTitle}>Preferred sports</Text>
               <Text style={styles.cardSubtitle}>Select up to {MAX_PREFERRED} sports you play the most.</Text>
               <View style={styles.sportsGrid}>
-                {SPORTS.map((sp) => {
-                  const sel = (profile?.preferred_sports ?? []).includes(sp);
-                  const atMax = !sel && (profile?.preferred_sports ?? []).length >= MAX_PREFERRED;
-                  return (
-                    <TouchableOpacity key={sp} style={[styles.sportChip, sel && styles.sportChipSelected, atMax && { opacity: 0.4 }]} onPress={() => togglePreferred(sp)} disabled={atMax} activeOpacity={0.8}>
-                      <Text style={[styles.sportChipLabel, sel && styles.sportChipLabelSelected]}>{sportLabel(sp)}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                <View style={styles.sportsGridRow}>
+                  {SPORTS.slice(0, 7).map((sp) => {
+                    const sel = (profile?.preferred_sports ?? []).includes(sp);
+                    const atMax = !sel && (profile?.preferred_sports ?? []).length >= MAX_PREFERRED;
+                    return (
+                      <TouchableOpacity key={sp} style={[styles.sportChip, sel && styles.sportChipSelected, atMax && { opacity: 0.4 }]} onPress={() => togglePreferred(sp)} disabled={atMax} activeOpacity={0.8}>
+                        <Text style={[styles.sportChipLabel, sel && styles.sportChipLabelSelected]} numberOfLines={1}>{sportLabel(sp)}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <View style={styles.sportsGridRow}>
+                  {SPORTS.slice(7, 14).map((sp) => {
+                    const sel = (profile?.preferred_sports ?? []).includes(sp);
+                    const atMax = !sel && (profile?.preferred_sports ?? []).length >= MAX_PREFERRED;
+                    return (
+                      <TouchableOpacity key={sp} style={[styles.sportChip, sel && styles.sportChipSelected, atMax && { opacity: 0.4 }]} onPress={() => togglePreferred(sp)} disabled={atMax} activeOpacity={0.8}>
+                        <Text style={[styles.sportChipLabel, sel && styles.sportChipLabelSelected]} numberOfLines={1}>{sportLabel(sp)}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               </View>
               {savingPrefs && (
                 <View style={styles.savingRow}>
@@ -556,7 +613,46 @@ export default function ProfileScreen() {
 
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Match history</Text>
-              <Text style={styles.placeholder}>Recent wins, losses, and casual games will appear here.</Text>
+              {matchHistory.length === 0 ? (
+                <Text style={styles.placeholder}>Recent wins, losses, and casual games will appear here.</Text>
+              ) : (
+                matchHistory.map((m, idx) => {
+                  const myPart = (m.participants ?? []).find((p: { user_id?: string }) => String(p?.user_id) === String(currentUserId));
+                  const others = (m.participants ?? []).filter((p: { user_id?: string }) => String(p?.user_id) !== String(currentUserId));
+                  const opponentNames = others.map((p: { full_name?: string | null; username?: string | null }) => p?.full_name || p?.username || 'Opponent').join(', ');
+                  const result = myPart?.result === 'win' ? 'Win' : myPart?.result === 'loss' ? 'Loss' : myPart?.result === 'draw' ? 'Draw' : m.status === 'completed' ? '—' : m.status;
+                  const games = (m.games ?? []).filter((g: { score_challenger: number; score_opponent: number }) => g.score_challenger > 0 || g.score_opponent > 0);
+                  const scoreStr = games.length > 0
+                    ? games.map((g: { score_challenger: number; score_opponent: number }) => `${g.score_challenger}-${g.score_opponent}`).join(', ')
+                    : null;
+                  const dateStr = new Date(m.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                  const timeStr = (m.started_at || m.scheduled_at || m.created_at)
+                    ? new Date(m.started_at || m.scheduled_at || m.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+                    : null;
+                  const vpDelta = myPart?.vp_delta ?? 0;
+                  const vpStr = vpDelta !== 0 ? (vpDelta > 0 ? `+${vpDelta}` : `${vpDelta}`) + ' VP' : null;
+                  const formatStr = (m.match_format || '1v1') === '2v2' ? '2v2' : '1v1';
+                  const visibilityStr = m.is_public !== false ? 'Public' : 'Private';
+                  const locationStr = m.location_name?.trim() || null;
+                  const resultColor = result === 'Win' ? colors.primary : result === 'Loss' ? colors.error : colors.textSecondary;
+                  return (
+                    <View key={m.id} style={[styles.matchHistoryItem, idx === matchHistory.length - 1 && styles.matchHistoryItemLast]}>
+                      <View style={styles.matchHistoryRow}>
+                        <View style={styles.matchHistoryLeft}>
+                          <Text style={styles.matchHistorySport}>{SPORT_EMOJI[m.sport_name] ?? '🏆'} {m.sport_name}</Text>
+                          <Text style={styles.matchHistoryMeta}>
+                            {dateStr}{timeStr ? ` at ${timeStr}` : ''} • {String(m.match_type).charAt(0).toUpperCase() + String(m.match_type).slice(1)} • {formatStr} • {visibilityStr}
+                            {locationStr ? ` • ${locationStr}` : ''}
+                            {'\n'}vs {opponentNames || '—'}
+                            {(scoreStr || vpStr) ? ` • ${[scoreStr, vpStr].filter(Boolean).join(' • ')}` : ''}
+                          </Text>
+                        </View>
+                        <Text style={[styles.matchHistoryResult, { color: resultColor }]}>{result}</Text>
+                      </View>
+                    </View>
+                  );
+                })
+              )}
             </View>
           </>
         )}

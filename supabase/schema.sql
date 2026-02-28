@@ -358,7 +358,7 @@ create table if not exists public.match_comments (
 create index if not exists match_comments_match_id_idx on public.match_comments (match_id);
 create index if not exists match_comments_user_id_idx on public.match_comments (user_id);
 
--- Match games (per-game scores) -----------------------------------------------
+-- Match games: per-game/set scores (e.g. tennis 6-4, 4-6, 6-4) -----------------
 create table if not exists public.match_games (
   id              uuid primary key default gen_random_uuid(),
   match_id        uuid not null references public.matches (id) on delete cascade,
@@ -482,11 +482,20 @@ create policy "Users can delete own notifications"
   on public.notifications for delete
   using (auth.uid() = user_id);
 
--- Migration: add invited_opponent_id to matches (opponent only added to participants after accept)
+-- Migration: add invited_opponent_id, invited_teammate_id, invited_opponent_2_id, match_format
 do $$
 begin
   if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'matches' and column_name = 'invited_opponent_id') then
     alter table public.matches add column invited_opponent_id uuid references auth.users (id) on delete set null;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'matches' and column_name = 'invited_teammate_id') then
+    alter table public.matches add column invited_teammate_id uuid references auth.users (id) on delete set null;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'matches' and column_name = 'invited_opponent_2_id') then
+    alter table public.matches add column invited_opponent_2_id uuid references auth.users (id) on delete set null;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'matches' and column_name = 'match_format') then
+    alter table public.matches add column match_format text not null default '1v1' check (match_format in ('1v1', '2v2'));
   end if;
 end $$;
 
@@ -505,6 +514,8 @@ create policy "Creators and participants can update matches"
   using (
     auth.uid() = created_by
     or auth.uid() = invited_opponent_id
+    or auth.uid() = invited_teammate_id
+    or auth.uid() = invited_opponent_2_id
     or exists (select 1 from public.match_participants where match_id = id and user_id = auth.uid())
   );
 
@@ -540,8 +551,8 @@ begin
   end if;
 end $$;
 
--- Simple helper view for feed items -----------------------------------------
--- Drop first to avoid "cannot change name of view column" when adding columns
+-- match_feed: denormalized view for the home/plan feed. Joins matches + participants
+-- + games + images + likes + comments so the app can load feed data in one query.
 drop view if exists public.match_feed cascade;
 
 create view public.match_feed as
@@ -554,6 +565,7 @@ select
   m.match_type,
   m.status,
   m.is_public,
+  m.match_format,
   m.location_name,
   m.notes,
   m.created_by,
@@ -636,7 +648,7 @@ begin
   end if;
 end $$;
 
--- Grant table access to Supabase auth roles (required for RLS to work)
--- Run this if you get "permission denied for table profiles" or similar
+-- Grant access to Supabase auth roles (required for RLS to work)
 grant usage on schema public to anon, authenticated;
 grant all on all tables in schema public to anon, authenticated;
+grant select on public.match_feed to anon, authenticated;
