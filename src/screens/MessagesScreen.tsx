@@ -1,10 +1,12 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -12,37 +14,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ThemeColors } from '../constants/theme';
+import { supabase, resolveAvatarUrl } from '../lib/supabase';
 
-const PLACEHOLDER_CHATS = [
-  { id: '1', name: 'Alex M.', initials: 'AM', preview: 'Good game yesterday!', time: '2h ago' },
-  { id: '2', name: 'Jamie P.', initials: 'JP', preview: 'Rematch this weekend?', time: '5h ago' },
-  { id: '3', name: 'Pickleball Group', initials: 'PG', preview: "Who's free Saturday?", time: '1d ago' },
-];
-
-function Avatar({
-  initials,
-  size,
-  colors,
-}: {
-  initials: string;
-  size: number;
-  colors: ThemeColors;
-}) {
-  return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: colors.border,
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <Text style={{ fontSize: size * 0.38, fontWeight: '700', color: colors.text }}>{initials}</Text>
-    </View>
-  );
-}
+type FollowerEntry = {
+  user_id: string;
+  username: string | null;
+  full_name: string | null;
+  avatar_url: string | null;
+};
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
@@ -69,7 +48,6 @@ function createStyles(colors: ThemeColors) {
     chatInfo: { flex: 1 },
     chatName: { ...typography.body, fontWeight: '600', color: colors.text },
     chatPreview: { ...typography.caption, color: colors.textSecondary },
-    chatTime: { ...typography.caption, color: colors.textSecondary },
     emptyText: {
       ...typography.body,
       color: colors.textSecondary,
@@ -77,7 +55,26 @@ function createStyles(colors: ThemeColors) {
       marginTop: spacing.xl,
       marginHorizontal: spacing.lg,
     },
+    avatar: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarImage: { width: 44, height: 44, borderRadius: 22 },
+    avatarInitials: { fontSize: 16, fontWeight: '700', color: colors.text },
+    loading: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
   });
+}
+
+function getInitials(fullName: string | null, username: string | null): string {
+  if (fullName?.trim()) {
+    return fullName.trim().split(/\s+/).map((w) => w[0]).join('').toUpperCase().slice(0, 2);
+  }
+  if (username?.trim()) return username.trim().slice(0, 2).toUpperCase();
+  return '?';
 }
 
 export default function MessagesScreen() {
@@ -85,6 +82,49 @@ export default function MessagesScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors), [colors]);
+
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [followers, setFollowers] = useState<FollowerEntry[]>([]);
+  const [avatarUrls, setAvatarUrls] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+
+  const loadFollowers = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    setCurrentUserId(user.id);
+    const { data: followRows } = await supabase
+      .from('follows')
+      .select('follower_id')
+      .eq('followed_id', user.id)
+      .eq('status', 'accepted');
+    const followerIds = (followRows ?? []).map((r: { follower_id: string }) => r.follower_id);
+    if (followerIds.length === 0) {
+      setFollowers([]);
+      setLoading(false);
+      return;
+    }
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('user_id, username, full_name, avatar_url')
+      .in('user_id', followerIds);
+    const list = (profiles ?? []) as FollowerEntry[];
+    setFollowers(list);
+    list.forEach((p) => {
+      if (p.avatar_url) {
+        resolveAvatarUrl(p.avatar_url).then((url) => {
+          if (url) setAvatarUrls((prev) => ({ ...prev, [p.user_id]: url }));
+        });
+      }
+    });
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadFollowers();
+  }, [loadFollowers]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -95,23 +135,44 @@ export default function MessagesScreen() {
         <Text style={styles.title}>Messages</Text>
         <View style={{ width: 24 }} />
       </View>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {PLACEHOLDER_CHATS.map((chat) => (
-          <TouchableOpacity key={chat.id} style={styles.chatRow} activeOpacity={0.7}>
-            <Avatar initials={chat.initials} size={44} colors={colors} />
-            <View style={styles.chatInfo}>
-              <Text style={styles.chatName}>{chat.name}</Text>
-              <Text style={styles.chatPreview} numberOfLines={1}>
-                {chat.preview}
-              </Text>
-            </View>
-            <Text style={styles.chatTime}>{chat.time}</Text>
-          </TouchableOpacity>
-        ))}
-        <Text style={styles.emptyText}>
-          More chats will appear as you play matches and connect with friends.
-        </Text>
-      </ScrollView>
+
+      {loading ? (
+        <View style={styles.loading}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      ) : (
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {followers.length === 0 ? (
+            <Text style={styles.emptyText}>
+              Your followers will appear here. When someone follows you and you're both connected, you can message them.
+            </Text>
+          ) : (
+            followers.map((f) => (
+              <TouchableOpacity
+                key={f.user_id}
+                style={styles.chatRow}
+                activeOpacity={0.7}
+                onPress={() => navigation.navigate('Chat', { userId: f.user_id })}
+              >
+                <View style={styles.avatar}>
+                  {avatarUrls[f.user_id] ? (
+                    <Image source={{ uri: avatarUrls[f.user_id] }} style={styles.avatarImage} />
+                  ) : (
+                    <Text style={styles.avatarInitials}>{getInitials(f.full_name, f.username)}</Text>
+                  )}
+                </View>
+                <View style={styles.chatInfo}>
+                  <Text style={styles.chatName}>{f.full_name || f.username || 'User'}</Text>
+                  <Text style={styles.chatPreview} numberOfLines={1}>
+                    {f.username ? `@${f.username}` : 'Tap to message'}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+              </TouchableOpacity>
+            ))
+          )}
+        </ScrollView>
+      )}
     </View>
   );
 }

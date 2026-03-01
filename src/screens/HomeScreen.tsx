@@ -218,6 +218,18 @@ function formatDurationDigital(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+type MatchComment = {
+  id: string;
+  match_id: string;
+  user_id: string;
+  body: string;
+  created_at: string;
+  username?: string | null;
+  full_name?: string | null;
+};
+
+type Liker = { user_id: string; username: string | null; full_name: string | null };
+
 function FeedCard({
   item,
   currentUserId,
@@ -226,6 +238,7 @@ function FeedCard({
   onRefresh,
   onInviteOpponent,
   onEditMatch,
+  navigation,
 }: {
   item: FeedMatch;
   currentUserId: string | null;
@@ -234,6 +247,7 @@ function FeedCard({
   onRefresh: () => void;
   onInviteOpponent?: (match: FeedMatch) => void;
   onEditMatch?: (match: FeedMatch) => void;
+  navigation: { navigate: (screen: string, params?: object) => void };
 }) {
   const challenger = (item.participants ?? []).find((p) => p.role === 'challenger');
   const opponent = (item.participants ?? []).find((p) => p.role === 'opponent');
@@ -260,6 +274,17 @@ function FeedCard({
   const [winnerPickerVisible, setWinnerPickerVisible] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
+
+  const [commentsVisible, setCommentsVisible] = useState(false);
+  const [comments, setComments] = useState<MatchComment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentBody, setCommentBody] = useState('');
+  const [commentPosting, setCommentPosting] = useState(false);
+  const [commentsCount, setCommentsCount] = useState(item.comments_count);
+
+  const [likersModalVisible, setLikersModalVisible] = useState(false);
+  const [likers, setLikers] = useState<Liker[]>([]);
+  const [likersLoading, setLikersLoading] = useState(false);
 
   useEffect(() => {
     if (creator?.avatar_url) resolveAvatarUrl(creator.avatar_url).then(setCreatorAvatarUrl);
@@ -289,6 +314,84 @@ function FeedCard({
       gs.length > 0 ? gs.map((g) => ({ score_challenger: String(g.score_challenger), score_opponent: String(g.score_opponent) })) : [{ score_challenger: '', score_opponent: '' }],
     );
   }, [item.id, item.games]);
+
+  useEffect(() => {
+    setCommentsCount(item.comments_count);
+  }, [item.comments_count]);
+
+  const loadComments = useCallback(async () => {
+    setCommentsLoading(true);
+    try {
+      const { data: rows } = await supabase
+        .from('match_comments')
+        .select('id, match_id, user_id, body, created_at')
+        .eq('match_id', item.id)
+        .order('created_at', { ascending: true });
+      const list = (rows ?? []) as { id: string; match_id: string; user_id: string; body: string; created_at: string }[];
+      if (list.length === 0) {
+        setComments([]);
+        setCommentsLoading(false);
+        return;
+      }
+      const userIds = Array.from(new Set(list.map((c) => c.user_id)));
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('user_id, username, full_name')
+        .in('user_id', userIds);
+      const profileMap = new Map((profiles ?? []).map((p: { user_id: string; username: string | null; full_name: string | null }) => [p.user_id, p]));
+      const withProfiles: MatchComment[] = list.map((c) => ({
+        ...c,
+        username: profileMap.get(c.user_id)?.username ?? null,
+        full_name: profileMap.get(c.user_id)?.full_name ?? null,
+      }));
+      setComments(withProfiles);
+    } catch { /* swallow */ }
+    finally { setCommentsLoading(false); }
+  }, [item.id]);
+
+  useEffect(() => {
+    if (commentsVisible) loadComments();
+  }, [commentsVisible, loadComments]);
+
+  const loadLikers = useCallback(async () => {
+    setLikersLoading(true);
+    try {
+      const { data: rows } = await supabase
+        .from('match_likes')
+        .select('user_id')
+        .eq('match_id', item.id);
+      const userIds = (rows ?? []).map((r: { user_id: string }) => r.user_id);
+      if (userIds.length === 0) {
+        setLikers([]);
+        setLikersLoading(false);
+        return;
+      }
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('user_id, username, full_name')
+        .in('user_id', userIds);
+      setLikers((profiles ?? []) as Liker[]);
+    } catch { /* swallow */ }
+    finally { setLikersLoading(false); }
+  }, [item.id]);
+
+  useEffect(() => {
+    if (likersModalVisible) loadLikers();
+  }, [likersModalVisible, loadLikers]);
+
+  const handlePostComment = async () => {
+    const body = commentBody.trim();
+    if (!currentUserId || !body || commentPosting) return;
+    setCommentPosting(true);
+    try {
+      await supabase.from('match_comments').insert({ match_id: item.id, user_id: currentUserId, body });
+      setCommentBody('');
+      setCommentsCount((c) => c + 1);
+      onRefresh();
+      await loadComments();
+    } catch { /* swallow */ }
+    finally { setCommentPosting(false); }
+  };
 
   const isInProgress = item.status === 'in_progress';
   const isPaused = item.status === 'paused';
@@ -837,15 +940,17 @@ function FeedCard({
                 </TouchableOpacity>
               </>
             )}
-            <TouchableOpacity
-              style={[styles.deleteButton, deleteLoading && { opacity: 0.6 }]}
-              onPress={handleDelete}
-              disabled={deleteLoading}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="trash-outline" size={14} color={colors.error} />
-              <Text style={styles.deleteButtonText}>Delete</Text>
-            </TouchableOpacity>
+            {String(item.created_by) === String(currentUserId) && (
+              <TouchableOpacity
+                style={[styles.deleteButton, deleteLoading && { opacity: 0.6 }]}
+                onPress={handleDelete}
+                disabled={deleteLoading}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="trash-outline" size={14} color={colors.error} />
+                <Text style={styles.deleteButtonText}>Delete</Text>
+              </TouchableOpacity>
+            )}
           </View>
           {(item.status === 'in_progress' || item.status === 'paused') && (
             <View style={styles.gamesEditSection}>
@@ -977,19 +1082,116 @@ function FeedCard({
       <View style={styles.actionsRow}>
         <TouchableOpacity style={styles.actionBtn} onPress={handleToggleLike} activeOpacity={0.8}>
           <Ionicons name={liked ? 'heart' : 'heart-outline'} size={18} color={liked ? colors.primary : colors.textSecondary} />
-          <Text style={[styles.actionLabel, liked && { color: colors.primary, fontWeight: '600' }]}>
-            {likesCount > 0 ? `${likesCount} ` : ''}{liked ? 'Liked' : 'Like'}
-          </Text>
+          {likesCount > 0 ? (
+            <TouchableOpacity onPress={() => setLikersModalVisible(true)} activeOpacity={0.8}>
+              <Text style={[styles.actionLabel, liked && { color: colors.primary, fontWeight: '600' }]}>
+                {likesCount} {likesCount === 1 ? 'like' : 'likes'}
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <Text style={[styles.actionLabel, liked && { color: colors.primary, fontWeight: '600' }]}>Like</Text>
+          )}
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtn} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.actionBtnCenter}
+          onPress={() => setCommentsVisible((v) => !v)}
+          activeOpacity={0.8}
+        >
           <Ionicons name="chatbubble-outline" size={17} color={colors.textSecondary} />
-          <Text style={styles.actionLabel}>{item.comments_count > 0 ? `${item.comments_count} ` : ''}Comment</Text>
+          <Text style={styles.actionLabel}>{commentsCount > 0 ? `${commentsCount} ` : ''}Comment</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionBtn} onPress={handleShare} activeOpacity={0.8}>
           <Ionicons name="share-outline" size={17} color={colors.textSecondary} />
           <Text style={styles.actionLabel}>Share</Text>
         </TouchableOpacity>
       </View>
+
+      {commentsVisible && (
+        <View style={styles.commentsSection}>
+          {commentsLoading ? (
+            <View style={styles.commentsLoading}>
+              <ActivityIndicator size="small" color={colors.primary} />
+            </View>
+          ) : (
+            <>
+              {comments.map((c) => (
+                <TouchableOpacity
+                  key={c.id}
+                  style={styles.commentRow}
+                  onPress={() => navigation.navigate('UserProfile', { userId: c.user_id })}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.commentAuthor}>
+                    {c.full_name || c.username || 'Someone'}
+                  </Text>
+                  <Text style={styles.commentBody}> {c.body}</Text>
+                </TouchableOpacity>
+              ))}
+            </>
+          )}
+          {currentUserId && (
+            <View style={styles.commentInputRow}>
+              <TextInput
+                style={styles.commentInput}
+                placeholder="Add a comment..."
+                placeholderTextColor={colors.textSecondary}
+                value={commentBody}
+                onChangeText={setCommentBody}
+                multiline
+                maxLength={500}
+                editable={!commentPosting}
+              />
+              <TouchableOpacity
+                onPress={handlePostComment}
+                disabled={!commentBody.trim() || commentPosting}
+                style={[styles.commentPostBtn, (!commentBody.trim() || commentPosting) && styles.commentPostBtnDisabled]}
+                activeOpacity={0.8}
+              >
+                {commentPosting ? (
+                  <ActivityIndicator size="small" color={colors.textOnPrimary} />
+                ) : (
+                  <Text style={styles.commentPostBtnText}>Post</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      )}
+
+      <Modal visible={likersModalVisible} transparent animationType="fade">
+        <Pressable style={styles.modalBackdrop} onPress={() => setLikersModalVisible(false)}>
+          <View style={styles.likersCard} onStartShouldSetResponder={() => true}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Likes</Text>
+              <TouchableOpacity onPress={() => setLikersModalVisible(false)} hitSlop={12}>
+                <Ionicons name="close" size={24} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            {likersLoading ? (
+              <View style={styles.likersLoading}>
+                <ActivityIndicator size="small" color={colors.primary} />
+              </View>
+            ) : (
+              <ScrollView style={styles.likersList} keyboardShouldPersistTaps="handled">
+                {likers.map((u) => (
+                  <TouchableOpacity
+                    key={u.user_id}
+                    style={styles.likerRow}
+                    onPress={() => {
+                      setLikersModalVisible(false);
+                      navigation.navigate('UserProfile', { userId: u.user_id });
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.likerName}>{u.full_name || u.username || 'Someone'}</Text>
+                    {u.username && <Text style={styles.likerHandle}>@{u.username}</Text>}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
 
     <Modal visible={winnerPickerVisible} transparent animationType="fade">
@@ -1458,13 +1660,80 @@ function createHomeStyles(colors: ThemeColors) {
     actionsRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.lg,
-      paddingTop: spacing.sm,
+      justifyContent: 'space-between',
+      paddingTop: spacing.md,
+      paddingBottom: spacing.xs,
       borderTopWidth: 1,
       borderTopColor: colors.divider,
     },
     actionBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+    actionBtnCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
     actionLabel: { ...typography.caption, color: colors.textSecondary },
+    commentsSection: {
+      marginTop: spacing.sm,
+      paddingTop: spacing.sm,
+      borderTopWidth: 1,
+      borderTopColor: colors.divider,
+    },
+    commentsLoading: { paddingVertical: spacing.md, alignItems: 'center' },
+    commentRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      marginBottom: spacing.xs,
+      paddingVertical: spacing.xs,
+    },
+    commentAuthor: { ...typography.label, fontSize: 13, color: colors.primary, fontWeight: '600' },
+    commentBody: { ...typography.body, fontSize: 14, color: colors.text, flex: 1 },
+    commentInputRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginTop: spacing.sm,
+    },
+    commentInput: {
+      flex: 1,
+      height: 40,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: borderRadius.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      fontSize: 14,
+      color: colors.text,
+      backgroundColor: colors.background,
+    },
+    commentPostBtn: {
+      height: 40,
+      paddingHorizontal: spacing.md,
+      backgroundColor: colors.primary,
+      borderRadius: borderRadius.md,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    commentPostBtnDisabled: { opacity: 0.5 },
+    commentPostBtnText: { ...typography.label, color: colors.textOnPrimary },
+    likersCard: {
+      backgroundColor: colors.cardBg,
+      marginHorizontal: spacing.lg,
+      marginTop: 100,
+      borderRadius: borderRadius.lg,
+      padding: spacing.lg,
+      maxHeight: '70%',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    likersLoading: { paddingVertical: spacing.xl, alignItems: 'center' },
+    likersList: { maxHeight: 300 },
+    likerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.divider,
+      gap: spacing.sm,
+    },
+    likerName: { ...typography.body, color: colors.text, fontWeight: '600', flex: 1 },
+    likerHandle: { ...typography.caption, color: colors.textSecondary },
 
     modalBackdrop: {
       flex: 1,
@@ -1648,6 +1917,7 @@ export default function HomeScreen() {
   const [loadingFeed, setLoadingFeed] = useState(true);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadDmCount, setUnreadDmCount] = useState(0);
 
   useEffect(() => {
     if (notifsVisible) {
@@ -1770,11 +2040,39 @@ export default function HomeScreen() {
     } catch { /* swallow */ }
   }, [loadFeed]);
 
-  useEffect(() => { loadFeed(); loadNotifications(); }, [loadFeed, loadNotifications]);
+  const loadUnreadDmCount = useCallback(async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const uid = user.id;
+      const { data: convos } = await supabase.from('dm_conversations').select('id').or(`user1_id.eq.${uid},user2_id.eq.${uid}`);
+      if (!convos?.length) {
+        setUnreadDmCount(0);
+        return;
+      }
+      const convIds = (convos as { id: string }[]).map((c) => c.id);
+      const { data: readRows } = await supabase.from('dm_conversation_read').select('conversation_id, last_read_at').eq('user_id', uid);
+      const lastRead: Record<string, string> = {};
+      (readRows ?? []).forEach((r: { conversation_id: string; last_read_at: string }) => { lastRead[r.conversation_id] = r.last_read_at; });
+      const { data: messages } = await supabase
+        .from('dm_messages')
+        .select('conversation_id, sender_id, created_at')
+        .in('conversation_id', convIds)
+        .neq('sender_id', uid);
+      let count = 0;
+      (messages ?? []).forEach((m: { conversation_id: string; created_at: string }) => {
+        const readAt = lastRead[m.conversation_id];
+        if (!readAt || new Date(m.created_at) > new Date(readAt)) count += 1;
+      });
+      setUnreadDmCount(count);
+    } catch { /* swallow */ }
+  }, []);
+
+  useEffect(() => { loadFeed(); loadNotifications(); loadUnreadDmCount(); }, [loadFeed, loadNotifications, loadUnreadDmCount]);
 
   useEffect(() => {
-    if (isFocused) { loadFeed(); loadNotifications(); }
-  }, [isFocused, loadFeed, loadNotifications]);
+    if (isFocused) { loadFeed(); loadNotifications(); loadUnreadDmCount(); }
+  }, [isFocused, loadFeed, loadNotifications, loadUnreadDmCount]);
 
   useEffect(() => {
     if (!isFocused || !currentUserId) return;
@@ -2014,6 +2312,11 @@ export default function HomeScreen() {
             onPress={() => navigation.navigate('Messages')}
           >
             <Ionicons name="chatbubbles-outline" size={20} color={colors.text} />
+            {unreadDmCount > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{unreadDmCount > 99 ? '99+' : unreadDmCount}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -2068,7 +2371,7 @@ export default function HomeScreen() {
           }}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          onRefresh={() => { loadFeed(); loadNotifications(); }}
+          onRefresh={() => { loadFeed(); loadNotifications(); loadUnreadDmCount(); }}
           refreshing={loadingFeed}
           ListEmptyComponent={
             <Text style={styles.emptyFeed}>
@@ -2086,6 +2389,7 @@ export default function HomeScreen() {
               onRefresh={loadFeed}
               onInviteOpponent={setInviteOpponentMatch}
               onEditMatch={setEditMatch}
+              navigation={navigation}
             />
           )}
         />

@@ -511,6 +511,72 @@ create policy "Users can delete own notifications"
   on public.notifications for delete
   using (auth.uid() = user_id);
 
+-- Direct messages (1:1 conversations) -----------------------------------------
+-- Conversation between two users: user1_id < user2_id for uniqueness
+create table if not exists public.dm_conversations (
+  id         uuid primary key default gen_random_uuid(),
+  user1_id   uuid not null references auth.users (id) on delete cascade,
+  user2_id   uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (user1_id, user2_id),
+  check (user1_id < user2_id)
+);
+create index if not exists dm_conversations_user1_idx on public.dm_conversations (user1_id);
+create index if not exists dm_conversations_user2_idx on public.dm_conversations (user2_id);
+
+create table if not exists public.dm_messages (
+  id              uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references public.dm_conversations (id) on delete cascade,
+  sender_id       uuid not null references auth.users (id) on delete cascade,
+  body            text not null,
+  created_at      timestamptz not null default now()
+);
+create index if not exists dm_messages_conversation_idx on public.dm_messages (conversation_id);
+
+alter table public.dm_conversations enable row level security;
+alter table public.dm_messages enable row level security;
+
+drop policy if exists "Users can read own conversations" on public.dm_conversations;
+create policy "Users can read own conversations" on public.dm_conversations for select
+  using (auth.uid() = user1_id or auth.uid() = user2_id);
+
+drop policy if exists "Users can create conversations" on public.dm_conversations;
+create policy "Users can create conversations" on public.dm_conversations for insert
+  with check (auth.uid() = user1_id or auth.uid() = user2_id);
+
+drop policy if exists "Users can read messages in own conversations" on public.dm_messages;
+create policy "Users can read messages in own conversations" on public.dm_messages for select
+  using (
+    exists (
+      select 1 from public.dm_conversations c
+      where c.id = conversation_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid())
+    )
+  );
+
+drop policy if exists "Users can send messages in own conversations" on public.dm_messages;
+create policy "Users can send messages in own conversations" on public.dm_messages for insert
+  with check (
+    auth.uid() = sender_id
+    and exists (
+      select 1 from public.dm_conversations c
+      where c.id = conversation_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid())
+    )
+  );
+
+-- Track when user last read each conversation (for unread badge)
+create table if not exists public.dm_conversation_read (
+  user_id         uuid not null references auth.users (id) on delete cascade,
+  conversation_id uuid not null references public.dm_conversations (id) on delete cascade,
+  last_read_at    timestamptz not null default now(),
+  primary key (user_id, conversation_id)
+);
+create index if not exists dm_conversation_read_user_idx on public.dm_conversation_read (user_id);
+alter table public.dm_conversation_read enable row level security;
+drop policy if exists "Users can manage own read state" on public.dm_conversation_read;
+create policy "Users can manage own read state" on public.dm_conversation_read for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
 -- Migration: add invited_opponent_id, invited_teammate_id, invited_opponent_2_id, match_format
 do $$
 begin

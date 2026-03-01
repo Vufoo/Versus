@@ -1,6 +1,6 @@
 export const SPORT_EMOJI: Record<string, string> = {
   'Tennis': '\u{1F3BE}',
-  'Pickleball': '\u{1F3D3}',
+  'Pickleball': '\u{1F952}', // pickle (pickleball)
   'Badminton': '\u{1F3F8}',
   'Ping Pong': '\u{1F3D3}',
   'Racquetball': '\u{1F4A5}',

@@ -45,10 +45,19 @@ function createStyles(colors: ThemeColors) {
       borderBottomWidth: 1,
       borderBottomColor: colors.divider,
     },
-    settingRowLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1 },
+    settingRowLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1, minWidth: 0 },
+    settingRowTextBlock: { flex: 1, minWidth: 0 },
     settingLabel: { ...typography.body, color: colors.text },
     settingValue: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
     themeChips: { flexDirection: 'row', gap: spacing.sm },
+    themeChipsWrap: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+    settingRowLocation: {
+      flexDirection: 'column',
+      alignItems: 'stretch',
+      paddingVertical: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.divider,
+    },
     themeChip: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -266,17 +275,17 @@ export default function SettingsScreen() {
 
         <View style={styles.settingSection}>
           <Text style={styles.settingSectionTitle}>Privacy & Security</Text>
-          <View style={styles.settingRow}>
+          <View style={styles.settingRowLocation}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="location-outline" size={20} color={colors.textSecondary} />
-              <View>
+              <View style={styles.settingRowTextBlock}>
                 <Text style={styles.settingLabel}>Location on map</Text>
                 <Text style={styles.settingValue}>
                   {locationVisibility === 'public' ? 'Public — others can see you nearby' : 'Private — only you see your location'}
                 </Text>
               </View>
             </View>
-            <View style={styles.themeChips}>
+            <View style={styles.themeChipsWrap}>
               <TouchableOpacity
                 style={[styles.themeChip, locationVisibility === 'private' && styles.themeChipSelected]}
                 activeOpacity={0.8}

@@ -93,14 +93,31 @@ function createStyles(colors: ThemeColors) {
     socialLabel: { ...typography.caption, color: colors.textSecondary },
     followBtn: {
       marginTop: spacing.sm,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      minHeight: 40,
       borderRadius: borderRadius.full,
       backgroundColor: colors.primary,
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     followBtnMuted: { backgroundColor: colors.border },
     followBtnText: { ...typography.label, fontSize: 14, color: colors.textOnPrimary },
     followBtnTextMuted: { color: colors.text },
+    actionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, marginTop: spacing.sm },
+    messageBtn: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      minHeight: 40,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.xs,
+    },
+    messageBtnText: { ...typography.label, fontSize: 14, color: colors.primary },
     tabRow: {
       flexDirection: 'row',
       marginHorizontal: spacing.lg,
@@ -350,19 +367,31 @@ export default function UserProfileScreen() {
                 </TouchableOpacity>
               </View>
               {!isOwnProfile && currentUserId && (
-                <TouchableOpacity
-                  style={[styles.followBtn, (followState === 'pending' || followState === 'accepted') && styles.followBtnMuted]}
-                  onPress={sendFollowRequest}
-                  disabled={togglingFollow}
-                >
-                  {togglingFollow ? (
-                    <ActivityIndicator size="small" color={followState !== 'none' ? colors.text : colors.textOnPrimary} />
-                  ) : (
-                    <Text style={[styles.followBtnText, (followState === 'pending' || followState === 'accepted') && styles.followBtnTextMuted]}>
-                      {followState === 'accepted' ? 'Following' : followState === 'pending' ? 'Requested' : 'Follow'}
-                    </Text>
+                <View style={styles.actionRow}>
+                  <TouchableOpacity
+                    style={[styles.followBtn, (followState === 'pending' || followState === 'accepted') && styles.followBtnMuted]}
+                    onPress={sendFollowRequest}
+                    disabled={togglingFollow}
+                  >
+                    {togglingFollow ? (
+                      <ActivityIndicator size="small" color={followState !== 'none' ? colors.text : colors.textOnPrimary} />
+                    ) : (
+                      <Text style={[styles.followBtnText, (followState === 'pending' || followState === 'accepted') && styles.followBtnTextMuted]}>
+                        {followState === 'accepted' ? 'Following' : followState === 'pending' ? 'Requested' : 'Follow'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                  {followState === 'accepted' && (
+                    <TouchableOpacity
+                      style={styles.messageBtn}
+                      onPress={() => navigation.navigate('Chat', { userId: targetUserId })}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="chatbubble-outline" size={18} color={colors.primary} />
+                      <Text style={styles.messageBtnText}>Message</Text>
+                    </TouchableOpacity>
                   )}
-                </TouchableOpacity>
+                </View>
               )}
             </>
           )}

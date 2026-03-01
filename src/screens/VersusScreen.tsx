@@ -234,52 +234,24 @@ export default function VersusScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.primaryButton, styles.casualButton, !hasMembership && styles.lockedButton]}
-          onPress={() => {
-            if (!hasMembership) {
-              Alert.alert('Membership required', MEMBERSHIP_LOCK_MESSAGE, [
-                { text: 'OK' },
-                { text: 'Settings', onPress: () => navigation.navigate('Settings') },
-              ]);
-              return;
-            }
-            setFlow('ranked');
-          }}
+          style={[styles.primaryButton, styles.casualButton]}
+          onPress={() => Alert.alert('Coming soon', 'Find ranked match will be available in a future update.')}
           activeOpacity={0.85}
         >
-          {!hasMembership && (
-            <View style={styles.lockedBadge}>
-              <Text style={styles.lockedBadgeText}>Membership</Text>
-            </View>
-          )}
           <View style={styles.buttonIconWrap}>
             <Ionicons name="trophy" size={28} color={colors.text} />
           </View>
           <Text style={[styles.primaryButtonTitle, styles.casualTitle]}>Find ranked match</Text>
           <Text style={[styles.primaryButtonSub, styles.casualSub]}>
-           Get matched up with an opponent. VP and rank are impacted. Put your skills to the test.
+            Coming soon
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.primaryButton, styles.casualButton, !hasMembership && styles.lockedButton]}
-          onPress={() => {
-            if (!hasMembership) {
-              Alert.alert('Membership required', MEMBERSHIP_LOCK_MESSAGE, [
-                { text: 'OK' },
-                { text: 'Settings', onPress: () => navigation.navigate('Settings') },
-              ]);
-              return;
-            }
-            setFlow('casual');
-          }}
+          style={[styles.primaryButton, styles.casualButton]}
+          onPress={() => Alert.alert('Coming soon', 'Find casual match will be available in a future update.')}
           activeOpacity={0.85}
         >
-          {!hasMembership && (
-            <View style={styles.lockedBadge}>
-              <Text style={styles.lockedBadgeText}>Membership</Text>
-            </View>
-          )}
           <View style={styles.buttonIconWrap}>
             <Ionicons name="happy-outline" size={28} color={colors.text} />
           </View>
@@ -287,7 +259,7 @@ export default function VersusScreen() {
             Find casual match
           </Text>
           <Text style={[styles.primaryButtonSub, styles.casualSub]}>
-            Get matched up with a casual player. No VP or rank impact. Great for a practice partner or trying a new sport.
+            Coming soon
           </Text>
         </TouchableOpacity>
 
