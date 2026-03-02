@@ -1,5 +1,5 @@
 /**
- * Versus app theme: burnt orange + cream/off-white
+ * Versus app theme: dark blue primary + cream/off-white
  *
  * We support both light and dark palettes. Most components currently
  * import `colors` (which is aliased to `lightColors`), and the
@@ -7,16 +7,16 @@
  * want fully dynamic theming.
  */
 export const lightColors = {
-  // Primary: burnt orange
-  primary: '#CC5500',
-  primaryDark: '#A04400',
-  primaryLight: '#E85D00',
+  // Primary: slightly darker blue
+  primary: '#1E3A8A',
+  primaryDark: '#172554',
+  primaryLight: '#2563EB',
   // Neutrals: cream & off-white
   cream: '#FFF8F0',
   offWhite: '#FDF6ED',
   background: '#FDF6ED',
   surface: '#FFF8F0',
-  cardBg: '#FFFFFF', // Slightly lighter than background for cards (Strava-style elevation)
+  cardBg: '#FFFFFF',
   // Text
   text: '#2D2420',
   textSecondary: '#5C5048',
@@ -31,17 +31,17 @@ export const lightColors = {
 } as const;
 
 export const darkColors = {
-  primary: '#FF8C38',
-  primaryDark: '#E56E12',
-  primaryLight: '#FFB066',
+  primary: '#2563EB',
+  primaryDark: '#1E40AF',
+  primaryLight: '#3B82F6',
   cream: '#201A14',
   offWhite: '#14110E',
   background: '#090806',
   surface: '#15120E',
-  cardBg: '#1C1814', // Slightly lighter than background for cards
+  cardBg: '#1C1814',
   text: '#F5EEE4',
   textSecondary: '#B8AFA5',
-  textOnPrimary: '#0C0602',
+  textOnPrimary: '#FFFFFF',
   border: '#3A3228',
   divider: '#2A241D',
   success: '#4ADE80',

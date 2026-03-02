@@ -46,3 +46,16 @@ If `pod install` fails locally, it will fail on EAS too.
 | Node version mismatch | `eas.json` has `"node": "20.18.0"` in production profile |
 | Corrupted cache | Run with `--clear-cache` |
 | Lock file out of sync | Delete `node_modules` and `package-lock.json`, run `npm install`, commit the new lock file |
+
+## Profile picture upload fails on TestFlight / production
+
+If changing your profile picture works in dev but not in the built app:
+
+1. **Supabase Storage**  
+   Ensure the `avatars` bucket and storage policies exist in the **same** Supabase project your production app uses. Run the storage section of `supabase/schema.sql` (buckets + RLS for `storage.objects`) in the SQL editor.
+
+2. **RLS policies**  
+   You need: insert (path = `auth.uid()/...`), update, select, and delete (for replace) on `storage.objects` for the `avatars` bucket. The schema includes these.
+
+3. **App code**  
+   The app now uploads using base64 from the image picker when available (avoids `fetch(uri)` on local/photos URIs on iOS), and falls back to `fetch` + `arrayBuffer()`. If it still fails, check the in-app “Upload failed” message and any console logs for the exact Supabase/storage error.
