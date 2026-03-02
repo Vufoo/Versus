@@ -249,6 +249,11 @@ export default function FollowListScreen() {
         setFollowStates((prev) => ({ ...prev, [targetId]: 'pending' }));
         const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
         const displayName = (myProfile as { full_name?: string; username?: string })?.full_name ?? (myProfile as { full_name?: string; username?: string })?.username ?? 'Someone';
+        await supabase
+          .from('notifications')
+          .delete()
+          .match({ user_id: targetId, type: 'follow_request' })
+          .eq('data->>from_user_id', String(currentUserId));
         await supabase.from('notifications').insert({
           user_id: targetId,
           type: 'follow_request',

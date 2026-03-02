@@ -12,8 +12,9 @@ function createStyles(colors: ThemeColors) {
     header: {
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'space-between',
       paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.md,
+      paddingBottom: spacing.sm,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
       backgroundColor: colors.background,
@@ -42,7 +43,7 @@ export default function MapScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top + spacing.lg }]}>
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>Map</Text>

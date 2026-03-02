@@ -120,33 +120,32 @@ function Avatar({
   );
 
   if (isWinner) {
+    const gold = '#F59E0B';
     return (
       <View style={{ alignItems: 'center', position: 'relative' }}>
         <View
           style={{
             borderWidth: 3,
-            borderColor: colors.primary,
+            borderColor: gold,
             borderRadius: size / 2 + 4,
             padding: 4,
           }}
         >
           {avatarContent}
         </View>
-        <View
-          style={{
-            position: 'absolute',
-            top: -6,
-            left: '50%',
-            marginLeft: -10,
-            width: 20,
-            height: 20,
-            borderRadius: 10,
-            backgroundColor: colors.primary,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Ionicons name="trophy" size={12} color={colors.textOnPrimary} />
+        <View style={{ position: 'absolute', top: -6, left: 0, right: 0, alignItems: 'center' }}>
+          <View
+            style={{
+              width: 20,
+              height: 20,
+              borderRadius: 10,
+              backgroundColor: gold,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Ionicons name="trophy" size={12} color="#111827" />
+          </View>
         </View>
       </View>
     );
@@ -412,7 +411,7 @@ function FeedCard({
 
   const durationMs = item.ended_at && item.started_at
     ? new Date(item.ended_at).getTime() - new Date(item.started_at).getTime()
-    : isInProgress ? elapsedMs : 0;
+    : (isInProgress || isPaused) ? elapsedMs : 0;
 
   const isRanked = String(item.match_type || '').toLowerCase() === 'ranked';
   const participantsRaw = item.participants ?? [];
@@ -646,16 +645,16 @@ function FeedCard({
   if (!p1) return null;
 
   const isCompleted = item.status === 'completed';
-  const winnerVp = Math.max(p1?.vp_delta ?? 0, p2?.vp_delta ?? 0);
-  const vpChange = winnerVp > 0 ? `+${winnerVp}` : '0';
-  const isWin = winnerVp > 0;
+  const myVpDelta = myParticipant?.vp_delta ?? 0;
+  const isWin = myParticipant?.result === 'win';
+  const vpChange =
+    myVpDelta > 0 ? `+${myVpDelta}` : myVpDelta < 0 ? `${myVpDelta}` : '0';
 
   const statusLabel = item.status === 'pending' ? 'Pending' : item.status === 'confirmed' ? 'Confirmed' : item.status === 'in_progress' ? 'In progress' : item.status === 'paused' ? 'Paused' : item.status === 'completed' ? 'Completed' : item.status;
 
   const createdDate = new Date(item.created_at);
-  const dateStr = createdDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const dateStr = createdDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const createdTime = createdDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  const scheduledTime = item.scheduled_at ? new Date(item.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null;
   const startedTime = item.started_at ? new Date(item.started_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null;
 
   const gamesForDisplay = localGames
@@ -688,33 +687,34 @@ function FeedCard({
             <Text style={styles.creatorLabel}>Created by {creator ? getName(creator) : 'Unknown'}</Text>
           </View>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-          <View style={styles.sportBadge}>
-            <Text style={styles.sportEmoji}>{SPORT_EMOJI[item.sport_name] ?? '🏆'}</Text>
-            <Text style={styles.sportName}>{item.sport_name}</Text>
-          </View>
-          {isParticipant && onEditMatch && (
-            <TouchableOpacity
-              style={{ padding: spacing.xs }}
-              onPress={() => onEditMatch(item)}
-              hitSlop={8}
-            >
-              <Ionicons name="pencil" size={18} color={colors.textSecondary} />
-            </TouchableOpacity>
-          )}
+        {onEditMatch && (
+          <TouchableOpacity
+            style={{ padding: spacing.xs }}
+            onPress={() => onEditMatch(item)}
+            hitSlop={8}
+          >
+            <Ionicons name="pencil" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <View style={{ alignItems: 'center', marginTop: spacing.xs }}>
+        <View style={styles.sportBadge}>
+          <Text style={styles.sportEmoji}>{SPORT_EMOJI[item.sport_name] ?? '🏆'}</Text>
+          <Text style={styles.sportName}>{item.sport_name}</Text>
         </View>
       </View>
 
-      {/* Timestamps: date/created/scheduled on line 1, started/duration on line 2 */}
+      {/* Timestamps: keep on one line when possible */}
       <View style={styles.timestampsRow}>
-        <Text style={styles.timestampText}>
-          {dateStr} · Created {createdTime}{scheduledTime ? ` · Scheduled ${scheduledTime}` : ''}
+        <Text
+          style={styles.timestampTextSingle}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.85}
+        >
+          {dateStr} · Created {createdTime}{startedTime ? ` · Started ${startedTime}` : ''}
         </Text>
-        {(startedTime || durationMs > 0) && (
-          <Text style={styles.timestampText}>
-            {startedTime ? `Started ${startedTime}` : ''}{startedTime && durationMs > 0 ? ' · ' : ''}{durationMs > 0 ? formatDurationDigital(durationMs) : ''}
-          </Text>
-        )}
       </View>
 
       <View style={styles.playersRow}>
@@ -812,7 +812,23 @@ function FeedCard({
               )}
             </View>
           ) : (
-            <Text style={[styles.scoreText, { fontSize: 12, color: colors.textSecondary }]}>{statusLabel}</Text>
+            <View style={{ alignItems: 'center' }}>
+              <Text style={[styles.scoreText, { fontSize: 12, color: colors.textSecondary }]}>{statusLabel}</Text>
+              {(isInProgress || isPaused) && durationMs > 0 && (
+                <Text
+                  style={[
+                    typography.caption,
+                    {
+                      fontSize: 14,
+                      color: colors.textSecondary,
+                      marginTop: 2,
+                    },
+                  ]}
+                >
+                  {formatDurationDigital(durationMs)}
+                </Text>
+              )}
+            </View>
           )}
         </View>
         <View style={styles.playerCol}>
@@ -866,10 +882,6 @@ function FeedCard({
 
       <View style={styles.detailsRow}>
         <View style={styles.detailsLeft}>
-          <View style={styles.detailItem}>
-            <Ionicons name="calendar-outline" size={13} color={colors.textSecondary} />
-            <Text style={styles.detailText}>{dateStr}</Text>
-          </View>
           {item.match_type && (
             <View style={styles.detailItem}>
               <Ionicons name="trophy-outline" size={13} color={colors.textSecondary} />
@@ -885,7 +897,7 @@ function FeedCard({
             <Text style={styles.detailText}>{(item.match_format || '1v1') === '2v2' ? '2v2' : '1v1'}</Text>
           </View>
         </View>
-        {isCompleted && (
+        {isCompleted && myParticipant && (
           <View style={[styles.vpPill, isWin ? styles.vpPillWin : styles.vpPillLoss]}>
             <Text style={[styles.vpPillText, isWin ? styles.vpTextWin : styles.vpTextLoss]}>{vpChange} VP</Text>
           </View>
@@ -1029,7 +1041,7 @@ function FeedCard({
       {/* Map (left half) + Add photos (right half) */}
       <View style={[styles.mediaRow, { marginBottom: spacing.md }]}>
         <View style={[styles.mapTile, { width: halfWidth, flex: 1 }]}>
-          <View style={[styles.mapPlaceholder, { width: halfWidth, height: 120 }]}>
+          <View style={[styles.mapPlaceholder, { width: halfWidth, height: 140 }]}>
             <View style={styles.mapGridLines}>
               <View style={[styles.mapGridH, { top: '25%' }]} />
               <View style={[styles.mapGridH, { top: '50%' }]} />
@@ -1066,12 +1078,12 @@ function FeedCard({
             </ScrollView>
           )}
           {isParticipant ? (
-            <TouchableOpacity style={[styles.addMediaTile, { flex: 1, minHeight: 80 }]} onPress={handleAddImage} disabled={saving} activeOpacity={0.8}>
+            <TouchableOpacity style={[styles.addMediaTile, { flex: 1 }]} onPress={handleAddImage} disabled={saving} activeOpacity={0.8}>
               <Ionicons name="add-circle-outline" size={32} color={colors.primary} />
               <Text style={styles.addMediaText}>Add photo</Text>
             </TouchableOpacity>
           ) : imagesList.length === 0 ? (
-            <View style={[styles.addMediaTile, { flex: 1, minHeight: 80, opacity: 0.5 }]}>
+            <View style={[styles.addMediaTile, { flex: 1, opacity: 0.5 }]}>
               <Ionicons name="images-outline" size={32} color={colors.textSecondary} />
               <Text style={[styles.addMediaText, { color: colors.textSecondary }]}>No photos</Text>
             </View>
@@ -1121,10 +1133,15 @@ function FeedCard({
                   onPress={() => navigation.navigate('UserProfile', { userId: c.user_id })}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.commentAuthor}>
-                    {c.full_name || c.username || 'Someone'}
-                  </Text>
-                  <Text style={styles.commentBody}> {c.body}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: 2 }}>
+                    <Text style={styles.commentAuthor}>
+                      {c.full_name || c.username || 'Someone'}
+                    </Text>
+                    <Text style={styles.commentDate}>
+                      {c.created_at ? new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
+                    </Text>
+                  </View>
+                  <Text style={styles.commentBody}>{c.body}</Text>
                 </TouchableOpacity>
               ))}
             </>
@@ -1363,6 +1380,7 @@ function createHomeStyles(colors: ThemeColors) {
       width: '100%',
     },
     timestampText: { ...typography.caption, fontSize: 13, color: colors.textSecondary },
+    timestampTextSingle: { ...typography.caption, fontSize: 11, color: colors.textSecondary },
     sportBadge: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1488,11 +1506,11 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       gap: spacing.xs,
       backgroundColor: colors.primary,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
-      borderRadius: borderRadius.md,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      borderRadius: borderRadius.sm,
     },
-    startButtonText: { ...typography.label, color: colors.textOnPrimary },
+    startButtonText: { ...typography.label, fontSize: 12, color: colors.textOnPrimary },
     readyUpCenterButton: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1512,11 +1530,11 @@ function createHomeStyles(colors: ThemeColors) {
       gap: 4,
       backgroundColor: colors.primary,
       paddingHorizontal: spacing.sm,
-      paddingVertical: 4,
+      paddingVertical: 2,
       borderRadius: borderRadius.sm,
-      marginTop: 2,
+      marginTop: spacing.sm,
     },
-    readyUpCenterTextSmall: { ...typography.label, fontSize: 12, fontWeight: '600', color: colors.textOnPrimary },
+    readyUpCenterTextSmall: { ...typography.label, fontSize: 11, fontWeight: '600', color: colors.textOnPrimary },
     stopButton: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1532,9 +1550,9 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       gap: spacing.xs,
       backgroundColor: colors.error,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
-      borderRadius: borderRadius.md,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      borderRadius: borderRadius.sm,
     },
     pauseButtonText: { ...typography.label, color: '#FFF' },
     resumeButton: {
@@ -1542,9 +1560,9 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       gap: spacing.xs,
       backgroundColor: colors.success,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
-      borderRadius: borderRadius.md,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      borderRadius: borderRadius.sm,
     },
     resumeButtonText: { ...typography.label, color: '#FFF' },
     scoreEditRow: {
@@ -1583,7 +1601,7 @@ function createHomeStyles(colors: ThemeColors) {
       paddingVertical: spacing.xs,
       borderWidth: 1,
       borderColor: colors.error,
-      borderRadius: borderRadius.md,
+      borderRadius: borderRadius.sm,
     },
     deleteButtonText: { ...typography.label, fontSize: 12, color: colors.error },
 
@@ -1677,13 +1695,12 @@ function createHomeStyles(colors: ThemeColors) {
     },
     commentsLoading: { paddingVertical: spacing.md, alignItems: 'center' },
     commentRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
       marginBottom: spacing.xs,
       paddingVertical: spacing.xs,
     },
     commentAuthor: { ...typography.label, fontSize: 13, color: colors.primary, fontWeight: '600' },
-    commentBody: { ...typography.body, fontSize: 14, color: colors.text, flex: 1 },
+    commentDate: { ...typography.caption, fontSize: 12, color: colors.textSecondary },
+    commentBody: { ...typography.body, fontSize: 13, color: colors.text },
     commentInputRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -2285,15 +2302,15 @@ export default function HomeScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* ---- Top bar ---- */}
       <View style={styles.topBar}>
-        <TouchableOpacity
-          style={styles.topBarIcon}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('Search')}
-        >
-          <Ionicons name="search" size={20} color={colors.text} />
-        </TouchableOpacity>
         <Text style={styles.topBarTitle}>Home</Text>
         <View style={styles.topBarRight}>
+          <TouchableOpacity
+            style={styles.topBarIcon}
+            activeOpacity={0.8}
+            onPress={() => navigation.navigate('Search')}
+          >
+            <Ionicons name="search" size={20} color={colors.text} />
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.topBarIcon}
             activeOpacity={0.8}

@@ -26,13 +26,14 @@ function s(c: ThemeColors) {
     scroll: { flexGrow: 1, justifyContent: 'center', paddingVertical: spacing.xxl },
     wrapper: { alignItems: 'center', paddingHorizontal: spacing.xl },
 
-    logo: { width: 140, height: 140, marginBottom: spacing.md, resizeMode: 'contain' as const },
+    logo: { width: 280, height: 280, marginTop: -60, marginBottom: -80, resizeMode: 'contain' as const },
     appName: { ...typography.title, fontSize: 36, color: c.primary, marginBottom: spacing.xs },
     tagline: {
       ...typography.body,
       color: c.textSecondary,
       textAlign: 'center',
-      marginBottom: spacing.xl,
+      // marginTop: spacing.sm,
+      marginBottom: spacing.xl, /* ← motto: change this number to adjust space below motto (e.g. spacing.sm, spacing.md, spacing.lg, spacing.xl) */
       maxWidth: 280,
     },
 
@@ -41,7 +42,7 @@ function s(c: ThemeColors) {
       maxWidth: 360,
       borderRadius: borderRadius.lg,
       backgroundColor: c.surface,
-      padding: spacing.lg,
+      padding: spacing.xl,
       borderWidth: 1,
       borderColor: c.border,
     },
@@ -108,6 +109,7 @@ function s(c: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.sm,
+      marginTop: spacing.sm,
       marginBottom: spacing.sm,
     },
     checkbox: {
@@ -191,9 +193,9 @@ export default function LoginScreen({ onContinue, onGoToSignup }: Props) {
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <View style={styles.wrapper}>
-          <Image source={require('../../assets/versus-icon2.png')} style={styles.logo} resizeMode="contain" />
-          <Text style={styles.appName}>Versus</Text>
-          <Text style={styles.tagline}>Plan 1v1s. Earn VP. Prove it in the game.</Text>
+          <Image source={require('../../assets/icon_blue.png')} style={styles.logo} resizeMode="contain" />
+          {/* <Text style={styles.appName}>Versus</Text> */}
+          <Text style={styles.tagline}>Play vs opponents. Record matches. Earn points. Prove it in the game.</Text>
 
           <View style={styles.card}>
             <TextInput
@@ -252,7 +254,7 @@ export default function LoginScreen({ onContinue, onGoToSignup }: Props) {
             </View>
 
             <TouchableOpacity style={styles.socialBtn} activeOpacity={0.8}>
-              <Ionicons name="logo-google" size={20} color="#DB4437" />
+              <Ionicons name="logo-google" size={20} color="#4285F4" />
               <Text style={styles.socialBtnText}>Continue with Google</Text>
             </TouchableOpacity>
 

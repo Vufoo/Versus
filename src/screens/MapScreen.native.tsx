@@ -47,9 +47,9 @@ function createStyles(colors: ThemeColors) {
     header: {
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'space-between',
       paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.sm,
-      paddingBottom: spacing.md,
+      paddingBottom: spacing.sm,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
       backgroundColor: colors.background,
@@ -215,8 +215,8 @@ export default function MapScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+    <View style={[styles.container, { paddingTop: insets.top + spacing.lg }]}>
+      <View style={styles.header}>
         <View>
           <Text style={styles.title}>Map</Text>
           <Text style={styles.subtitle}>
