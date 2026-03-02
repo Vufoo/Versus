@@ -194,7 +194,7 @@ function createStyles(colors: ThemeColors) {
     cardTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.sm },
     cardSubtitle: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md },
     placeholder: { ...typography.caption, color: colors.textSecondary },
-    sportsGrid: { flexDirection: 'column', gap: spacing.sm },
+    sportsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     sportsGridRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs },
     sportChip: {
       paddingHorizontal: spacing.sm,
@@ -203,7 +203,6 @@ function createStyles(colors: ThemeColors) {
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.background,
-      flex: 1,
     },
     sportChipSelected: { backgroundColor: colors.primary, borderColor: colors.primaryDark },
     sportChipLabel: { ...typography.label, color: colors.textSecondary },
@@ -347,10 +346,12 @@ export default function ProfileScreen() {
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
+      base64: true,
     });
     if (result.canceled || !result.assets?.[0]?.uri) return;
 
-    const uri = result.assets[0].uri;
+    const asset = result.assets[0];
+    const uri = asset.uri;
     setAvatarUri(uri);
     setUploadingAvatar(true);
 
@@ -358,15 +359,20 @@ export default function ProfileScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not signed in');
 
-      const ext = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
+      const mimeType = asset.mimeType ?? 'image/jpeg';
+      const ext = mimeType.split('/')[1] ?? 'jpeg';
       const filePath = `${user.id}/avatar.${ext}`;
 
-      const response = await fetch(uri);
-      const blob = await response.blob();
+      if (!asset.base64) throw new Error('Image data unavailable');
+      const binaryString = atob(asset.base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
 
       const { error: uploadErr } = await supabase.storage
         .from('avatars')
-        .upload(filePath, blob, { contentType: `image/${ext === 'png' ? 'png' : 'jpeg'}`, upsert: true });
+        .upload(filePath, bytes, { contentType: mimeType, upsert: true });
 
       if (uploadErr) { console.error('Avatar upload error:', uploadErr); Alert.alert('Upload failed', uploadErr.message); return; }
 
@@ -647,28 +653,15 @@ export default function ProfileScreen() {
               <Text style={styles.cardTitle}>Preferred sports</Text>
               <Text style={styles.cardSubtitle}>Select up to {MAX_PREFERRED} sports you play the most.</Text>
               <View style={styles.sportsGrid}>
-                <View style={styles.sportsGridRow}>
-                  {SPORTS.slice(0, 7).map((sp) => {
-                    const sel = (profile?.preferred_sports ?? []).includes(sp);
-                    const atMax = !sel && (profile?.preferred_sports ?? []).length >= MAX_PREFERRED;
-                    return (
-                      <TouchableOpacity key={sp} style={[styles.sportChip, sel && styles.sportChipSelected, atMax && { opacity: 0.4 }]} onPress={() => togglePreferred(sp)} disabled={atMax} activeOpacity={0.8}>
-                        <Text style={[styles.sportChipLabel, sel && styles.sportChipLabelSelected]} numberOfLines={1}>{sportLabel(sp)}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-                <View style={styles.sportsGridRow}>
-                  {SPORTS.slice(7, 14).map((sp) => {
-                    const sel = (profile?.preferred_sports ?? []).includes(sp);
-                    const atMax = !sel && (profile?.preferred_sports ?? []).length >= MAX_PREFERRED;
-                    return (
-                      <TouchableOpacity key={sp} style={[styles.sportChip, sel && styles.sportChipSelected, atMax && { opacity: 0.4 }]} onPress={() => togglePreferred(sp)} disabled={atMax} activeOpacity={0.8}>
-                        <Text style={[styles.sportChipLabel, sel && styles.sportChipLabelSelected]} numberOfLines={1}>{sportLabel(sp)}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
+                {SPORTS.map((sp) => {
+                  const sel = (profile?.preferred_sports ?? []).includes(sp);
+                  const atMax = !sel && (profile?.preferred_sports ?? []).length >= MAX_PREFERRED;
+                  return (
+                    <TouchableOpacity key={sp} style={[styles.sportChip, sel && styles.sportChipSelected, atMax && { opacity: 0.4 }]} onPress={() => togglePreferred(sp)} disabled={atMax} activeOpacity={0.8}>
+                      <Text style={[styles.sportChipLabel, sel && styles.sportChipLabelSelected]}>{sportLabel(sp)}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
               {savingPrefs && (
                 <View style={styles.savingRow}>

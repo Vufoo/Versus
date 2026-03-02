@@ -92,7 +92,7 @@ function createStyles(colors: ThemeColors) {
     socialValue: { ...typography.heading, fontSize: 18, color: colors.text },
     socialLabel: { ...typography.caption, color: colors.textSecondary },
     followBtn: {
-      marginTop: spacing.sm,
+      flex: 1,
       paddingHorizontal: spacing.lg,
       paddingVertical: spacing.sm,
       minHeight: 40,
@@ -106,6 +106,7 @@ function createStyles(colors: ThemeColors) {
     followBtnTextMuted: { color: colors.text },
     actionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, marginTop: spacing.sm },
     messageBtn: {
+      flex: 1,
       paddingHorizontal: spacing.lg,
       paddingVertical: spacing.sm,
       minHeight: 40,

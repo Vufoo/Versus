@@ -411,7 +411,9 @@ function FeedCard({
 
   const durationMs = item.ended_at && item.started_at
     ? new Date(item.ended_at).getTime() - new Date(item.started_at).getTime()
-    : (isInProgress || isPaused) ? elapsedMs : 0;
+    : isInProgress ? elapsedMs
+    : isPaused && item.started_at ? Date.now() - new Date(item.started_at).getTime()
+    : 0;
 
   const isRanked = String(item.match_type || '').toLowerCase() === 'ranked';
   const participantsRaw = item.participants ?? [];
@@ -446,7 +448,7 @@ function FeedCard({
 
   const statusConfirmed = String(item.status || '').toLowerCase() === 'confirmed';
   const canStartRanked = isRanked && participants.length >= requiredParticipants && (statusConfirmed || readyCount >= requiredParticipants);
-  const canStartCasual = !isRanked;
+  const canStartCasual = !isRanked && participants.length >= requiredParticipants;
   const canStart = canStartRanked || canStartCasual;
 
   const handleStart = async () => {
@@ -611,16 +613,21 @@ function FeedCard({
       Alert.alert('Permission needed', 'Allow photo access to add images.');
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8, base64: true });
     if (result.canceled || !result.assets?.[0]?.uri) return;
-    const uri = result.assets[0].uri;
+    const asset = result.assets[0];
     setSaving(true);
     try {
-      const ext = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
+      const mimeType = asset.mimeType ?? 'image/jpeg';
+      const ext = mimeType.split('/')[1] ?? 'jpeg';
       const filePath = `${item.id}/${currentUserId}/${Date.now()}.${ext}`;
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      const { error: uploadErr } = await supabase.storage.from('match-images').upload(filePath, blob, { contentType: `image/${ext === 'png' ? 'png' : 'jpeg'}`, upsert: false });
+      if (!asset.base64) throw new Error('Image data unavailable');
+      const binaryString = atob(asset.base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const { error: uploadErr } = await supabase.storage.from('match-images').upload(filePath, bytes, { contentType: mimeType, upsert: false });
       if (uploadErr) throw uploadErr;
       const images = (item.images ?? []) as MatchImage[];
       await supabase.from('match_images').insert({ match_id: item.id, user_id: currentUserId, file_path: filePath, sort_order: images.length });
@@ -684,8 +691,12 @@ function FeedCard({
               size={24}
               colors={colors}
             />
-            <Text style={styles.creatorLabel}>Created by {creator ? getName(creator) : 'Unknown'}</Text>
+            <Text style={styles.creatorLabel}>{creator ? getName(creator) : 'Unknown'}</Text>
           </View>
+        </View>
+        <View style={styles.sportBadge}>
+          <Text style={styles.sportEmoji}>{SPORT_EMOJI[item.sport_name] ?? '🏆'}</Text>
+          <Text style={styles.sportName}>{item.sport_name}</Text>
         </View>
         {onEditMatch && (
           <TouchableOpacity
@@ -696,13 +707,6 @@ function FeedCard({
             <Ionicons name="pencil" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
         )}
-      </View>
-
-      <View style={{ alignItems: 'center', marginTop: spacing.xs }}>
-        <View style={styles.sportBadge}>
-          <Text style={styles.sportEmoji}>{SPORT_EMOJI[item.sport_name] ?? '🏆'}</Text>
-          <Text style={styles.sportName}>{item.sport_name}</Text>
-        </View>
       </View>
 
       {/* Timestamps: keep on one line when possible */}
@@ -719,16 +723,23 @@ function FeedCard({
 
       <View style={styles.playersRow}>
         <View style={styles.playerCol}>
-          <Avatar
-            initials={p1 ? getInitials(p1) : '?'}
-            avatarUrl={p1AvatarUrl ?? p1?.avatar_url}
-            size={44}
-            colors={colors}
-            isWinner={isCompleted && p1?.result === 'win'}
-          />
-          <Text style={styles.playerName} numberOfLines={1}>
-            {getName(p1!)}
-          </Text>
+          <TouchableOpacity
+            onPress={() => p1 && navigation.navigate('UserProfile', { userId: p1.user_id })}
+            activeOpacity={0.7}
+            style={{ alignItems: 'center', gap: spacing.xs }}
+            disabled={!p1}
+          >
+            <Avatar
+              initials={p1 ? getInitials(p1) : '?'}
+              avatarUrl={p1AvatarUrl ?? p1?.avatar_url}
+              size={44}
+              colors={colors}
+              isWinner={isCompleted && p1?.result === 'win'}
+            />
+            <Text style={styles.playerName} numberOfLines={1}>
+              {getName(p1!)}
+            </Text>
+          </TouchableOpacity>
           {p1 && String(p1.user_id) === String(currentUserId) && (
             <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>You</Text>
           )}
@@ -764,9 +775,19 @@ function FeedCard({
                     const winner = participants.find((p) => p?.result === 'win');
                     return winner ? (
                       <View style={{ alignItems: 'center' }}>
-                        <Text style={{ fontSize: 15, fontWeight: '700', color: colors.primary, marginTop: hasScore ? 6 : 0, letterSpacing: 0.5 }}>
-                          🏆 {getName(winner)} wins!
-                        </Text>
+                        <View style={{
+                          backgroundColor: colors.primary + '18',
+                          borderRadius: borderRadius.sm,
+                          paddingHorizontal: spacing.sm,
+                          paddingVertical: 4,
+                          marginTop: hasScore ? 6 : 2,
+                          borderWidth: 1,
+                          borderColor: colors.primary + '40',
+                        }}>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary, letterSpacing: 0.2 }}>
+                            🏆 {getName(winner)} wins!
+                          </Text>
+                        </View>
                         {durationMs > 0 && (
                           <Text style={[typography.caption, { fontSize: 12, color: colors.textSecondary, marginTop: 2 }]}>
                             {formatDurationDigital(durationMs)}
@@ -779,6 +800,12 @@ function FeedCard({
               )}
               <Text style={[typography.caption, { fontSize: 10, color: colors.textSecondary, marginTop: 2 }]}>
                 {p1 ? getName(p1) : 'Challenger'} — {p2 ? getName(p2) : 'Opponent'}
+              </Text>
+            </View>
+          ) : !isRanked && !p2 && (item.status === 'pending' || item.status === 'confirmed') ? (
+            <View style={{ alignItems: 'center', gap: 2, marginTop: 8 }}>
+              <Text style={[typography.caption, { fontSize: 11, color: colors.textSecondary, textAlign: 'center' }]}>
+                Waiting for{'\n'}opponent to accept
               </Text>
             </View>
           ) : isRanked && (item.status === 'pending' || item.status === 'confirmed') ? (
@@ -834,16 +861,22 @@ function FeedCard({
         <View style={styles.playerCol}>
           {p2 ? (
             <>
-              <Avatar
-                initials={getInitials(p2)}
-                avatarUrl={p2AvatarUrl ?? p2.avatar_url}
-                size={44}
-                colors={colors}
-                isWinner={isCompleted && p2.result === 'win'}
-              />
-              <Text style={styles.playerName} numberOfLines={1}>
-                {getName(p2)}
-              </Text>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('UserProfile', { userId: p2.user_id })}
+                activeOpacity={0.7}
+                style={{ alignItems: 'center', gap: spacing.xs }}
+              >
+                <Avatar
+                  initials={getInitials(p2)}
+                  avatarUrl={p2AvatarUrl ?? p2.avatar_url}
+                  size={44}
+                  colors={colors}
+                  isWinner={isCompleted && p2.result === 'win'}
+                />
+                <Text style={styles.playerName} numberOfLines={1}>
+                  {getName(p2)}
+                </Text>
+              </TouchableOpacity>
               {p2 && String(p2.user_id) === String(currentUserId) && (
                 <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>You</Text>
               )}
@@ -966,36 +999,37 @@ function FeedCard({
           </View>
           {(item.status === 'in_progress' || item.status === 'paused') && (
             <View style={styles.gamesEditSection}>
+                {/* Player name header — aligns above each input column */}
+                <View style={styles.scoreHeaderRow}>
+                  <View style={{ width: 28 }} />
+                  <Text style={styles.scoreHeaderName} numberOfLines={1}>{p1 ? getName(p1) : 'Challenger'}</Text>
+                  <View style={{ width: 20 }} />
+                  <Text style={styles.scoreHeaderName} numberOfLines={1}>{p2 ? getName(p2) : 'Opponent'}</Text>
+                </View>
                 {localGames.map((game, idx) => (
                   <View key={idx} style={styles.gameRow}>
-                    <Text style={styles.gameLabel}>Game {idx + 1}</Text>
-                    <View style={styles.scoreCol}>
-                      <Text style={styles.scorePlayerLabel}>{p1 ? getName(p1) : 'Challenger'}</Text>
-                      <TextInput
-                        style={styles.scoreInput}
-                        value={game.score_challenger}
-                        onChangeText={(t) => setLocalGames((prev) => {
-                          const next = [...prev]; next[idx] = { ...next[idx], score_challenger: t }; return next;
-                        })}
-                        placeholder="0"
-                        placeholderTextColor={colors.textSecondary}
-                        keyboardType="numeric"
-                      />
-                    </View>
-                    <Text style={styles.scoreEditVs}>-</Text>
-                    <View style={styles.scoreCol}>
-                      <Text style={styles.scorePlayerLabel}>{p2 ? getName(p2) : 'Opponent'}</Text>
-                      <TextInput
-                        style={styles.scoreInput}
-                        value={game.score_opponent}
-                        onChangeText={(t) => setLocalGames((prev) => {
-                          const next = [...prev]; next[idx] = { ...next[idx], score_opponent: t }; return next;
-                        })}
-                        placeholder="0"
-                        placeholderTextColor={colors.textSecondary}
-                        keyboardType="numeric"
-                      />
-                    </View>
+                    <Text style={styles.gameLabel}>G{idx + 1}</Text>
+                    <TextInput
+                      style={styles.scoreInput}
+                      value={game.score_challenger}
+                      onChangeText={(t) => setLocalGames((prev) => {
+                        const next = [...prev]; next[idx] = { ...next[idx], score_challenger: t }; return next;
+                      })}
+                      placeholder="0"
+                      placeholderTextColor={colors.textSecondary}
+                      keyboardType="numeric"
+                    />
+                    <Text style={styles.scoreEditVs}>–</Text>
+                    <TextInput
+                      style={styles.scoreInput}
+                      value={game.score_opponent}
+                      onChangeText={(t) => setLocalGames((prev) => {
+                        const next = [...prev]; next[idx] = { ...next[idx], score_opponent: t }; return next;
+                      })}
+                      placeholder="0"
+                      placeholderTextColor={colors.textSecondary}
+                      keyboardType="numeric"
+                    />
                   </View>
                 ))}
                 {saveValidationError != null && (
@@ -1039,7 +1073,7 @@ function FeedCard({
       )}
 
       {/* Map (left half) + Add photos (right half) */}
-      <View style={[styles.mediaRow, { marginBottom: spacing.md }]}>
+      <View style={[styles.mediaRow, { marginBottom: spacing.sm }]}>
         <View style={[styles.mapTile, { width: halfWidth, flex: 1 }]}>
           <View style={[styles.mapPlaceholder, { width: halfWidth, height: 140 }]}>
             <View style={styles.mapGridLines}>
@@ -1348,17 +1382,18 @@ function createHomeStyles(colors: ThemeColors) {
     feedCard: {
       backgroundColor: colors.cardBg,
       borderRadius: borderRadius.lg,
-      padding: spacing.lg,
-      marginBottom: spacing.md,
+      paddingTop: spacing.sm,
+      paddingHorizontal: spacing.md,
+      marginBottom: spacing.sm,
       borderWidth: 1,
       borderColor: colors.border,
     },
     stravaHeader: {
       flexDirection: 'row',
-      alignItems: 'flex-start',
+      alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: spacing.md,
-      paddingBottom: spacing.sm,
+      marginBottom: spacing.xs,
+      paddingBottom: spacing.xs,
       borderBottomWidth: 1,
       borderBottomColor: colors.divider,
     },
@@ -1368,13 +1403,13 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       gap: spacing.xs,
     },
-    creatorLabel: { ...typography.caption, fontSize: 12, color: colors.textSecondary },
+    creatorLabel: { ...typography.caption, fontSize: 12, lineHeight: 18, color: colors.textSecondary },
     timestampsRow: {
       flexDirection: 'column',
       gap: spacing.xs,
-      marginTop: spacing.sm,
-      marginBottom: spacing.md,
-      paddingBottom: spacing.md,
+      marginTop: spacing.xs,
+      marginBottom: spacing.sm,
+      paddingBottom: spacing.xs,
       borderBottomWidth: 1,
       borderBottomColor: colors.divider,
       width: '100%',
@@ -1385,8 +1420,9 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.xs,
+      marginHorizontal: spacing.sm,
     },
-    mediaRow: { flexDirection: 'row', gap: spacing.sm },
+    mediaRow: { flexDirection: 'row', gap: spacing.sm},
     mapTile: { borderRadius: borderRadius.md, overflow: 'hidden' },
     photosHalf: { flex: 1, justifyContent: 'center' },
     mediaTile: { width: 140, height: 140, borderRadius: borderRadius.md, overflow: 'hidden' },
@@ -1405,8 +1441,10 @@ function createHomeStyles(colors: ThemeColors) {
     },
     addMediaText: { ...typography.caption, fontSize: 11, color: colors.primary, marginTop: spacing.xs },
     gamesEditSection: { marginTop: spacing.sm, width: '100%', alignItems: 'center' },
-    gameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, marginBottom: spacing.md },
-    gameLabel: { ...typography.label, fontSize: 12, color: colors.textSecondary, width: 56 },
+    scoreHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, marginBottom: 4 },
+    scoreHeaderName: { ...typography.label, fontSize: 11, color: colors.textSecondary, width: 48, textAlign: 'center' },
+    gameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, marginBottom: spacing.xs },
+    gameLabel: { ...typography.label, fontSize: 11, color: colors.textSecondary, width: 28, textAlign: 'right' },
     scoreCol: { alignItems: 'center', gap: 2 },
     scorePlayerLabel: { ...typography.caption, fontSize: 12, fontWeight: '600', color: colors.text },
     validationErrorBanner: {
@@ -1438,7 +1476,8 @@ function createHomeStyles(colors: ThemeColors) {
     playersRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginBottom: spacing.md,
+      marginBottom: spacing.lg,
+      marginTop: spacing.lg
     },
     playerCol: { flex: 1, alignItems: 'center', gap: spacing.xs },
     playerName: { ...typography.label, color: colors.text, textAlign: 'center' },
@@ -1460,12 +1499,12 @@ function createHomeStyles(colors: ThemeColors) {
       borderBottomWidth: 1,
       borderBottomColor: colors.divider,
     },
-    sportEmoji: { fontSize: 18 },
-    sportName: { ...typography.label, color: colors.primary, flex: 1, textTransform: 'uppercase' },
+    sportEmoji: { fontSize: 16, lineHeight: 18 },
+    sportName: { ...typography.label, color: colors.primary, textTransform: 'uppercase', lineHeight: 18 },
     vpPill: {
       paddingHorizontal: spacing.sm,
       paddingVertical: 2,
-      borderRadius: borderRadius.full,
+      borderRadius: borderRadius.full
     },
     vpPillWin: { backgroundColor: 'rgba(45,106,45,0.12)' },
     vpPillLoss: { backgroundColor: 'rgba(185,28,28,0.1)' },
@@ -1478,7 +1517,7 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'space-between',
       flexWrap: 'wrap',
-      paddingTop: spacing.md,
+      paddingTop: spacing.sm,
       marginBottom: spacing.sm,
     },
     detailsLeft: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
@@ -1489,8 +1528,8 @@ function createHomeStyles(colors: ThemeColors) {
     matchControlsRow: {
       flexDirection: 'column',
       alignItems: 'center',
-      marginBottom: spacing.md,
-      paddingTop: spacing.md,
+      marginBottom: spacing.sm,
+      paddingTop: spacing.sm,
       borderTopWidth: 1,
       borderTopColor: colors.divider,
     },
@@ -1499,15 +1538,15 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: spacing.sm,
-      marginBottom: spacing.sm,
+      marginBottom: 0,
     },
     startButton: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.xs,
       backgroundColor: colors.primary,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xs,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
       borderRadius: borderRadius.sm,
     },
     startButtonText: { ...typography.label, fontSize: 12, color: colors.textOnPrimary },
@@ -1550,8 +1589,8 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       gap: spacing.xs,
       backgroundColor: colors.error,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xs,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
       borderRadius: borderRadius.sm,
     },
     pauseButtonText: { ...typography.label, color: '#FFF' },
@@ -1560,8 +1599,8 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       gap: spacing.xs,
       backgroundColor: colors.success,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xs,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
       borderRadius: borderRadius.sm,
     },
     resumeButtonText: { ...typography.label, color: '#FFF' },
@@ -1572,17 +1611,19 @@ function createHomeStyles(colors: ThemeColors) {
       flexWrap: 'wrap',
     },
     scoreInput: {
-      width: 44,
+      width: 48,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: borderRadius.sm,
-      paddingHorizontal: spacing.sm,
+      paddingHorizontal: spacing.xs,
       paddingVertical: spacing.xs,
-      fontSize: 14,
+      fontSize: 16,
+      fontWeight: '600' as const,
       color: colors.text,
       backgroundColor: colors.background,
+      textAlign: 'center' as const,
     },
-    scoreEditVs: { ...typography.label, color: colors.textSecondary },
+    scoreEditVs: { ...typography.label, color: colors.textSecondary, width: 20, textAlign: 'center' as const },
     saveScoreBtn: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1597,8 +1638,8 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.xs,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xs,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
       borderWidth: 1,
       borderColor: colors.error,
       borderRadius: borderRadius.sm,
@@ -1679,14 +1720,14 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingTop: spacing.md,
-      paddingBottom: spacing.xs,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.md,
       borderTopWidth: 1,
       borderTopColor: colors.divider,
     },
     actionBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
     actionBtnCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
-    actionLabel: { ...typography.caption, color: colors.textSecondary },
+    actionLabel: { ...typography.caption, fontSize: 11, color: colors.textSecondary },
     commentsSection: {
       marginTop: spacing.sm,
       paddingTop: spacing.sm,

@@ -25,7 +25,8 @@ function createStyles(colors: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: spacing.lg,
-      paddingBottom: spacing.sm,
+      paddingTop: spacing.md,
+      paddingBottom: spacing.md,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
@@ -35,7 +36,7 @@ function createStyles(colors: ThemeColors) {
       ...typography.label,
       color: colors.textSecondary,
       textTransform: 'uppercase',
-      marginBottom: spacing.sm,
+      marginBottom: spacing.md,
     },
     settingRow: {
       flexDirection: 'row',
@@ -87,7 +88,6 @@ function createStyles(colors: ThemeColors) {
     signOutText: { ...typography.body, fontWeight: '600' as const, color: colors.error },
     membershipCard: {
       marginHorizontal: spacing.lg,
-      marginBottom: spacing.lg,
       padding: spacing.lg,
       borderRadius: borderRadius.lg,
       borderWidth: 1,
@@ -169,7 +169,7 @@ export default function SettingsScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+      <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingTop: spacing.lg }}>
         <View style={styles.settingSection}>
           <Text style={styles.settingSectionTitle}>Membership</Text>
           <View style={styles.membershipCard}>

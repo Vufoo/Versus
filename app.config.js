@@ -20,7 +20,7 @@ module.exports = ({ config }) => ({
       NSLocationWhenInUseUsageDescription:
         'Versus uses your location to show nearby players, courts, and matches on the map.',
       NSPhotoLibraryUsageDescription:
-        'Versus needs photo access to set your profile picture.',
+        'Versus needs photo access to set your profile picture and add photos to matches.',
     },
   },
   android: {

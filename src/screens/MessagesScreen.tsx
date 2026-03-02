@@ -54,7 +54,9 @@ function createStyles(colors: ThemeColors) {
       borderBottomColor: colors.divider,
     },
     chatInfo: { flex: 1 },
+    chatTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 2 },
     chatName: { ...typography.body, fontWeight: '600', color: colors.text },
+    chatDate: { ...typography.caption, fontSize: 12, color: colors.textSecondary },
     chatPreview: { ...typography.caption, color: colors.textSecondary },
     emptyText: {
       ...typography.body,
@@ -95,6 +97,21 @@ function getInitials(fullName: string | null, username: string | null): string {
   }
   if (username?.trim()) return username.trim().slice(0, 2).toUpperCase();
   return '?';
+}
+
+function formatMessageDate(dateStr: string): string {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) {
+    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  } else if (diffDays < 7) {
+    return date.toLocaleDateString('en-US', { weekday: 'short' });
+  } else {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
 }
 
 export default function MessagesScreen() {
@@ -259,7 +276,12 @@ export default function MessagesScreen() {
                     {unread && <View style={styles.unreadDot} />}
                   </View>
                   <View style={styles.chatInfo}>
-                    <Text style={styles.chatName}>{f.full_name || f.username || 'User'}</Text>
+                    <View style={styles.chatTopRow}>
+                      <Text style={styles.chatName}>{f.full_name || f.username || 'User'}</Text>
+                      {meta?.latestCreatedAt ? (
+                        <Text style={styles.chatDate}>{formatMessageDate(meta.latestCreatedAt)}</Text>
+                      ) : null}
+                    </View>
                     <Text style={styles.chatPreview} numberOfLines={1}>
                       {preview}
                     </Text>

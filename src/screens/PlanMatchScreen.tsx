@@ -712,6 +712,7 @@ export default function PlanMatchScreen() {
           >
             <Text style={[styles.viewModeText, calendarViewMode === 'week' && styles.viewModeTextActive]}>Week</Text>
           </TouchableOpacity>
+          {/* Day view temporarily disabled
           <TouchableOpacity
             style={[styles.viewModeBtn, calendarViewMode === 'day' && styles.viewModeBtnActive]}
             onPress={() => setCalendarViewMode('day')}
@@ -719,6 +720,7 @@ export default function PlanMatchScreen() {
           >
             <Text style={[styles.viewModeText, calendarViewMode === 'day' && styles.viewModeTextActive]}>Day</Text>
           </TouchableOpacity>
+          */}
         </View>
 
         <View style={styles.calendarHeaderRow}>
