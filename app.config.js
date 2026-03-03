@@ -2,7 +2,7 @@ module.exports = ({ config }) => ({
   ...config,
   name: 'Versus',
   slug: 'versus',
-  version: '1.0.0',
+  version: '1.0.1',
   orientation: 'portrait',
   icon: './assets/versus_blue.png',
   userInterfaceStyle: 'light',

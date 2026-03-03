@@ -381,7 +381,7 @@ export default function SettingsScreen() {
               <Ionicons name="information-circle-outline" size={20} color={colors.textSecondary} />
               <Text style={styles.settingLabel}>Version</Text>
             </View>
-            <Text style={styles.settingValue}>1.0.0</Text>
+            <Text style={styles.settingValue}>1.0.1</Text>
           </View>
         </View>
 
