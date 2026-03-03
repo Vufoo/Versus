@@ -226,7 +226,12 @@ export default function SettingsScreen() {
               </View>
             </View>
           </View>
-          <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Coming soon', 'Password reset will be available soon.')} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.settingRow} onPress={async () => {
+            if (!userEmail) { Alert.alert('Error', 'No email found for this account.'); return; }
+            const { error: resetErr } = await supabase.auth.resetPasswordForEmail(userEmail);
+            if (resetErr) { Alert.alert('Error', resetErr.message); }
+            else { Alert.alert('Check your email', `A password reset link has been sent to ${userEmail}.`); }
+          }} activeOpacity={0.7}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="key-outline" size={20} color={colors.textSecondary} />
               <Text style={styles.settingLabel}>Change password</Text>
@@ -282,17 +287,12 @@ export default function SettingsScreen() {
 
         <View style={styles.settingSection}>
           <Text style={styles.settingSectionTitle}>Privacy & Security</Text>
-          <View style={styles.settingRowLocation}>
+          <View style={styles.settingRow}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="location-outline" size={20} color={colors.textSecondary} />
-              <View style={styles.settingRowTextBlock}>
-                <Text style={styles.settingLabel}>Location on map</Text>
-                <Text style={styles.settingValue}>
-                  {locationVisibility === 'public' ? 'Public — others can see you nearby' : 'Private — only you see your location'}
-                </Text>
-              </View>
+              <Text style={styles.settingLabel}>Location</Text>
             </View>
-            <View style={styles.themeChipsWrap}>
+            <View style={styles.themeChips}>
               <TouchableOpacity
                 style={[styles.themeChip, locationVisibility === 'private' && styles.themeChipSelected]}
                 activeOpacity={0.8}

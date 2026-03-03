@@ -448,9 +448,11 @@ function FeedCard({
   };
 
   const statusConfirmed = String(item.status || '').toLowerCase() === 'confirmed';
+  const isLocal = String(item.match_type || '').toLowerCase() === 'local';
   const canStartRanked = isRanked && participants.length >= requiredParticipants && (statusConfirmed || readyCount >= requiredParticipants);
-  const canStartCasual = !isRanked && participants.length >= requiredParticipants;
-  const canStart = canStartRanked || canStartCasual;
+  const canStartCasual = !isRanked && !isLocal && participants.length >= requiredParticipants;
+  const canStartLocal = isLocal && participants.length >= 1;
+  const canStart = canStartRanked || canStartCasual || canStartLocal;
 
   const handleStart = async () => {
     if (!currentUserId || startStopLoading) return;
@@ -491,16 +493,41 @@ function FeedCard({
       const is2v2 = (item.match_format || '1v1') === '2v2';
       const winnerParticipant = winnerUserId ? participants.find((p) => p.user_id === winnerUserId) : null;
       const winningRole = winnerParticipant?.role;
-      const vpWinner = item.match_type === 'ranked' ? 25 : 0;
-      const vpLoser = 0;
+      const isRanked = item.match_type === 'ranked';
+      const vpWinner = isRanked ? 1 : 0;
+      const vpLoser = isRanked ? -1 : 0;
+      const getResult = (p: Participant): 'win' | 'loss' | 'draw' => {
+        if (winnerUserId === null) return 'draw';
+        if (is2v2 && winningRole) return p.role === winningRole ? 'win' : 'loss';
+        return winnerUserId === p.user_id ? 'win' : 'loss';
+      };
       for (const p of participants) {
-        const result = winnerUserId === null ? 'draw' : (is2v2 && winningRole ? p.role === winningRole ? 'win' : 'loss' : winnerUserId === p.user_id ? 'win' : 'loss');
+        const result = getResult(p);
         await supabase.from('match_participants').update({
           result,
           vp_delta: result === 'win' ? vpWinner : result === 'loss' ? vpLoser : 0,
         }).eq('match_id', item.id).eq('user_id', p.user_id);
       }
       await supabase.from('matches').update({ status: 'completed', ended_at: new Date().toISOString() }).eq('id', item.id);
+
+      // Update sport ratings only for ranked matches
+      if (item.match_type === 'ranked') {
+        const { data: sportRow } = await supabase.from('sports').select('id').eq('name', item.sport_name).maybeSingle();
+        if (sportRow?.id) {
+          for (const p of participants) {
+            const result = getResult(p);
+            const vpGain = result === 'win' ? vpWinner : 0;
+            await supabase.rpc('upsert_sport_rating', {
+              p_user_id: p.user_id,
+              p_sport_id: sportRow.id,
+              p_vp_gain: vpGain,
+              p_is_win: result === 'win',
+              p_is_loss: result === 'loss',
+            });
+          }
+        }
+      }
+
       const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
       const finisherName = myProfile?.full_name ?? myProfile?.username ?? 'Someone';
       const matchTypeLabel = item.match_type ? String(item.match_type).charAt(0).toUpperCase() + String(item.match_type).slice(1) : 'Match';
@@ -762,66 +789,64 @@ function FeedCard({
           )}
         </View>
         <View style={styles.vsCol}>
-          <Text style={styles.vsText}>vs</Text>
           {((isCompleted || isInProgress || isPaused) && hasScore) || (isCompleted && !hasScore) ? (
             <View style={{ alignItems: 'center' }}>
               {isCompleted && participants.every((p) => p?.result === 'draw') ? (
                 <View style={{ alignItems: 'center' }}>
                   <Text style={[styles.scoreText, { color: colors.textSecondary }]}>Draw</Text>
                   {hasScore && displayScoreMain ? <Text style={[typography.caption, { fontSize: 12, color: colors.textSecondary, marginTop: 2 }]}>{displayScoreMain}</Text> : null}
+                  <Text style={styles.vsText}>VS</Text>
                   {durationMs > 0 && (
-                    <Text style={[typography.caption, { fontSize: 12, color: colors.textSecondary, marginTop: 2 }]}>
+                    <Text style={[typography.caption, { fontSize: 13, fontWeight: '600', color: '#1E3A8A', marginTop: spacing.xs }]}>
                       {formatDurationDigital(durationMs)}
                     </Text>
                   )}
                 </View>
               ) : (
                 <>
-                  {hasScore && <Text style={styles.scoreText}>{displayScoreMain}</Text>}
-                  {hasScore && displayScoreSub && (
-                    <Text style={[typography.caption, { fontSize: 11, color: colors.textSecondary, marginTop: 2 }]}>
-                      {displayScoreSub}
-                    </Text>
-                  )}
                   {isCompleted && (() => {
                     const winner = participants.find((p) => p?.result === 'win');
                     return winner ? (
-                      <View style={{ alignItems: 'center' }}>
-                        <View style={{
-                          backgroundColor: colors.primary + '18',
-                          borderRadius: borderRadius.sm,
-                          paddingHorizontal: spacing.sm,
-                          paddingVertical: 4,
-                          marginTop: hasScore ? 6 : 2,
-                          borderWidth: 1,
-                          borderColor: colors.primary + '40',
-                        }}>
-                          <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary, letterSpacing: 0.2 }}>
-                            🏆 {getName(winner)} wins!
-                          </Text>
-                        </View>
-                        {durationMs > 0 && (
-                          <Text style={[typography.caption, { fontSize: 12, color: colors.textSecondary, marginTop: 2 }]}>
-                            {formatDurationDigital(durationMs)}
-                          </Text>
-                        )}
+                      <View style={{
+                        backgroundColor: colors.primary + '18',
+                        borderRadius: borderRadius.sm,
+                        paddingHorizontal: spacing.sm,
+                        paddingVertical: 4,
+                        marginBottom: hasScore ? 4 : 2,
+                        borderWidth: 1,
+                        borderColor: colors.primary + '40',
+                      }}>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary, letterSpacing: 0.2 }}>
+                          🏆 {getName(winner)} Wins!
+                        </Text>
                       </View>
                     ) : null;
                   })()}
+                  {hasScore && <Text style={styles.scoreText}>{displayScoreMain}</Text>}
+                  {hasScore && displayScoreSub && (
+                    <Text style={[typography.caption, { fontSize: 9, color: colors.textSecondary, marginTop: 1 }]}>
+                      {displayScoreSub}
+                    </Text>
+                  )}
+                  <Text style={styles.vsText}>VS</Text>
+                  {durationMs > 0 && (
+                    <Text style={[typography.caption, { fontSize: 13, fontWeight: '600', color: '#1E3A8A', marginTop: spacing.xs }]}>
+                      {formatDurationDigital(durationMs)}
+                    </Text>
+                  )}
                 </>
               )}
-              <Text style={[typography.caption, { fontSize: 10, color: colors.textSecondary, marginTop: 2 }]}>
-                {p1 ? getName(p1) : 'Challenger'} — {p2 ? getName(p2) : 'Opponent'}
-              </Text>
             </View>
           ) : !isRanked && !p2 && (item.status === 'pending' || item.status === 'confirmed') ? (
-            <View style={{ alignItems: 'center', gap: 2, marginTop: 8 }}>
+            <View style={{ alignItems: 'center', gap: 2 }}>
+              <Text style={styles.vsText}>VS</Text>
               <Text style={[typography.caption, { fontSize: 11, color: colors.textSecondary, textAlign: 'center' }]}>
                 Waiting for{'\n'}opponent to accept
               </Text>
             </View>
           ) : isRanked && (item.status === 'pending' || item.status === 'confirmed') ? (
-            <View style={{ alignItems: 'center', gap: 2, marginTop: 8 }}>
+            <View style={{ alignItems: 'center', gap: 2 }}>
+              <Text style={styles.vsText}>VS</Text>
               <Text style={[typography.caption, { fontSize: 11, color: colors.textSecondary, fontWeight: '600' }]}>Ready {readyCount}/{requiredParticipants}</Text>
               {participants.filter((p) => isReady(p)).map((p) => (
                 <Text key={p.user_id} style={[typography.caption, { fontSize: 10, color: colors.primary }]}>{getName(p)} ✓</Text>
@@ -853,14 +878,16 @@ function FeedCard({
           ) : (
             <View style={{ alignItems: 'center' }}>
               <Text style={[styles.scoreText, { fontSize: 12, color: colors.textSecondary }]}>{statusLabel}</Text>
+              <Text style={styles.vsText}>VS</Text>
               {(isInProgress || isPaused) && durationMs > 0 && (
                 <Text
                   style={[
                     typography.caption,
                     {
-                      fontSize: 14,
-                      color: colors.textSecondary,
-                      marginTop: 2,
+                      fontSize: 13,
+                      fontWeight: '600',
+                      color: '#1E3A8A',
+                      marginTop: spacing.xs,
                     },
                   ]}
                 >
@@ -942,7 +969,7 @@ function FeedCard({
             <Text style={styles.detailText}>{(item.match_format || '1v1') === '2v2' ? '2v2' : '1v1'}</Text>
           </View>
         </View>
-        {isCompleted && myParticipant && (
+        {isCompleted && myParticipant && item.match_type === 'ranked' && (
           <View style={[styles.vpPill, isWin ? styles.vpPillWin : styles.vpPillLoss]}>
             <Text style={[styles.vpPillText, isWin ? styles.vpTextWin : styles.vpTextLoss]}>{vpChange} VP</Text>
           </View>
@@ -960,7 +987,7 @@ function FeedCard({
                 disabled={startStopLoading || !canStart}
                 activeOpacity={0.8}
               >
-                <Ionicons name="play" size={16} color={colors.textOnPrimary} />
+                <Ionicons name="play" size={14} color={colors.textOnPrimary} />
                 <Text style={styles.startButtonText}>Start match</Text>
               </TouchableOpacity>
             )}
@@ -971,7 +998,7 @@ function FeedCard({
                 disabled={startStopLoading}
                 activeOpacity={0.8}
               >
-                <Ionicons name="pause" size={16} color="#FFF" />
+                <Ionicons name="pause" size={14} color="#FFF" />
                 <Text style={styles.pauseButtonText}>Pause</Text>
               </TouchableOpacity>
             )}
@@ -1087,7 +1114,7 @@ function FeedCard({
       {/* Horizontal scrollable media row: location → photos → add photo */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm, marginHorizontal: -spacing.md }} contentContainerStyle={{ gap: spacing.sm, paddingHorizontal: spacing.md }}>
         <View style={[styles.mapTile, { width: halfWidth }]}>
-          <View style={[styles.mapPlaceholder, { width: halfWidth, height: 140 }]}>
+          <View style={[styles.mapPlaceholder, { width: halfWidth, height: halfWidth * 0.75 }]}>
             <View style={styles.mapGridLines}>
               <View style={[styles.mapGridH, { top: '25%' }]} />
               <View style={[styles.mapGridH, { top: '50%' }]} />
@@ -1112,12 +1139,12 @@ function FeedCard({
             key={img.id}
             activeOpacity={0.9}
             onPress={() => isParticipant && setDeleteImageId(deleteImageId === img.id ? null : img.id)}
-            style={{ width: 140, height: 140, borderRadius: borderRadius.md, overflow: 'hidden', backgroundColor: colors.background }}
+            style={{ width: halfWidth, height: halfWidth * 0.75, borderRadius: borderRadius.md, overflow: 'hidden', backgroundColor: colors.background }}
           >
             {imageUrls[img.id] ? (
-              <Image source={{ uri: imageUrls[img.id] }} style={{ width: 140, height: 140 }} resizeMode="cover" />
+              <Image source={{ uri: imageUrls[img.id] }} style={{ width: halfWidth, height: halfWidth * 0.75 }} resizeMode="cover" />
             ) : (
-              <View style={{ width: 140, height: 140, alignItems: 'center', justifyContent: 'center' }}>
+              <View style={{ width: halfWidth, height: halfWidth * 0.75, alignItems: 'center', justifyContent: 'center' }}>
                 <Ionicons name="image-outline" size={28} color={colors.textSecondary} />
               </View>
             )}
@@ -1136,12 +1163,12 @@ function FeedCard({
           </TouchableOpacity>
         ))}
         {isParticipant ? (
-          <TouchableOpacity style={[styles.addMediaTile, { width: 140 }]} onPress={handleAddImage} disabled={saving} activeOpacity={0.8}>
+          <TouchableOpacity style={[styles.addMediaTile, { width: halfWidth, height: halfWidth * 0.75 }]} onPress={handleAddImage} disabled={saving} activeOpacity={0.8}>
             <Ionicons name="add-circle-outline" size={32} color={colors.primary} />
             <Text style={styles.addMediaText}>Add photo</Text>
           </TouchableOpacity>
         ) : imagesList.length === 0 ? (
-          <View style={[styles.addMediaTile, { width: 140, opacity: 0.5 }]}>
+          <View style={[styles.addMediaTile, { width: halfWidth, height: halfWidth * 0.75, opacity: 0.5 }]}>
             <Ionicons name="images-outline" size={32} color={colors.textSecondary} />
             <Text style={[styles.addMediaText, { color: colors.textSecondary }]}>No photos</Text>
           </View>
@@ -1486,14 +1513,14 @@ function createHomeStyles(colors: ThemeColors) {
     addGameBtn: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.xs,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xs,
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
       borderWidth: 1,
       borderColor: colors.primary,
-      borderRadius: borderRadius.md,
+      borderRadius: borderRadius.sm,
     },
-    addGameBtnText: { ...typography.label, fontSize: 12, color: colors.primary },
+    addGameBtnText: { ...typography.label, fontSize: 11, color: colors.primary },
     playersRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1502,14 +1529,15 @@ function createHomeStyles(colors: ThemeColors) {
     },
     playerCol: { flex: 1, alignItems: 'center', gap: spacing.xs },
     playerName: { ...typography.label, color: colors.text, textAlign: 'center' },
-    vsCol: { alignItems: 'center', paddingHorizontal: spacing.sm },
+    vsCol: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
     vsText: {
       ...typography.caption,
-      color: colors.textSecondary,
-      fontWeight: '600',
-      marginBottom: spacing.xs,
+      color: '#0F172A',
+      fontWeight: '700',
+      marginTop: spacing.md,
+      marginBottom: spacing.sm,
     },
-    scoreText: { ...typography.heading, fontSize: 16, color: colors.text },
+    scoreText: { ...typography.heading, fontSize: 14, color: colors.text },
 
     sportRow: {
       flexDirection: 'row',
@@ -1564,13 +1592,13 @@ function createHomeStyles(colors: ThemeColors) {
     startButton: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.xs,
+      gap: 4,
       backgroundColor: colors.primary,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
       borderRadius: borderRadius.sm,
     },
-    startButtonText: { ...typography.label, fontSize: 12, color: colors.textOnPrimary },
+    startButtonText: { ...typography.label, fontSize: 11, color: colors.textOnPrimary },
     readyUpCenterButton: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1608,23 +1636,23 @@ function createHomeStyles(colors: ThemeColors) {
     pauseButton: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.xs,
+      gap: 4,
       backgroundColor: colors.error,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
       borderRadius: borderRadius.sm,
     },
-    pauseButtonText: { ...typography.label, color: '#FFF' },
+    pauseButtonText: { ...typography.label, fontSize: 11, color: '#FFF' },
     resumeButton: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.xs,
+      gap: 4,
       backgroundColor: colors.success,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
       borderRadius: borderRadius.sm,
     },
-    resumeButtonText: { ...typography.label, color: '#FFF' },
+    resumeButtonText: { ...typography.label, fontSize: 11, color: '#FFF' },
     scoreEditRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1648,24 +1676,24 @@ function createHomeStyles(colors: ThemeColors) {
     saveScoreBtn: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
       backgroundColor: colors.primary,
       borderRadius: borderRadius.sm,
     },
     saveScoreBtnDisabled: { opacity: 0.8 },
-    saveScoreBtnText: { ...typography.label, color: colors.textOnPrimary },
+    saveScoreBtnText: { ...typography.label, fontSize: 11, color: colors.textOnPrimary },
     deleteButton: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.xs,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
       borderWidth: 1,
       borderColor: colors.error,
       borderRadius: borderRadius.sm,
     },
-    deleteButtonText: { ...typography.label, fontSize: 12, color: colors.error },
+    deleteButtonText: { ...typography.label, fontSize: 11, color: colors.error },
 
     locationRow: {
       flexDirection: 'row',
@@ -2024,20 +2052,26 @@ export default function HomeScreen() {
   const [editMatch, setEditMatch] = useState<FeedMatch | null>(null);
   const [followStates, setFollowStates] = useState<Record<string, 'none' | 'pending' | 'accepted'>>({});
 
+  const refreshFollowStates = useCallback(async (userId?: string) => {
+    const uid = userId || currentUserId;
+    if (!uid) return;
+    const { data: fRows } = await supabase
+      .from('follows')
+      .select('followed_id, status')
+      .eq('follower_id', uid);
+    if (fRows) {
+      const map: Record<string, 'pending' | 'accepted'> = {};
+      for (const r of fRows as { followed_id: string; status: string }[]) map[r.followed_id] = r.status as 'pending' | 'accepted';
+      setFollowStates(map);
+    }
+  }, [currentUserId]);
+
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setCurrentUserId(user.id);
-      const { data: fRows } = await supabase
-        .from('follows')
-        .select('followed_id, status')
-        .eq('follower_id', user.id);
-      if (fRows) {
-        const map: Record<string, 'pending' | 'accepted'> = {};
-        for (const r of fRows as { followed_id: string; status: string }[]) map[r.followed_id] = r.status as 'pending' | 'accepted';
-        setFollowStates(map);
-      }
+      refreshFollowStates(user.id);
     })();
   }, []);
 
@@ -2074,10 +2108,18 @@ export default function HomeScreen() {
     const fromUserId = notif.data?.from_user_id;
     if (!fromUserId || !currentUserId) return;
     try {
+      // Check if already following this user
+      const { data: existing } = await supabase.from('follows').select('id').eq('follower_id', currentUserId).eq('followed_id', fromUserId).maybeSingle();
+      if (existing) {
+        setFollowStates((prev) => ({ ...prev, [fromUserId]: 'accepted' }));
+        return;
+      }
       await supabase.from('follows').insert({ follower_id: currentUserId, followed_id: fromUserId, status: 'pending' });
       setFollowStates((prev) => ({ ...prev, [fromUserId]: 'pending' }));
       const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
       const displayName = (myProfile as { full_name?: string; username?: string })?.full_name ?? (myProfile as { full_name?: string; username?: string })?.username ?? 'Someone';
+      // Remove old follow_request notifications before inserting
+      await supabase.from('notifications').delete().match({ user_id: fromUserId, type: 'follow_request' }).eq('data->>from_user_id', String(currentUserId));
       await supabase.from('notifications').insert({
         user_id: fromUserId,
         type: 'follow_request',
@@ -2116,8 +2158,10 @@ export default function HomeScreen() {
       // Refresh feed when we have match_accepted so ranked ready-up/start updates immediately
       const hasMatchAccepted = items.some((n) => n.type === 'match_accepted');
       if (hasMatchAccepted) loadFeed(false);
+      // Refresh follow states so "Follow back" button is accurate
+      refreshFollowStates();
     } catch { /* swallow */ }
-  }, [loadFeed]);
+  }, [loadFeed, refreshFollowStates]);
 
   const loadUnreadDmCount = useCallback(async () => {
     try {
@@ -2609,7 +2653,7 @@ export default function HomeScreen() {
                           </TouchableOpacity>
                         </View>
                       )}
-                      {n.type === 'follow_request' && n.read && n.data?.from_user_id && !followStates[n.data.from_user_id] && (
+                      {n.type === 'follow_request' && n.read && n.data?.from_user_id && followStates[n.data.from_user_id] !== 'accepted' && followStates[n.data.from_user_id] !== 'pending' && (
                         <View style={[styles.notifActions, { marginTop: spacing.xs }]}>
                           <TouchableOpacity
                             style={styles.notifAccept}

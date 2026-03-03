@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Alert,
   Image,
   Share,
+  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -146,7 +147,7 @@ function createStyles(colors: ThemeColors) {
       marginHorizontal: spacing.lg,
       marginBottom: spacing.lg,
     },
-    ranksSectionTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.md },
+    ranksSectionTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.xs },
     ranksGrid: {
       flexDirection: 'row',
       gap: spacing.md,
@@ -160,20 +161,16 @@ function createStyles(colors: ThemeColors) {
       padding: spacing.sm,
       borderWidth: 1,
       borderColor: colors.border,
-    },
-    rankCardTopRow: {
-      flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.xs,
-      marginBottom: spacing.xs,
     },
-    rankCardEmoji: { fontSize: 20 },
-    rankCardSport: { ...typography.label, fontSize: 12, color: colors.text },
-    rankCardTier: { ...typography.caption, color: colors.primary, fontWeight: '600', fontSize: 10 },
+    rankCardEmoji: { fontSize: 20, marginBottom: 2 },
+    rankCardSport: { ...typography.label, fontSize: 12, color: colors.text, textAlign: 'center' },
+    rankCardTier: { ...typography.caption, color: colors.primary, fontWeight: '600', fontSize: 10, textAlign: 'center', marginBottom: spacing.xs },
     rankCardBottomRow: {
       flexDirection: 'row',
       justifyContent: 'space-around',
       alignItems: 'center',
+      alignSelf: 'stretch',
     },
     rankCardVp: { ...typography.heading, fontSize: 16, color: colors.text },
     rankCardVpLabel: { ...typography.caption, color: colors.textSecondary, fontSize: 9 },
@@ -297,17 +294,34 @@ function createStyles(colors: ThemeColors) {
       marginTop: spacing.md,
     },
     signOutText: { ...typography.body, fontWeight: '600', color: colors.error },
+    sectionHeader: {
+      marginHorizontal: spacing.lg,
+      marginBottom: spacing.xs,
+    },
+    sectionSubtitle: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+    matchHistoryList: {
+      marginHorizontal: spacing.lg,
+      backgroundColor: colors.cardBg,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: 'hidden',
+      marginBottom: spacing.md,
+    },
     matchHistoryItem: {
-      paddingVertical: spacing.md,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
       borderBottomWidth: 1,
       borderBottomColor: colors.divider,
     },
-    matchHistoryItemLast: { borderBottomWidth: 0 },
-    matchHistoryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs },
-    matchHistoryLeft: { flex: 1 },
-    matchHistorySport: { ...typography.body, fontSize: 15, fontWeight: '600', color: colors.text },
-    matchHistoryMeta: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginTop: 4, lineHeight: 18 },
-    matchHistoryResult: { ...typography.label, fontSize: 14, fontWeight: '600' },
+    matchHistoryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    matchHistoryEmoji: { fontSize: 20 },
+    matchHistoryLeft: { flex: 1, minWidth: 0 },
+    matchHistorySport: { ...typography.label, fontSize: 13, color: colors.text },
+    matchHistoryMeta: { ...typography.caption, fontSize: 11, color: colors.textSecondary, marginTop: 1 },
+    matchHistoryRight: { alignItems: 'flex-end' },
+    matchHistoryResult: { ...typography.label, fontSize: 13, fontWeight: '700' },
+    matchHistoryVp: { ...typography.caption, fontSize: 10, color: colors.textSecondary, marginTop: 1 },
   });
 }
 
@@ -337,6 +351,7 @@ export default function ProfileScreen() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [matchHistory, setMatchHistory] = useState<MatchHistoryItem[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const pickAvatar = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -393,71 +408,68 @@ export default function ProfileScreen() {
     }
   };
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadProfile = useCallback(async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      setUserEmail(user.email ?? null);
+      setCurrentUserId(user.id);
 
-    const load = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        if (!cancelled) {
-          setUserEmail(user.email ?? null);
-          setCurrentUserId(user.id);
-        }
+      const { data: p } = await supabase
+        .from('profiles')
+        .select('username, full_name, vp_total, preferred_sports, avatar_url')
+        .eq('user_id', user.id)
+        .maybeSingle();
 
-        const { data: p } = await supabase
-          .from('profiles')
-          .select('username, full_name, vp_total, preferred_sports, avatar_url')
-          .eq('user_id', user.id)
-          .maybeSingle();
+      const { count: fing } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', user.id);
+      const { count: fers } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('followed_id', user.id);
 
-        const { count: fing } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', user.id);
-        const { count: fers } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('followed_id', user.id);
+      const { data: ratings } = await supabase
+        .from('user_sport_ratings')
+        .select('vp, rank_tier, rank_div, wins, losses, sports!inner(name)')
+        .eq('user_id', user.id);
 
-        const { data: ratings } = await supabase
-          .from('user_sport_ratings')
-          .select('vp, rank_tier, rank_div, wins, losses, sports!inner(name)')
-          .eq('user_id', user.id);
+      setProfile({
+        username: p?.username ?? null,
+        full_name: p?.full_name ?? null,
+        vp_total: p?.vp_total ?? 0,
+        preferred_sports: p?.preferred_sports ?? [],
+        avatar_url: p?.avatar_url ?? null,
+      });
+      if (p?.avatar_url) {
+        const resolved = await resolveAvatarUrl(p.avatar_url);
+        if (resolved) setAvatarUri(resolved);
+      }
+      setFollowingCount(fing ?? 0);
+      setFollowerCount(fers ?? 0);
+      if (ratings) {
+        setSportRatings((ratings as any[]).map((r) => ({
+          sport: r.sports?.name ?? '?',
+          rank_tier: r.rank_tier, rank_div: r.rank_div,
+          vp: r.vp, wins: r.wins, losses: r.losses,
+        })));
+      }
 
-        if (!cancelled) {
-          setProfile({
-            username: p?.username ?? null,
-            full_name: p?.full_name ?? null,
-            vp_total: p?.vp_total ?? 0,
-            preferred_sports: p?.preferred_sports ?? [],
-            avatar_url: p?.avatar_url ?? null,
-          });
-          if (p?.avatar_url) {
-            const resolved = await resolveAvatarUrl(p.avatar_url);
-            if (resolved && !cancelled) setAvatarUri(resolved);
-          }
-          setFollowingCount(fing ?? 0);
-          setFollowerCount(fers ?? 0);
-          if (ratings) {
-            setSportRatings((ratings as any[]).map((r) => ({
-              sport: r.sports?.name ?? '?',
-              rank_tier: r.rank_tier, rank_div: r.rank_div,
-              vp: r.vp, wins: r.wins, losses: r.losses,
-            })));
-          }
-        }
-
-        const { data: feedRows } = await supabase
-          .from('match_feed')
-          .select('id, sport_name, match_type, status, created_at, scheduled_at, started_at, location_name, match_format, is_public, participants, games')
-          .order('created_at', { ascending: false })
-          .limit(80);
-        const rows = (feedRows ?? []) as MatchHistoryItem[];
-        const myMatches = rows.filter((m) =>
-          (m.participants ?? []).some((p: { user_id?: string }) => String(p?.user_id) === String(user.id))
-        );
-        if (!cancelled) setMatchHistory(myMatches.slice(0, 30));
-      } catch { /* swallow */ } finally { if (!cancelled) setLoadingProfile(false); }
-    };
-
-    load();
-    return () => { cancelled = true; };
+      const { data: feedRows } = await supabase
+        .from('match_feed')
+        .select('id, sport_name, match_type, status, created_at, scheduled_at, started_at, location_name, match_format, is_public, participants, games')
+        .order('created_at', { ascending: false })
+        .limit(80);
+      const rows = (feedRows ?? []) as MatchHistoryItem[];
+      const myMatches = rows.filter((m) =>
+        (m.participants ?? []).some((p: { user_id?: string }) => String(p?.user_id) === String(user.id))
+      );
+      setMatchHistory(myMatches.slice(0, 30));
+    } catch { /* swallow */ } finally { setLoadingProfile(false); }
   }, []);
+
+  useEffect(() => { loadProfile(); }, [loadProfile]);
+
+  const onRefreshProfile = useCallback(async () => {
+    setRefreshing(true);
+    await loadProfile();
+    setRefreshing(false);
+  }, [loadProfile]);
 
   useEffect(() => {
     if (!currentUserId) return;
@@ -500,16 +512,19 @@ export default function ProfileScreen() {
   }, [sportRatings]);
 
   const top3Rankings = useMemo(() => {
-    const withStats = rankingsData.filter((r) => r.vp > 0 || r.rank_tier);
-    if (withStats.length > 0) {
-      return [...withStats].sort((a, b) => b.vp - a.vp).slice(0, 3);
+    const withStats = [...rankingsData.filter((r) => r.vp > 0 || r.rank_tier || r.wins > 0 || r.losses > 0)].sort((a, b) => b.vp - a.vp);
+    const result = withStats.slice(0, 3);
+    if (result.length < 3) {
+      const usedSports = new Set(result.map((r) => r.sport));
+      const preferred = profile?.preferred_sports ?? [];
+      const fillers = [...preferred, ...SPORTS].filter((s) => !usedSports.has(s));
+      for (const s of fillers) {
+        if (result.length >= 3) break;
+        const r = rankingsData.find((rd) => rd.sport === s);
+        result.push(r ?? { sport: s, rank_tier: null, rank_div: null, vp: 0, wins: 0, losses: 0 });
+      }
     }
-    const preferred = profile?.preferred_sports ?? [];
-    const sportsToShow = preferred.length >= 3 ? preferred.slice(0, 3) : SPORTS.slice(0, 3);
-    return sportsToShow.map((s) => {
-      const r = rankingsData.find((rd) => rd.sport === s);
-      return r ?? { sport: s, rank_tier: null, rank_div: null, vp: 0, wins: 0, losses: 0 };
-    });
+    return result;
   }, [rankingsData, profile?.preferred_sports]);
 
   const shareProfile = async () => {
@@ -561,7 +576,7 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefreshProfile} />}>
         {/* Profile header */}
         <View style={styles.headerCard}>
           {loadingProfile ? (
@@ -626,19 +641,15 @@ export default function ProfileScreen() {
         {tab === 'overview' && (
           <>
             <View style={styles.ranksSection}>
-              <Text style={styles.ranksSectionTitle}>Top 3 ranks</Text>
+              <Text style={styles.ranksSectionTitle}>Top 3 Ranks</Text>
               <View style={styles.ranksGrid}>
                 {top3Rankings.map((item) => (
                   <View key={item.sport} style={styles.rankCard}>
-                    <View style={styles.rankCardTopRow}>
-                      <Text style={styles.rankCardEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={styles.rankCardSport} numberOfLines={1}>{item.sport}</Text>
-                        <Text style={styles.rankCardTier}>
-                          {item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}
-                        </Text>
-                      </View>
-                    </View>
+                    <Text style={styles.rankCardEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
+                    <Text style={styles.rankCardSport} numberOfLines={1}>{item.sport}</Text>
+                    <Text style={styles.rankCardTier}>
+                      {item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}
+                    </Text>
                     <View style={styles.rankCardBottomRow}>
                       <View style={styles.rankCardStat}>
                         <Text style={styles.rankCardVp}>{item.vp}</Text>
@@ -658,9 +669,11 @@ export default function ProfileScreen() {
               </View>
             </View>
 
+            <View style={styles.sectionHeader}>
+              <Text style={styles.ranksSectionTitle}>Preferred Sports</Text>
+              <Text style={styles.sectionSubtitle}>Select up to {MAX_PREFERRED} sports you play the most.</Text>
+            </View>
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Preferred sports</Text>
-              <Text style={styles.cardSubtitle}>Select up to {MAX_PREFERRED} sports you play the most.</Text>
               <View style={styles.sportsGrid}>
                 {SPORTS.map((sp) => {
                   const sel = (profile?.preferred_sports ?? []).includes(sp);
@@ -680,12 +693,16 @@ export default function ProfileScreen() {
               )}
             </View>
 
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Match history</Text>
-              {matchHistory.length === 0 ? (
+            <View style={styles.sectionHeader}>
+              <Text style={styles.ranksSectionTitle}>Match History</Text>
+            </View>
+            {matchHistory.length === 0 ? (
+              <View style={styles.card}>
                 <Text style={styles.placeholder}>Recent wins, losses, and casual games will appear here.</Text>
-              ) : (
-                matchHistory.map((m, idx) => {
+              </View>
+            ) : (
+              <View style={styles.matchHistoryList}>
+                {matchHistory.map((m, idx) => {
                   const myPart = (m.participants ?? []).find((p: { user_id?: string }) => String(p?.user_id) === String(currentUserId));
                   const others = (m.participants ?? []).filter((p: { user_id?: string }) => String(p?.user_id) !== String(currentUserId));
                   const opponentNames = others.map((p: { full_name?: string | null; username?: string | null }) => p?.full_name || p?.username || 'Opponent').join(', ');
@@ -695,39 +712,35 @@ export default function ProfileScreen() {
                     ? games.map((g: { score_challenger: number; score_opponent: number }) => `${g.score_challenger}-${g.score_opponent}`).join(', ')
                     : null;
                   const dateStr = new Date(m.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                  const timeStr = (m.started_at || m.scheduled_at || m.created_at)
-                    ? new Date(m.started_at || m.scheduled_at || m.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-                    : null;
                   const vpDelta = myPart?.vp_delta ?? 0;
                   const vpStr = vpDelta !== 0 ? (vpDelta > 0 ? `+${vpDelta}` : `${vpDelta}`) + ' VP' : null;
-                  const formatStr = (m.match_format || '1v1') === '2v2' ? '2v2' : '1v1';
-                  const visibilityStr = m.is_public !== false ? 'Public' : 'Private';
-                  const locationStr = m.location_name?.trim() || null;
-                  const resultColor = result === 'Win' ? colors.primary : result === 'Loss' ? colors.error : colors.textSecondary;
+                  const matchTypeLabel = String(m.match_type).charAt(0).toUpperCase() + String(m.match_type).slice(1);
+                  const resultColor = result === 'Win' ? colors.primary : result === 'Loss' ? '#E53935' : colors.textSecondary;
                   return (
                     <TouchableOpacity
                       key={m.id}
-                      style={[styles.matchHistoryItem, idx === matchHistory.length - 1 && styles.matchHistoryItemLast]}
+                      style={styles.matchHistoryItem}
                       onPress={() => navigation.navigate('Home', { scrollToMatchId: m.id })}
                       activeOpacity={0.8}
                     >
                       <View style={styles.matchHistoryRow}>
+                        <Text style={styles.matchHistoryEmoji}>{SPORT_EMOJI[m.sport_name] ?? '🏆'}</Text>
                         <View style={styles.matchHistoryLeft}>
-                          <Text style={styles.matchHistorySport}>{SPORT_EMOJI[m.sport_name] ?? '🏆'} {m.sport_name}</Text>
-                          <Text style={styles.matchHistoryMeta}>
-                            {dateStr}{timeStr ? ` at ${timeStr}` : ''} • {String(m.match_type).charAt(0).toUpperCase() + String(m.match_type).slice(1)} • {formatStr} • {visibilityStr}
-                            {locationStr ? ` • ${locationStr}` : ''}
-                            {'\n'}vs {opponentNames || '—'}
-                            {(scoreStr || vpStr) ? ` • ${[scoreStr, vpStr].filter(Boolean).join(' • ')}` : ''}
+                          <Text style={styles.matchHistorySport} numberOfLines={1}>vs {opponentNames || '—'}</Text>
+                          <Text style={styles.matchHistoryMeta} numberOfLines={1}>
+                            {m.sport_name} • {matchTypeLabel} • {dateStr}{scoreStr ? ` • ${scoreStr}` : ''}
                           </Text>
                         </View>
-                        <Text style={[styles.matchHistoryResult, { color: resultColor }]}>{result}</Text>
+                        <View style={styles.matchHistoryRight}>
+                          <Text style={[styles.matchHistoryResult, { color: resultColor }]}>{result}</Text>
+                          {vpStr ? <Text style={styles.matchHistoryVp}>{vpStr}</Text> : null}
+                        </View>
                       </View>
                     </TouchableOpacity>
                   );
-                })
-              )}
-            </View>
+                })}
+              </View>
+            )}
           </>
         )}
 

@@ -6,12 +6,8 @@ export const SPORT_EMOJI: Record<string, string> = {
   'Racquetball': '\u{1F4A5}',
   'Squash': '\u{1F94E}',
   'Basketball': '\u{1F3C0}',
-  'Bowling': '\u{1F3B3}',
   'Golf': '\u26F3',
-  'Boxing': '\u{1F94A}',
-  'Pool': '\u{1F3B1}',
-  'Spikeball': '\u{1F3D0}',
-  'Track': '\u{1F3C3}',
+  'Volleyball': '\u{1F3D0}',
 };
 
 export const SPORTS = [
@@ -22,12 +18,8 @@ export const SPORTS = [
   'Racquetball',
   'Squash',
   'Basketball',
-  'Bowling',
   'Golf',
-  'Boxing',
-  'Pool',
-  'Spikeball',
-  'Track',
+  'Volleyball',
 ] as const;
 
 export type SportName = (typeof SPORTS)[number];
@@ -48,12 +40,8 @@ export const SPORT_SCORING: Record<string, { target: number; winBy: number } | '
   Racquetball: { target: 15, winBy: 2 },
   Squash: { target: 11, winBy: 2 },
   Basketball: { target: 0, winBy: 0 },
-  Bowling: { target: 0, winBy: 0 },
   Golf: { target: 0, winBy: 0 },
-  Boxing: { target: 0, winBy: 0 },
-  Pool: { target: 0, winBy: 0 },
-  Spikeball: { target: 21, winBy: 2 },
-  Track: { target: 0, winBy: 0 },
+  Volleyball: { target: 25, winBy: 2 },
 };
 
 /** Validates a game score for a sport. Returns error message or null if valid. */

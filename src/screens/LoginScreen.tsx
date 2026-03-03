@@ -15,6 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius, lightColors } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { supabase, setRememberMe, getRememberMePreference } from '../lib/supabase';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Crypto from 'expo-crypto';
 
 type Props = { onContinue: () => void; onGoToSignup: () => void };
 
@@ -160,6 +162,37 @@ export default function LoginScreen({ onContinue, onGoToSignup }: Props) {
     getRememberMePreference().then(setRememberMeState);
   }, []);
 
+  const handleAppleSignIn = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const rawNonce = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+      const hashedNonce = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        rawNonce,
+      );
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+        nonce: hashedNonce,
+      });
+      if (!credential.identityToken) return;
+      const { error: authError } = await supabase.auth.signInWithIdToken({
+        provider: 'apple',
+        token: credential.identityToken,
+        nonce: rawNonce,
+      });
+      if (authError) throw authError;
+      onContinue();
+    } catch (e: any) {
+      if (e?.code === 'ERR_REQUEST_CANCELED') return;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setError(null);
@@ -284,7 +317,7 @@ export default function LoginScreen({ onContinue, onGoToSignup }: Props) {
               <Text style={styles.socialBtnText}>Continue with Google</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.socialBtn, { backgroundColor: '#000' }]} activeOpacity={0.8}>
+            <TouchableOpacity style={[styles.socialBtn, { backgroundColor: '#000' }]} activeOpacity={0.8} onPress={handleAppleSignIn} disabled={loading}>
               <Ionicons name="logo-apple" size={20} color="#FFF" />
               <Text style={[styles.socialBtnText, { color: '#FFF' }]}>Continue with Apple</Text>
             </TouchableOpacity>

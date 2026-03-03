@@ -7,6 +7,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Image,
+  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -125,6 +126,7 @@ export default function MessagesScreen() {
   const [avatarUrls, setAvatarUrls] = useState<Record<string, string>>({});
   const [conversationByUser, setConversationByUser] = useState<Record<string, ConversationMeta>>({});
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadFollowers = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -229,6 +231,12 @@ export default function MessagesScreen() {
     loadFollowers();
   }, [loadFollowers]);
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadFollowers();
+    setRefreshing(false);
+  }, [loadFollowers]);
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -244,7 +252,7 @@ export default function MessagesScreen() {
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
-        <ScrollView showsVerticalScrollIndicator={false}>
+        <ScrollView showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
           {followers.length === 0 ? (
             <Text style={styles.emptyText}>
               Your followers will appear here. When someone follows you and you're both connected, you can message them.

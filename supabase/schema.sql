@@ -743,7 +743,71 @@ begin
   end if;
 end $$;
 
+-- RPC: upsert sport rating (called from client after match completion) ---------
+-- Uses security definer to bypass RLS so the match creator can update both
+-- their own and the opponent's ratings in a single transaction.
+drop trigger if exists trg_update_sport_ratings on public.match_participants;
+drop function if exists public.update_user_sport_ratings();
+
+create or replace function public.upsert_sport_rating(
+  p_user_id uuid,
+  p_sport_id uuid,
+  p_vp_gain integer,
+  p_is_win boolean,
+  p_is_loss boolean
+)
+returns void as $$
+declare
+  v_new_vp integer;
+begin
+  insert into public.user_sport_ratings (user_id, sport_id, vp, wins, losses)
+  values (
+    p_user_id,
+    p_sport_id,
+    p_vp_gain,
+    case when p_is_win then 1 else 0 end,
+    case when p_is_loss then 1 else 0 end
+  )
+  on conflict (user_id, sport_id) do update set
+    vp      = user_sport_ratings.vp + excluded.vp,
+    wins    = user_sport_ratings.wins + excluded.wins,
+    losses  = user_sport_ratings.losses + excluded.losses,
+    updated_at = now();
+
+  -- Read back the accumulated VP for rank calculation
+  select vp into v_new_vp
+  from public.user_sport_ratings
+  where user_id = p_user_id and sport_id = p_sport_id;
+
+  -- Update rank tier and division based on total VP
+  update public.user_sport_ratings
+  set rank_tier = case
+        when v_new_vp >= 500 then 'Diamond'
+        when v_new_vp >= 350 then 'Platinum'
+        when v_new_vp >= 225 then 'Gold'
+        when v_new_vp >= 125 then 'Silver'
+        when v_new_vp >= 50  then 'Bronze'
+        else null
+      end,
+      rank_div = case
+        when v_new_vp >= 500 then
+          case when v_new_vp >= 650 then 'I' when v_new_vp >= 575 then 'II' else 'III' end
+        when v_new_vp >= 350 then
+          case when v_new_vp >= 450 then 'I' when v_new_vp >= 400 then 'II' else 'III' end
+        when v_new_vp >= 225 then
+          case when v_new_vp >= 300 then 'I' when v_new_vp >= 260 then 'II' else 'III' end
+        when v_new_vp >= 125 then
+          case when v_new_vp >= 185 then 'I' when v_new_vp >= 150 then 'II' else 'III' end
+        when v_new_vp >= 50 then
+          case when v_new_vp >= 95 then 'I' when v_new_vp >= 70 then 'II' else 'III' end
+        else null
+      end
+  where user_id = p_user_id and sport_id = p_sport_id;
+end;
+$$ language plpgsql security definer;
+
 -- Grant access to Supabase auth roles (required for RLS to work)
 grant usage on schema public to anon, authenticated;
 grant all on all tables in schema public to anon, authenticated;
+grant execute on all functions in schema public to anon, authenticated;
 grant select on public.match_feed to anon, authenticated;

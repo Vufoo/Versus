@@ -135,7 +135,7 @@ function createStyles(colors: ThemeColors) {
     tabText: { ...typography.label, color: colors.textSecondary },
     tabTextActive: { color: colors.textOnPrimary },
     ranksSection: { marginHorizontal: spacing.lg, marginBottom: spacing.lg },
-    ranksSectionTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.md },
+    ranksSectionTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.sm },
     ranksGrid: { flexDirection: 'row', gap: spacing.md, justifyContent: 'center' },
     rankCard: { flex: 1, minWidth: 0, backgroundColor: colors.cardBg, borderRadius: borderRadius.lg, padding: spacing.md, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', minHeight: 120 },
     rankCardEmoji: { fontSize: 28, marginBottom: spacing.xs },
@@ -415,7 +415,7 @@ export default function UserProfileScreen() {
         {tab === 'overview' && (
           <>
             <View style={styles.ranksSection}>
-              <Text style={styles.ranksSectionTitle}>Top 3 ranks</Text>
+              <Text style={styles.ranksSectionTitle}>Top 3 Ranks</Text>
               <View style={styles.ranksGrid}>
                 {top3Rankings.map((item) => (
                   <View key={item.sport} style={styles.rankCard}>
