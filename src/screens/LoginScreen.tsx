@@ -160,6 +160,32 @@ export default function LoginScreen({ onContinue, onGoToSignup }: Props) {
     getRememberMePreference().then(setRememberMeState);
   }, []);
 
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { GoogleSignin, statusCodes } = require('@react-native-google-signin/google-signin');
+      GoogleSignin.configure({
+        webClientId: '748575961938-u5o8nf59pn8oqiu5h4a7bda2s0qm6bs8.apps.googleusercontent.com',
+        iosClientId: '748575961938-ifm39u8rtt3aorcsujrj0oabd2n8ha4i.apps.googleusercontent.com',
+      });
+      await GoogleSignin.hasPlayServices();
+      const response = await GoogleSignin.signIn();
+      if (!response.data?.idToken) return;
+      const { error: authError } = await supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: response.data.idToken,
+      });
+      if (authError) throw authError;
+      onContinue();
+    } catch (e: any) {
+      if (e?.code === statusCodes?.SIGN_IN_CANCELLED) return;
+      if (e?.code === statusCodes?.IN_PROGRESS) return;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleLogin = async () => {
     if (!email || !password) {
       setError('Enter your email and password.');
@@ -253,7 +279,7 @@ export default function LoginScreen({ onContinue, onGoToSignup }: Props) {
               <View style={styles.dividerLine} />
             </View>
 
-            <TouchableOpacity style={styles.socialBtn} activeOpacity={0.8}>
+            <TouchableOpacity style={styles.socialBtn} activeOpacity={0.8} onPress={handleGoogleSignIn} disabled={loading}>
               <Ionicons name="logo-google" size={20} color="#4285F4" />
               <Text style={styles.socialBtnText}>Continue with Google</Text>
             </TouchableOpacity>

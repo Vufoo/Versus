@@ -154,6 +154,13 @@ export default function SettingsScreen() {
   };
 
   const handleSignOut = async () => {
+    try {
+      const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+      await GoogleSignin.revokeAccess();
+      await GoogleSignin.signOut();
+    } catch {
+      // native module not available or user didn't sign in with Google — skip
+    }
     await supabase.auth.signOut();
     setSignedIn(false);
     navigation.goBack();

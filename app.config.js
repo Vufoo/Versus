@@ -2,6 +2,7 @@ module.exports = ({ config }) => ({
   ...config,
   name: 'Versus',
   slug: 'versus',
+  scheme: 'versus',
   version: '1.0.1',
   orientation: 'portrait',
   icon: './assets/versus_blue.png',
@@ -33,6 +34,14 @@ module.exports = ({ config }) => ({
     predictiveBackGestureEnabled: false,
     permissions: ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION'],
   },
+  plugins: [
+    [
+      '@react-native-google-signin/google-signin',
+      {
+        iosUrlScheme: 'com.googleusercontent.apps.748575961938-ifm39u8rtt3aorcsujrj0oabd2n8ha4i',
+      },
+    ],
+  ],
   web: { favicon: './assets/versus_blue.png' },
   extra: {
     eas: {
