@@ -157,26 +157,29 @@ function createStyles(colors: ThemeColors) {
       minWidth: 0,
       backgroundColor: colors.cardBg,
       borderRadius: borderRadius.lg,
-      padding: spacing.md,
+      padding: spacing.sm,
       borderWidth: 1,
       borderColor: colors.border,
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: 120,
     },
-    rankCardEmoji: { fontSize: 28, marginBottom: spacing.xs },
-    rankCardSport: { ...typography.label, color: colors.text, marginBottom: spacing.xs, textAlign: 'center' },
-    rankCardTier: { ...typography.caption, color: colors.primary, fontWeight: '600', marginBottom: spacing.xs },
-    rankCardVp: { ...typography.heading, fontSize: 22, color: colors.text },
-    rankCardVpLabel: { ...typography.caption, color: colors.textSecondary, fontSize: 11 },
-    rankCardStats: {
+    rankCardTopRow: {
       flexDirection: 'row',
-      marginTop: spacing.xs,
-      gap: spacing.sm,
+      alignItems: 'center',
+      gap: spacing.xs,
+      marginBottom: spacing.xs,
     },
+    rankCardEmoji: { fontSize: 20 },
+    rankCardSport: { ...typography.label, fontSize: 12, color: colors.text },
+    rankCardTier: { ...typography.caption, color: colors.primary, fontWeight: '600', fontSize: 10 },
+    rankCardBottomRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-around',
+      alignItems: 'center',
+    },
+    rankCardVp: { ...typography.heading, fontSize: 16, color: colors.text },
+    rankCardVpLabel: { ...typography.caption, color: colors.textSecondary, fontSize: 9 },
     rankCardStat: { alignItems: 'center' },
-    rankCardStatValue: { ...typography.label, fontSize: 14, color: colors.text },
-    rankCardStatLabel: { ...typography.caption, fontSize: 10, color: colors.textSecondary },
+    rankCardStatValue: { ...typography.label, fontSize: 12, color: colors.text },
+    rankCardStatLabel: { ...typography.caption, fontSize: 9, color: colors.textSecondary },
     dotsRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.xs, marginTop: spacing.sm },
     dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.border },
     dotActive: { backgroundColor: colors.primary },
@@ -627,14 +630,20 @@ export default function ProfileScreen() {
               <View style={styles.ranksGrid}>
                 {top3Rankings.map((item) => (
                   <View key={item.sport} style={styles.rankCard}>
-                    <Text style={styles.rankCardEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
-                    <Text style={styles.rankCardSport} numberOfLines={1}>{item.sport}</Text>
-                    <Text style={styles.rankCardTier}>
-                      {item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}
-                    </Text>
-                    <Text style={styles.rankCardVp}>{item.vp}</Text>
-                    <Text style={styles.rankCardVpLabel}>VP</Text>
-                    <View style={styles.rankCardStats}>
+                    <View style={styles.rankCardTopRow}>
+                      <Text style={styles.rankCardEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.rankCardSport} numberOfLines={1}>{item.sport}</Text>
+                        <Text style={styles.rankCardTier}>
+                          {item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.rankCardBottomRow}>
+                      <View style={styles.rankCardStat}>
+                        <Text style={styles.rankCardVp}>{item.vp}</Text>
+                        <Text style={styles.rankCardVpLabel}>VP</Text>
+                      </View>
                       <View style={styles.rankCardStat}>
                         <Text style={styles.rankCardStatValue}>{item.wins}</Text>
                         <Text style={styles.rankCardStatLabel}>W</Text>

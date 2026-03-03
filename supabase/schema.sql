@@ -723,7 +723,7 @@ create policy "Authenticated users can upload match images"
   with check (
     bucket_id = 'match-images'
     and auth.role() = 'authenticated'
-    and (storage.foldername(name))[1] = auth.uid()::text
+    and (storage.foldername(name))[2] = auth.uid()::text
   );
 drop policy if exists "Authenticated users can read match images" on storage.objects;
 create policy "Authenticated users can read match images"

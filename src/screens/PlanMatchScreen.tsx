@@ -887,7 +887,7 @@ export default function PlanMatchScreen() {
               activeOpacity={0.8}
             >
               <Ionicons name="add-circle" size={24} color={colors.textOnPrimary} />
-              <Text style={styles.dayDetailCreateText}>Create match</Text>
+              <Text style={styles.dayDetailCreateText}>New match</Text>
             </TouchableOpacity>
             <Text style={[styles.nextSubtitle, { marginTop: spacing.md, marginBottom: spacing.sm }]}>Events this day</Text>
             <ScrollView style={{ maxHeight: 200 }} showsVerticalScrollIndicator={false}>

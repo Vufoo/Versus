@@ -207,7 +207,7 @@ export default function VersusScreen() {
           </View>
           <View style={styles.rankRight}>
             <Text style={styles.rankValue}>{rankDisplay}</Text>
-            <Text style={styles.rankHint}>Ranks update after verified matches.</Text>
+            {/* <Text style={styles.rankHint}>Ranks update after verified matches.</Text> */}
           </View>
         </View>
       </View>

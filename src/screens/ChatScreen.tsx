@@ -44,7 +44,7 @@ function createStyles(colors: ThemeColors) {
     headerTitle: { ...typography.heading, color: colors.text, flex: 1 },
     list: { flex: 1 },
     listContent: { padding: spacing.md, paddingBottom: spacing.xl },
-    messageRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: spacing.sm, gap: spacing.xs },
+    messageRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: spacing.sm, gap: spacing.xs },
     messageRowSent: { flexDirection: 'row-reverse' },
     messageAvatar: {
       width: 28,

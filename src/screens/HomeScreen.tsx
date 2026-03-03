@@ -260,6 +260,7 @@ function FeedCard({
   const [liked, setLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(item.likes_count);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  const [deleteImageId, setDeleteImageId] = useState<string | null>(null);
   const gamesList = (item.games ?? []) as MatchGame[];
   const [localGames, setLocalGames] = useState<{ score_challenger: string; score_opponent: string }[]>(
     gamesList.length > 0 ? gamesList.map((g) => ({ score_challenger: String(g.score_challenger), score_opponent: String(g.score_opponent) })) : [{ score_challenger: '', score_opponent: '' }],
@@ -636,6 +637,17 @@ function FeedCard({
       Alert.alert('Upload failed', e?.message ?? 'Could not add image.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteImage = async (img: MatchImage) => {
+    try {
+      await supabase.storage.from('match-images').remove([img.file_path]);
+      await supabase.from('match_images').delete().eq('id', img.id);
+      setDeleteImageId(null);
+      onRefresh();
+    } catch (e: any) {
+      Alert.alert('Delete failed', e?.message ?? 'Could not delete image.');
     }
   };
 
@@ -1072,9 +1084,9 @@ function FeedCard({
         </View>
       )}
 
-      {/* Map (left half) + Add photos (right half) */}
-      <View style={[styles.mediaRow, { marginBottom: spacing.sm }]}>
-        <View style={[styles.mapTile, { width: halfWidth, flex: 1 }]}>
+      {/* Horizontal scrollable media row: location → photos → add photo */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm, marginHorizontal: -spacing.md }} contentContainerStyle={{ gap: spacing.sm, paddingHorizontal: spacing.md }}>
+        <View style={[styles.mapTile, { width: halfWidth }]}>
           <View style={[styles.mapPlaceholder, { width: halfWidth, height: 140 }]}>
             <View style={styles.mapGridLines}>
               <View style={[styles.mapGridH, { top: '25%' }]} />
@@ -1095,35 +1107,46 @@ function FeedCard({
             </View>
           </View>
         </View>
-        <View style={[styles.photosHalf, { width: halfWidth }]}>
-          {imagesList.length > 0 && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.xs }} contentContainerStyle={{ gap: spacing.xs }}>
-              {imagesList.map((img) => (
-                <View key={img.id} style={{ width: 56, height: 56, borderRadius: borderRadius.sm, overflow: 'hidden', backgroundColor: colors.background }}>
-                  {imageUrls[img.id] ? (
-                    <Image source={{ uri: imageUrls[img.id] }} style={{ width: 56, height: 56 }} resizeMode="cover" />
-                  ) : (
-                    <View style={{ width: 56, height: 56, alignItems: 'center', justifyContent: 'center' }}>
-                      <Ionicons name="image-outline" size={20} color={colors.textSecondary} />
-                    </View>
-                  )}
-                </View>
-              ))}
-            </ScrollView>
-          )}
-          {isParticipant ? (
-            <TouchableOpacity style={[styles.addMediaTile, { flex: 1 }]} onPress={handleAddImage} disabled={saving} activeOpacity={0.8}>
-              <Ionicons name="add-circle-outline" size={32} color={colors.primary} />
-              <Text style={styles.addMediaText}>Add photo</Text>
-            </TouchableOpacity>
-          ) : imagesList.length === 0 ? (
-            <View style={[styles.addMediaTile, { flex: 1, opacity: 0.5 }]}>
-              <Ionicons name="images-outline" size={32} color={colors.textSecondary} />
-              <Text style={[styles.addMediaText, { color: colors.textSecondary }]}>No photos</Text>
-            </View>
-          ) : null}
-        </View>
-      </View>
+        {imagesList.map((img) => (
+          <TouchableOpacity
+            key={img.id}
+            activeOpacity={0.9}
+            onPress={() => isParticipant && setDeleteImageId(deleteImageId === img.id ? null : img.id)}
+            style={{ width: 140, height: 140, borderRadius: borderRadius.md, overflow: 'hidden', backgroundColor: colors.background }}
+          >
+            {imageUrls[img.id] ? (
+              <Image source={{ uri: imageUrls[img.id] }} style={{ width: 140, height: 140 }} resizeMode="cover" />
+            ) : (
+              <View style={{ width: 140, height: 140, alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="image-outline" size={28} color={colors.textSecondary} />
+              </View>
+            )}
+            {deleteImageId === img.id && (
+              <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', borderRadius: borderRadius.md }}>
+                <TouchableOpacity
+                  onPress={() => handleDeleteImage(img)}
+                  style={{ backgroundColor: '#E53935', paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: borderRadius.full, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#fff" />
+                  <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>Delete</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </TouchableOpacity>
+        ))}
+        {isParticipant ? (
+          <TouchableOpacity style={[styles.addMediaTile, { width: 140 }]} onPress={handleAddImage} disabled={saving} activeOpacity={0.8}>
+            <Ionicons name="add-circle-outline" size={32} color={colors.primary} />
+            <Text style={styles.addMediaText}>Add photo</Text>
+          </TouchableOpacity>
+        ) : imagesList.length === 0 ? (
+          <View style={[styles.addMediaTile, { width: 140, opacity: 0.5 }]}>
+            <Ionicons name="images-outline" size={32} color={colors.textSecondary} />
+            <Text style={[styles.addMediaText, { color: colors.textSecondary }]}>No photos</Text>
+          </View>
+        ) : null}
+      </ScrollView>
 
       <View style={styles.actionsRow}>
         <TouchableOpacity style={styles.actionBtn} onPress={handleToggleLike} activeOpacity={0.8}>
@@ -1422,9 +1445,7 @@ function createHomeStyles(colors: ThemeColors) {
       gap: spacing.xs,
       marginHorizontal: spacing.sm,
     },
-    mediaRow: { flexDirection: 'row', gap: spacing.sm},
     mapTile: { borderRadius: borderRadius.md, overflow: 'hidden' },
-    photosHalf: { flex: 1, justifyContent: 'center' },
     mediaTile: { width: 140, height: 140, borderRadius: borderRadius.md, overflow: 'hidden' },
     mediaImage: { width: 140, height: 140, backgroundColor: colors.background },
     mediaPlaceholder: { alignItems: 'center', justifyContent: 'center' },
