@@ -368,6 +368,17 @@ export default function MapScreen() {
     return () => clearInterval(interval);
   }, [loadNearby]);
 
+  // Real-time: refresh map when any match is updated or deleted (e.g. completed)
+  useEffect(() => {
+    const channel = supabase
+      .channel('map-match-updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => {
+        loadNearby();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [loadNearby]);
+
   useEffect(() => {
     if (!coords || status !== 'granted') return;
     let cancelled = false;
@@ -438,6 +449,18 @@ export default function MapScreen() {
     }
     setJoiningMatchId(match.id);
     try {
+      // Check current participant count from DB (fresh check)
+      const maxSlots = match.match_format === '2v2' ? 4 : 2;
+      const { count: freshCount } = await supabase
+        .from('match_participants')
+        .select('id', { count: 'exact', head: true })
+        .eq('match_id', match.id);
+      if ((freshCount ?? 0) >= maxSlots) {
+        Alert.alert('Match is full', `This match already has ${maxSlots}/${maxSlots} players.`);
+        loadNearby();
+        return;
+      }
+
       const { count } = await supabase
         .from('match_participants')
         .select('id', { count: 'exact', head: true })
@@ -513,45 +536,61 @@ export default function MapScreen() {
             />
           ))}
 
-          {showMatches && nearbyMatches.map((m) => (
-            <Marker
-              key={`match-${m.id}`}
-              coordinate={{ latitude: m.location_lat, longitude: m.location_lng }}
-            >
-              <Image source={versusPin} style={{ width: 36, height: 36, resizeMode: 'contain' }} />
-              <Callout tooltip={false} onPress={() => { if (m.is_public && m.created_by !== currentUserId) handleJoinMatch(m); }}>
-                <View style={styles.calloutContainer}>
-                  <Text style={styles.calloutTitle}>
-                    {sportLabel(m.sport_name)} {m.match_format}
-                  </Text>
-                  <Text style={styles.calloutSport}>
-                    {m.match_type.charAt(0).toUpperCase() + m.match_type.slice(1)} · {matchStatusLabel(m.status)}
-                  </Text>
-                  {m.location_name && (
-                    <Text style={styles.calloutDetail} numberOfLines={1}>
-                      {m.location_name}
+          {showMatches && nearbyMatches.map((m) => {
+            const maxSlots = m.match_format === '2v2' ? 4 : 2;
+            const isFull = m.participant_count >= maxSlots;
+            const canJoin = m.is_public && m.created_by !== currentUserId;
+            return (
+              <Marker
+                key={`match-${m.id}`}
+                coordinate={{ latitude: m.location_lat, longitude: m.location_lng }}
+              >
+                <Image source={versusPin} style={{ width: 36, height: 36, resizeMode: 'contain' }} />
+                <Callout tooltip={false}>
+                  <View style={styles.calloutContainer}>
+                    <Text style={styles.calloutTitle}>
+                      {sportLabel(m.sport_name)} {m.match_format}
                     </Text>
-                  )}
-                  <Text style={styles.calloutDetail}>
-                    By @{m.creator_username ?? 'unknown'} · {m.participant_count} player{m.participant_count !== 1 ? 's' : ''}
-                  </Text>
-                  {m.scheduled_at && (
+                    <Text style={styles.calloutSport}>
+                      {m.match_type.charAt(0).toUpperCase() + m.match_type.slice(1)} · {matchStatusLabel(m.status)}
+                    </Text>
+                    {m.location_name && (
+                      <Text style={styles.calloutDetail} numberOfLines={1}>
+                        {m.location_name}
+                      </Text>
+                    )}
                     <Text style={styles.calloutDetail}>
-                      {new Date(m.scheduled_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      By @{m.creator_username ?? 'unknown'} · {m.participant_count}/{maxSlots} players
                     </Text>
-                  )}
-                  {m.is_public && m.created_by !== currentUserId && (
-                    <View style={styles.calloutJoin}>
-                      <Text style={styles.calloutJoinText}>Tap to join</Text>
-                    </View>
-                  )}
-                  {!m.is_public && (
-                    <Text style={[styles.calloutDetail, { fontStyle: 'italic' }]}>Private match</Text>
-                  )}
-                </View>
-              </Callout>
-            </Marker>
-          ))}
+                    {m.scheduled_at && (
+                      <Text style={styles.calloutDetail}>
+                        {new Date(m.scheduled_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      </Text>
+                    )}
+                    {canJoin && !isFull && (
+                      <TouchableOpacity
+                        style={styles.calloutJoin}
+                        onPress={() => handleJoinMatch(m)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.calloutJoinText}>
+                          {joiningMatchId === m.id ? 'Joining...' : 'Join match'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    {canJoin && isFull && (
+                      <View style={[styles.calloutJoin, { backgroundColor: '#888' }]}>
+                        <Text style={styles.calloutJoinText}>Full ({m.participant_count}/{maxSlots})</Text>
+                      </View>
+                    )}
+                    {!m.is_public && (
+                      <Text style={[styles.calloutDetail, { fontStyle: 'italic' }]}>Private match</Text>
+                    )}
+                  </View>
+                </Callout>
+              </Marker>
+            );
+          })}
 
           {droppedPin && (
             <Marker

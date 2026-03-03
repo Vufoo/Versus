@@ -238,6 +238,7 @@ function FeedCard({
   styles,
   colors,
   onRefresh,
+  updateFeedItem,
   onInviteOpponent,
   onEditMatch,
   navigation,
@@ -247,6 +248,7 @@ function FeedCard({
   styles: ReturnType<typeof createHomeStyles>;
   colors: ThemeColors;
   onRefresh: () => void;
+  updateFeedItem: (matchId: string, updater: (item: FeedMatch) => FeedMatch) => void;
   onInviteOpponent?: (match: FeedMatch) => void;
   onEditMatch?: (match: FeedMatch) => void;
   navigation: { navigate: (screen: string, params?: object) => void };
@@ -435,7 +437,10 @@ function FeedCard({
     setReadyLoading(true);
     try {
       await supabase.from('match_participants').update({ ready: true }).eq('match_id', item.id).eq('user_id', currentUserId);
-      onRefresh();
+      updateFeedItem(item.id, (m) => ({
+        ...m,
+        participants: m.participants.map((p) => p.user_id === currentUserId ? { ...p, ready: true } : p),
+      }));
     } catch { /* swallow */ }
     finally { setReadyLoading(false); }
   };
@@ -445,7 +450,10 @@ function FeedCard({
     setReadyLoading(true);
     try {
       await supabase.from('match_participants').update({ ready: false }).eq('match_id', item.id).eq('user_id', currentUserId);
-      onRefresh();
+      updateFeedItem(item.id, (m) => ({
+        ...m,
+        participants: m.participants.map((p) => p.user_id === currentUserId ? { ...p, ready: false } : p),
+      }));
     } catch { /* swallow */ }
     finally { setReadyLoading(false); }
   };
@@ -462,8 +470,11 @@ function FeedCard({
     if (!canStart) return;
     setStartStopLoading(true);
     try {
-      await supabase.from('matches').update({ status: 'in_progress', started_at: new Date().toISOString() }).eq('id', item.id);
-      onRefresh();
+      const startedAt = new Date().toISOString();
+      await supabase.from('matches').update({ status: 'in_progress', started_at: startedAt })
+        .eq('id', item.id)
+        .in('status', ['confirmed', 'pending', 'planned']);
+      updateFeedItem(item.id, (m) => ({ ...m, status: 'in_progress', started_at: startedAt }));
     } catch { /* swallow */ }
     finally { setStartStopLoading(false); }
   };
@@ -472,8 +483,10 @@ function FeedCard({
     if (!currentUserId || startStopLoading) return;
     setStartStopLoading(true);
     try {
-      await supabase.from('matches').update({ status: 'paused' }).eq('id', item.id);
-      onRefresh();
+      await supabase.from('matches').update({ status: 'paused' })
+        .eq('id', item.id)
+        .eq('status', 'in_progress');
+      updateFeedItem(item.id, (m) => ({ ...m, status: 'paused' }));
     } catch { /* swallow */ }
     finally { setStartStopLoading(false); }
   };
@@ -482,8 +495,10 @@ function FeedCard({
     if (!currentUserId || startStopLoading) return;
     setStartStopLoading(true);
     try {
-      await supabase.from('matches').update({ status: 'in_progress' }).eq('id', item.id);
-      onRefresh();
+      await supabase.from('matches').update({ status: 'in_progress' })
+        .eq('id', item.id)
+        .eq('status', 'paused');
+      updateFeedItem(item.id, (m) => ({ ...m, status: 'in_progress' }));
     } catch { /* swallow */ }
     finally { setStartStopLoading(false); }
   };
@@ -492,45 +507,48 @@ function FeedCard({
     if (!currentUserId || startStopLoading) return;
     setStartStopLoading(true);
     try {
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('finish_match', {
+        p_match_id: item.id,
+        p_winner_user_id: winnerUserId,
+        p_finished_by: currentUserId,
+      });
+
+      if (rpcError) throw rpcError;
+
+      const result = rpcResult as { ok: boolean; error?: string };
+      if (!result.ok) {
+        Alert.alert('Cannot finish match', result.error ?? 'This match was already finished by another player.');
+        onRefresh();
+        return;
+      }
+
+      // Optimistic local update
       const participants = (item.participants ?? []) as Participant[];
       const is2v2 = (item.match_format || '1v1') === '2v2';
       const winnerParticipant = winnerUserId ? participants.find((p) => p.user_id === winnerUserId) : null;
       const winningRole = winnerParticipant?.role;
-      const isRanked = item.match_type === 'ranked';
-      const vpWinner = isRanked ? 1 : 0;
-      const vpLoser = isRanked ? -1 : 0;
-      const getResult = (p: Participant): 'win' | 'loss' | 'draw' => {
+      const isRankedMatch = item.match_type === 'ranked';
+      const getResult = (p: Participant): string => {
         if (winnerUserId === null) return 'draw';
         if (is2v2 && winningRole) return p.role === winningRole ? 'win' : 'loss';
         return winnerUserId === p.user_id ? 'win' : 'loss';
       };
-      for (const p of participants) {
-        const result = getResult(p);
-        await supabase.from('match_participants').update({
-          result,
-          vp_delta: result === 'win' ? vpWinner : result === 'loss' ? vpLoser : 0,
-        }).eq('match_id', item.id).eq('user_id', p.user_id);
-      }
-      await supabase.from('matches').update({ status: 'completed', ended_at: new Date().toISOString() }).eq('id', item.id);
+      const endedAt = new Date().toISOString();
+      updateFeedItem(item.id, (m) => ({
+        ...m,
+        status: 'completed',
+        ended_at: endedAt,
+        participants: m.participants.map((p) => {
+          const res = getResult(p);
+          return {
+            ...p,
+            result: res,
+            vp_delta: res === 'win' ? (isRankedMatch ? 1 : 0) : res === 'loss' ? (isRankedMatch ? -1 : 0) : 0,
+          };
+        }),
+      }));
 
-      // Update sport ratings only for ranked matches
-      if (item.match_type === 'ranked') {
-        const { data: sportRow } = await supabase.from('sports').select('id').eq('name', item.sport_name).maybeSingle();
-        if (sportRow?.id) {
-          for (const p of participants) {
-            const result = getResult(p);
-            const vpGain = result === 'win' ? vpWinner : 0;
-            await supabase.rpc('upsert_sport_rating', {
-              p_user_id: p.user_id,
-              p_sport_id: sportRow.id,
-              p_vp_gain: vpGain,
-              p_is_win: result === 'win',
-              p_is_loss: result === 'loss',
-            });
-          }
-        }
-      }
-
+      // Send notifications (non-critical, client-side)
       const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
       const finisherName = myProfile?.full_name ?? myProfile?.username ?? 'Someone';
       const matchTypeLabel = item.match_type ? String(item.match_type).charAt(0).toUpperCase() + String(item.match_type).slice(1) : 'Match';
@@ -545,7 +563,6 @@ function FeedCard({
           });
         }
       }
-      onRefresh();
     } catch { /* swallow */ }
     finally { setStartStopLoading(false); }
   };
@@ -569,16 +586,26 @@ function FeedCard({
     setSaving(true);
     try {
       await supabase.from('match_games').delete().eq('match_id', item.id);
+      const savedGames: MatchGame[] = [];
       for (let i = 0; i < localGames.length; i++) {
         const sc = parseInt(localGames[i].score_challenger, 10) || 0;
         const so = parseInt(localGames[i].score_opponent, 10) || 0;
         await supabase.from('match_games').insert({ match_id: item.id, game_number: i + 1, score_challenger: sc, score_opponent: so });
+        savedGames.push({ game_number: i + 1, score_challenger: sc, score_opponent: so });
       }
       const totalP1 = localGames.reduce((a, g) => a + (parseInt(g.score_challenger, 10) || 0), 0);
       const totalP2 = localGames.reduce((a, g) => a + (parseInt(g.score_opponent, 10) || 0), 0);
       if (p1) await supabase.from('match_participants').update({ score: String(totalP1) }).eq('match_id', item.id).eq('user_id', p1.user_id);
       if (p2) await supabase.from('match_participants').update({ score: String(totalP2) }).eq('match_id', item.id).eq('user_id', p2.user_id);
-      onRefresh();
+      updateFeedItem(item.id, (m) => ({
+        ...m,
+        games: savedGames,
+        participants: m.participants.map((p) => {
+          if (p1 && p.user_id === p1.user_id) return { ...p, score: String(totalP1) };
+          if (p2 && p.user_id === p2.user_id) return { ...p, score: String(totalP2) };
+          return p;
+        }),
+      }));
     } catch { /* swallow */ }
     finally {
       setSaving(false);
@@ -661,8 +688,13 @@ function FeedCard({
       const { error: uploadErr } = await supabase.storage.from('match-images').upload(filePath, bytes, { contentType: mimeType, upsert: false });
       if (uploadErr) throw uploadErr;
       const images = (item.images ?? []) as MatchImage[];
-      await supabase.from('match_images').insert({ match_id: item.id, user_id: currentUserId, file_path: filePath, sort_order: images.length });
-      onRefresh();
+      const { data: insertedRow } = await supabase.from('match_images').insert({ match_id: item.id, user_id: currentUserId, file_path: filePath, sort_order: images.length }).select('id, file_path, sort_order').single();
+      if (insertedRow) {
+        updateFeedItem(item.id, (m) => ({
+          ...m,
+          images: [...(m.images ?? []), { id: insertedRow.id, file_path: insertedRow.file_path, sort_order: insertedRow.sort_order }],
+        }));
+      }
     } catch (e: any) {
       Alert.alert('Upload failed', e?.message ?? 'Could not add image.');
     } finally {
@@ -675,7 +707,10 @@ function FeedCard({
       await supabase.storage.from('match-images').remove([img.file_path]);
       await supabase.from('match_images').delete().eq('id', img.id);
       setDeleteImageId(null);
-      onRefresh();
+      updateFeedItem(item.id, (m) => ({
+        ...m,
+        images: (m.images ?? []).filter((i) => i.id !== img.id),
+      }));
     } catch (e: any) {
       Alert.alert('Delete failed', e?.message ?? 'Could not delete image.');
     }
@@ -685,6 +720,22 @@ function FeedCard({
     if (!currentUserId || deleteLoading) return;
     setDeleteLoading(true);
     try {
+      // Reverse sport ratings if this was a completed ranked match
+      if (item.status === 'completed' && item.match_type === 'ranked') {
+        const participants = (item.participants ?? []) as Participant[];
+        const { data: sportRow } = await supabase.from('sports').select('id').eq('name', item.sport_name).maybeSingle();
+        if (sportRow?.id) {
+          for (const p of participants) {
+            await supabase.rpc('reverse_sport_rating', {
+              p_user_id: p.user_id,
+              p_sport_id: sportRow.id,
+              p_vp_loss: p.vp_delta ?? 0,
+              p_was_win: p.result === 'win',
+              p_was_loss: p.result === 'loss',
+            });
+          }
+        }
+      }
       await supabase.from('matches').delete().eq('id', item.id);
       onRefresh();
     } catch { /* swallow */ }
@@ -1013,7 +1064,7 @@ function FeedCard({
                   disabled={startStopLoading}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="play" size={16} color="#FFF" />
+                  <Ionicons name="play" size={14} color="#FFF" />
                   <Text style={styles.resumeButtonText}>Resume</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -1022,7 +1073,7 @@ function FeedCard({
                   disabled={startStopLoading}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="flag" size={16} color={colors.textOnPrimary} />
+                  <Ionicons name="flag" size={14} color={colors.textOnPrimary} />
                   <Text style={styles.startButtonText}>Finish</Text>
                 </TouchableOpacity>
               </>
@@ -1542,7 +1593,7 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       marginBottom: spacing.lg,
-      marginTop: spacing.lg
+      marginTop: spacing.sm
     },
     playerCol: { flex: 1, alignItems: 'center', gap: spacing.xs },
     playerName: { ...typography.label, color: colors.text, textAlign: 'center' },
@@ -2148,6 +2199,10 @@ export default function HomeScreen() {
     } catch { /* swallow */ }
   };
 
+  const updateFeedItem = useCallback((matchId: string, updater: (item: FeedMatch) => FeedMatch) => {
+    setFeedItems(prev => prev.map(m => m.id === matchId ? updater(m) : m));
+  }, []);
+
   const loadFeed = useCallback(async (showLoading = true) => {
     if (showLoading) setLoadingFeed(true);
     try {
@@ -2214,21 +2269,29 @@ export default function HomeScreen() {
     if (isFocused) { loadFeed(); loadNotifications(); loadUnreadDmCount(); }
   }, [isFocused, loadFeed, loadNotifications, loadUnreadDmCount]);
 
+  const loadFeedDebounced = useMemo(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    return (showLoading = true) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => loadFeed(showLoading), 300);
+    };
+  }, [loadFeed]);
+
   useEffect(() => {
     if (!isFocused || !currentUserId) return;
     const channel = supabase
       .channel('matches-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => {
-        loadFeed(false);
+        loadFeedDebounced(false);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'match_participants' }, () => {
-        loadFeed(false);
+        loadFeedDebounced(false);
       })
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [isFocused, currentUserId, loadFeed]);
+  }, [isFocused, currentUserId, loadFeedDebounced]);
 
   const hasPendingRankedMatch = useMemo(() => {
     if (!currentUserId) return false;
@@ -2527,6 +2590,7 @@ export default function HomeScreen() {
               styles={styles}
               colors={colors}
               onRefresh={loadFeed}
+              updateFeedItem={updateFeedItem}
               onInviteOpponent={setInviteOpponentMatch}
               onEditMatch={setEditMatch}
               navigation={navigation}

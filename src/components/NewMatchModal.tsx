@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -81,8 +81,8 @@ function makeStyles(c: ThemeColors) {
     matchTypeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
     matchTypeChip: {
       flex: 1,
-      minHeight: 48,
-      paddingVertical: spacing.sm,
+      minHeight: 36,
+      paddingVertical: spacing.xs,
       borderRadius: borderRadius.md,
       borderWidth: 1,
       borderColor: c.border,
@@ -140,6 +140,29 @@ function makeStyles(c: ThemeColors) {
     amPmTextActive: { color: c.textOnPrimary },
     tpDone: { backgroundColor: c.primary, paddingVertical: spacing.md, borderRadius: borderRadius.md, alignItems: 'center' },
     tpDoneText: { ...typography.heading, fontSize: 16, color: c.textOnPrimary },
+    suggestionsList: {
+      borderWidth: 1,
+      borderColor: c.border,
+      borderTopWidth: 0,
+      borderBottomLeftRadius: borderRadius.md,
+      borderBottomRightRadius: borderRadius.md,
+      backgroundColor: c.cardBg,
+      overflow: 'hidden',
+      marginBottom: spacing.md,
+    },
+    suggestionItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingVertical: 10,
+      paddingHorizontal: spacing.md,
+    },
+    suggestionText: {
+      ...typography.body,
+      fontSize: 13,
+      color: c.text,
+      flex: 1,
+    },
   });
 }
 
@@ -169,6 +192,11 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUsername, setCurrentUsername] = useState<string | null>(null);
   const [friends, setFriends] = useState<SearchedUser[]>([]);
+
+  type LocationSuggestion = { name: string; lat: number; lng: number };
+  const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { if (initialSport) setSport(initialSport); }, [initialSport]);
   useEffect(() => { if (initialMatchType) setMatchType(initialMatchType); }, [initialMatchType]);
@@ -207,6 +235,46 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   }, []);
 
   const formatTime = () => `${timeHour}:${timeMinute.toString().padStart(2, '0')} ${timeAmPm}`;
+
+  const handleLocationChange = (text: string) => {
+    setLocation(text);
+    if (!text.trim()) {
+      setLocationLat(null);
+      setLocationLng(null);
+      setLocationSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (text.trim().length < 2) return;
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const resp = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&limit=5&addressdetails=1`,
+          { headers: { 'Accept-Language': 'en', 'User-Agent': 'VersusApp/1.0' } },
+        );
+        const results = await resp.json();
+        const suggestions: LocationSuggestion[] = results.map((r: any) => ({
+          name: r.display_name.split(',').slice(0, 3).join(',').trim(),
+          lat: parseFloat(r.lat),
+          lng: parseFloat(r.lon),
+        }));
+        setLocationSuggestions(suggestions);
+        setShowSuggestions(suggestions.length > 0);
+      } catch {
+        setLocationSuggestions([]);
+        setShowSuggestions(false);
+      }
+    }, 400);
+  };
+
+  const selectSuggestion = (s: LocationSuggestion) => {
+    setLocation(s.name);
+    setLocationLat(s.lat);
+    setLocationLng(s.lng);
+    setLocationSuggestions([]);
+    setShowSuggestions(false);
+  };
 
   const dateId = initialDate ?? new Date().toISOString().slice(0, 10);
 
@@ -315,6 +383,8 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
     setLocation('');
     setLocationLat(null);
     setLocationLng(null);
+    setLocationSuggestions([]);
+    setShowSuggestions(false);
     setNotes('');
     setMatchType(initialMatchType ?? 'casual');
     setIsPublic(true);
@@ -497,7 +567,30 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
               )}
 
               <Text style={styles.label}>Location</Text>
-              <TextInput style={styles.input} placeholder="Court or gym name" placeholderTextColor={colors.textSecondary} value={location} onChangeText={(t) => { setLocation(t); if (!t.trim()) { setLocationLat(null); setLocationLng(null); } }} />
+              <TextInput
+                style={[styles.input, { marginBottom: showSuggestions ? 0 : spacing.md }]}
+                placeholder="Search for a place..."
+                placeholderTextColor={colors.textSecondary}
+                value={location}
+                onChangeText={handleLocationChange}
+                onBlur={() => { setTimeout(() => setShowSuggestions(false), 150); }}
+                onFocus={() => { if (locationSuggestions.length > 0) setShowSuggestions(true); }}
+              />
+              {showSuggestions && locationSuggestions.length > 0 && (
+                <View style={styles.suggestionsList}>
+                  {locationSuggestions.map((s, i) => (
+                    <TouchableOpacity
+                      key={i}
+                      style={[styles.suggestionItem, i < locationSuggestions.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.border }]}
+                      onPress={() => selectSuggestion(s)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="location-outline" size={14} color={colors.textSecondary} />
+                      <Text style={styles.suggestionText} numberOfLines={2}>{s.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
               <TouchableOpacity
                 style={[styles.timeBtn, { marginBottom: spacing.md }]}
                 onPress={() => setLocationPicker(true)}

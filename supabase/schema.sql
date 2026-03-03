@@ -42,6 +42,8 @@ create table if not exists public.profiles (
   full_name      text,
   avatar_url     text,
   bio            text,
+  date_of_birth  date,
+  gender         text,
 
   preferred_sports text[] not null default '{}',
 
@@ -66,7 +68,9 @@ create index if not exists profiles_username_idx on public.profiles (username);
 alter table public.profiles
   add column if not exists is_admin boolean not null default false,
   add column if not exists membership_status text not null default 'free',
-  add column if not exists location_visibility text not null default 'private';
+  add column if not exists location_visibility text not null default 'private',
+  add column if not exists date_of_birth date,
+  add column if not exists gender text;
 
 -- RLS for profiles -----------------------------------------------------------
 alter table public.profiles enable row level security;
@@ -776,9 +780,9 @@ begin
     case when p_is_loss then 1 else 0 end
   )
   on conflict (user_id, sport_id) do update set
-    vp      = user_sport_ratings.vp + excluded.vp,
-    wins    = user_sport_ratings.wins + excluded.wins,
-    losses  = user_sport_ratings.losses + excluded.losses,
+    vp      = greatest(0, user_sport_ratings.vp + excluded.vp),
+    wins    = greatest(0, user_sport_ratings.wins + excluded.wins),
+    losses  = greatest(0, user_sport_ratings.losses + excluded.losses),
     updated_at = now();
 
   -- Read back the accumulated VP for rank calculation
@@ -812,6 +816,137 @@ begin
   where user_id = p_user_id and sport_id = p_sport_id;
 end;
 $$ language plpgsql security definer;
+
+-- RPC: reverse sport rating when a completed ranked match is deleted -----------
+create or replace function public.reverse_sport_rating(
+  p_user_id uuid,
+  p_sport_id uuid,
+  p_vp_loss integer,
+  p_was_win boolean,
+  p_was_loss boolean
+)
+returns void as $$
+declare
+  v_new_vp integer;
+begin
+  update public.user_sport_ratings
+  set
+    vp     = greatest(0, vp - p_vp_loss),
+    wins   = greatest(0, wins - case when p_was_win then 1 else 0 end),
+    losses = greatest(0, losses - case when p_was_loss then 1 else 0 end),
+    updated_at = now()
+  where user_id = p_user_id and sport_id = p_sport_id;
+
+  -- Recalculate rank tier based on new VP
+  select vp into v_new_vp
+  from public.user_sport_ratings
+  where user_id = p_user_id and sport_id = p_sport_id;
+
+  if v_new_vp is not null then
+    update public.user_sport_ratings
+    set rank_tier = case
+          when v_new_vp >= 500 then 'Diamond'
+          when v_new_vp >= 350 then 'Platinum'
+          when v_new_vp >= 225 then 'Gold'
+          when v_new_vp >= 125 then 'Silver'
+          when v_new_vp >= 50  then 'Bronze'
+          else null
+        end,
+        rank_div = case
+          when v_new_vp >= 500 then
+            case when v_new_vp >= 650 then 'I' when v_new_vp >= 575 then 'II' else 'III' end
+          when v_new_vp >= 350 then
+            case when v_new_vp >= 450 then 'I' when v_new_vp >= 400 then 'II' else 'III' end
+          when v_new_vp >= 225 then
+            case when v_new_vp >= 300 then 'I' when v_new_vp >= 260 then 'II' else 'III' end
+          when v_new_vp >= 125 then
+            case when v_new_vp >= 185 then 'I' when v_new_vp >= 150 then 'II' else 'III' end
+          when v_new_vp >= 50 then
+            case when v_new_vp >= 95 then 'I' when v_new_vp >= 70 then 'II' else 'III' end
+          else null
+        end
+    where user_id = p_user_id and sport_id = p_sport_id;
+  end if;
+end;
+$$ language plpgsql security definer;
+
+-- RPC: atomically finish a match (prevents race conditions) ---------------------
+create or replace function public.finish_match(
+  p_match_id uuid,
+  p_winner_user_id uuid,     -- NULL for draw
+  p_finished_by uuid         -- the user who clicked finish
+) returns jsonb
+language plpgsql security definer
+as $$
+declare
+  v_match record;
+  v_participant record;
+  v_result participant_result;
+  v_vp integer;
+  v_sport_id uuid;
+  v_winning_role participant_role;
+  v_match_format text;
+begin
+  -- Lock the match row to prevent concurrent finishes
+  select * into v_match from matches where id = p_match_id for update;
+
+  if v_match is null then
+    return jsonb_build_object('ok', false, 'error', 'Match not found');
+  end if;
+
+  if v_match.status not in ('in_progress', 'paused') then
+    return jsonb_build_object('ok', false, 'error', 'Match already ' || v_match.status);
+  end if;
+
+  v_match_format := coalesce(v_match.match_format, '1v1');
+
+  -- Find winning role for 2v2
+  if p_winner_user_id is not null and v_match_format = '2v2' then
+    select role into v_winning_role
+    from match_participants where match_id = p_match_id and user_id = p_winner_user_id;
+  end if;
+
+  -- Update all participants
+  for v_participant in select * from match_participants where match_id = p_match_id loop
+    if p_winner_user_id is null then
+      v_result := 'draw';
+      v_vp := 0;
+    elsif v_match_format = '2v2' and v_winning_role is not null then
+      if v_participant.role = v_winning_role then
+        v_result := 'win'; v_vp := case when v_match.match_type = 'ranked' then 1 else 0 end;
+      else
+        v_result := 'loss'; v_vp := case when v_match.match_type = 'ranked' then -1 else 0 end;
+      end if;
+    else
+      if v_participant.user_id = p_winner_user_id then
+        v_result := 'win'; v_vp := case when v_match.match_type = 'ranked' then 1 else 0 end;
+      else
+        v_result := 'loss'; v_vp := case when v_match.match_type = 'ranked' then -1 else 0 end;
+      end if;
+    end if;
+
+    update match_participants set result = v_result, vp_delta = v_vp
+    where match_id = p_match_id and user_id = v_participant.user_id;
+
+    -- Update sport ratings for ranked
+    if v_match.match_type = 'ranked' then
+      select id into v_sport_id from sports where id = v_match.sport_id;
+      if v_sport_id is not null then
+        perform upsert_sport_rating(
+          v_participant.user_id, v_sport_id,
+          case when v_result = 'win' then v_vp else 0 end,
+          v_result = 'win', v_result = 'loss'
+        );
+      end if;
+    end if;
+  end loop;
+
+  -- Complete the match
+  update matches set status = 'completed', ended_at = now() where id = p_match_id;
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
 
 -- Grant access to Supabase auth roles (required for RLS to work)
 grant usage on schema public to anon, authenticated;

@@ -11,6 +11,10 @@ import {
   Image,
   Share,
   RefreshControl,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -322,6 +326,63 @@ function createStyles(colors: ThemeColors) {
     matchHistoryRight: { alignItems: 'flex-end' },
     matchHistoryResult: { ...typography.label, fontSize: 13, fontWeight: '700' },
     matchHistoryVp: { ...typography.caption, fontSize: 10, color: colors.textSecondary, marginTop: 1 },
+
+    /* ---- Edit profile ---- */
+    editBtn: {
+      position: 'absolute',
+      top: spacing.sm,
+      right: spacing.sm,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: colors.background,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1,
+    },
+    editLabel: {
+      ...typography.label,
+      color: colors.text,
+      marginBottom: spacing.xs,
+      marginTop: spacing.md,
+    },
+    editInput: {
+      ...typography.body,
+      color: colors.text,
+      backgroundColor: colors.background,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: borderRadius.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+    },
+    genderRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+    },
+    genderChip: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm - 2,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+    },
+    genderChipSelected: { backgroundColor: colors.primary, borderColor: colors.primaryDark },
+    genderChipText: { ...typography.label, color: colors.textSecondary },
+    genderChipTextSelected: { color: colors.textOnPrimary },
+    saveEditBtn: {
+      backgroundColor: colors.primary,
+      borderRadius: borderRadius.md,
+      paddingVertical: spacing.md,
+      alignItems: 'center',
+      marginTop: spacing.lg,
+      marginBottom: spacing.md,
+    },
+    saveEditBtnText: { ...typography.body, fontWeight: '600', color: colors.textOnPrimary },
   });
 }
 
@@ -340,7 +401,15 @@ export default function ProfileScreen() {
     vp_total: number;
     preferred_sports: string[];
     avatar_url: string | null;
+    date_of_birth: string | null;
+    gender: string | null;
   } | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editDob, setEditDob] = useState('');
+  const [editGender, setEditGender] = useState('');
+  const [editLocation, setEditLocation] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [followingCount, setFollowingCount] = useState(0);
   const [followerCount, setFollowerCount] = useState(0);
@@ -417,7 +486,7 @@ export default function ProfileScreen() {
 
       const { data: p } = await supabase
         .from('profiles')
-        .select('username, full_name, vp_total, preferred_sports, avatar_url')
+        .select('username, full_name, vp_total, preferred_sports, avatar_url, date_of_birth, gender')
         .eq('user_id', user.id)
         .maybeSingle();
 
@@ -435,6 +504,8 @@ export default function ProfileScreen() {
         vp_total: p?.vp_total ?? 0,
         preferred_sports: p?.preferred_sports ?? [],
         avatar_url: p?.avatar_url ?? null,
+        date_of_birth: p?.date_of_birth ?? null,
+        gender: p?.gender ?? null,
       });
       if (p?.avatar_url) {
         const resolved = await resolveAvatarUrl(p.avatar_url);
@@ -562,6 +633,37 @@ export default function ProfileScreen() {
     finally { setSavingPrefs(false); }
   };
 
+  const openEditModal = () => {
+    setEditName(profile?.full_name ?? '');
+    setEditDob(profile?.date_of_birth ?? '');
+    setEditGender(profile?.gender ?? '');
+    setEditLocation('');
+    setShowEditModal(true);
+  };
+
+  const saveProfileEdits = async () => {
+    setSavingEdit(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const updates: Record<string, any> = {
+        full_name: editName.trim() || null,
+        date_of_birth: editDob.trim() || null,
+        gender: editGender.trim() || null,
+      };
+      const { error } = await supabase.from('profiles').update(updates).eq('user_id', user.id);
+      if (error) { Alert.alert('Save failed', error.message); return; }
+      setProfile((prev) => prev ? { ...prev, ...updates } : prev);
+      setShowEditModal(false);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Something went wrong.');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const GENDER_OPTIONS = ['Male', 'Female', 'Other', 'Prefer not to say'];
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.pageHeader}>
@@ -579,6 +681,11 @@ export default function ProfileScreen() {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefreshProfile} />}>
         {/* Profile header */}
         <View style={styles.headerCard}>
+          {!loadingProfile && (
+            <TouchableOpacity style={styles.editBtn} onPress={openEditModal} activeOpacity={0.8}>
+              <Ionicons name="pencil" size={14} color={colors.textSecondary} />
+            </TouchableOpacity>
+          )}
           {loadingProfile ? (
             <ActivityIndicator color={colors.primary} />
           ) : (
@@ -782,6 +889,72 @@ export default function ProfileScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* Edit Profile Modal */}
+      <Modal visible={showEditModal} animationType="slide" transparent>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setShowEditModal(false)}>
+            <TouchableOpacity style={styles.modalCard} activeOpacity={1} onPress={() => {}}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Edit Profile</Text>
+                <TouchableOpacity onPress={() => setShowEditModal(false)} activeOpacity={0.8}>
+                  <Ionicons name="close" size={24} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Text style={styles.editLabel}>Name</Text>
+                <TextInput
+                  style={styles.editInput}
+                  value={editName}
+                  onChangeText={setEditName}
+                  placeholder="Full name"
+                  placeholderTextColor={colors.textSecondary}
+                  autoCapitalize="words"
+                />
+
+                <Text style={styles.editLabel}>Birthday</Text>
+                <TextInput
+                  style={styles.editInput}
+                  value={editDob}
+                  onChangeText={setEditDob}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={colors.textSecondary}
+                  keyboardType="numbers-and-punctuation"
+                  maxLength={10}
+                />
+
+                <Text style={styles.editLabel}>Gender</Text>
+                <View style={styles.genderRow}>
+                  {GENDER_OPTIONS.map((g) => (
+                    <TouchableOpacity
+                      key={g}
+                      style={[styles.genderChip, editGender === g && styles.genderChipSelected]}
+                      onPress={() => setEditGender(editGender === g ? '' : g)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.genderChipText, editGender === g && styles.genderChipTextSelected]}>{g}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.saveEditBtn, savingEdit && { opacity: 0.6 }]}
+                  onPress={saveProfileEdits}
+                  disabled={savingEdit}
+                  activeOpacity={0.8}
+                >
+                  {savingEdit ? (
+                    <ActivityIndicator size="small" color={colors.textOnPrimary} />
+                  ) : (
+                    <Text style={styles.saveEditBtnText}>Save</Text>
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
