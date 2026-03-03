@@ -646,6 +646,11 @@ begin
   end if;
 end $$;
 
+-- Index on match location coordinates for spatial queries on the map
+create index if not exists matches_location_idx
+  on public.matches (location_lat, location_lng)
+  where location_lat is not null and location_lng is not null;
+
 -- match_feed: denormalized view for the home/plan feed. Joins matches + participants
 -- + games + images + likes + comments so the app can load feed data in one query.
 drop view if exists public.match_feed cascade;
@@ -662,6 +667,8 @@ select
   m.is_public,
   m.match_format,
   m.location_name,
+  m.location_lat,
+  m.location_lng,
   m.notes,
   m.created_by,
   s.name as sport_name,

@@ -18,6 +18,8 @@ import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { supabase } from '../lib/supabase';
 import { SPORTS_2V2 } from '../constants/sports';
+import LocationPickerModal from './LocationPickerModal';
+import type { PickedLocation } from './LocationPickerModal';
 
 const SCREEN_H = Dimensions.get('window').height;
 
@@ -32,6 +34,8 @@ type Props = {
     match_type: string;
     status: string;
     location_name: string | null;
+    location_lat?: number | null;
+    location_lng?: number | null;
     notes: string | null;
     is_public?: boolean;
     match_format?: string;
@@ -120,6 +124,9 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [location, setLocation] = useState('');
+  const [locationLat, setLocationLat] = useState<number | null>(null);
+  const [locationLng, setLocationLng] = useState<number | null>(null);
+  const [locationPicker, setLocationPicker] = useState(false);
   const [notes, setNotes] = useState('');
   const [isPublic, setIsPublic] = useState(true);
   const [matchFormat, setMatchFormat] = useState<'1v1' | '2v2'>('1v1');
@@ -136,6 +143,8 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
   useEffect(() => {
     if (match) {
       setLocation(match.location_name ?? '');
+      setLocationLat(match.location_lat ?? null);
+      setLocationLng(match.location_lng ?? null);
       setNotes(match.notes ?? '');
       setIsPublic(match.is_public !== false);
       setMatchFormat((match.match_format as '1v1' | '2v2') || '1v1');
@@ -178,6 +187,8 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
 
       const updates: Record<string, unknown> = {
         location_name: location.trim() || null,
+        location_lat: locationLat,
+        location_lng: locationLng,
         notes: notes.trim() || null,
         is_public: isPublic,
         scheduled_at: newScheduledAt,
@@ -248,7 +259,17 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
               )}
 
               <Text style={styles.label}>Location</Text>
-              <TextInput style={styles.input} placeholder="Court or gym name" placeholderTextColor={colors.textSecondary} value={location} onChangeText={setLocation} />
+              <TextInput style={styles.input} placeholder="Court or gym name" placeholderTextColor={colors.textSecondary} value={location} onChangeText={(t) => { setLocation(t); if (!t.trim()) { setLocationLat(null); setLocationLng(null); } }} />
+              <TouchableOpacity
+                style={[styles.timeBtn, { marginBottom: spacing.md }]}
+                onPress={() => setLocationPicker(true)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="map-outline" size={18} color={colors.primary} />
+                <Text style={styles.timeText}>
+                  {locationLat != null ? 'Change pin on map' : 'Pick on map'}
+                </Text>
+              </TouchableOpacity>
 
               <Text style={styles.label}>Notes</Text>
               <TextInput style={[styles.input, styles.notesInput]} placeholder="Format, rules, anything else..." placeholderTextColor={colors.textSecondary} value={notes} onChangeText={setNotes} multiline />
@@ -259,6 +280,19 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
             </ScrollView>
           </View>
         </View>
+
+        <LocationPickerModal
+          visible={locationPicker}
+          onClose={() => setLocationPicker(false)}
+          onConfirm={(loc: PickedLocation) => {
+            setLocation(loc.name || location);
+            setLocationLat(loc.latitude);
+            setLocationLng(loc.longitude);
+            setLocationPicker(false);
+          }}
+          colors={colors}
+          initial={locationLat != null && locationLng != null ? { latitude: locationLat, longitude: locationLng, name: location } : null}
+        />
 
         <Modal visible={timePicker} transparent animationType="fade">
           <View style={styles.tpOverlay}>
