@@ -16,6 +16,7 @@ import {
   Share,
   Dimensions,
   Animated,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -60,6 +61,8 @@ type FeedMatch = {
   is_public?: boolean;
   match_format?: string;
   location_name: string | null;
+  location_lat: number | null;
+  location_lng: number | null;
   notes: string | null;
   created_by: string;
   sport_name: string;
@@ -1113,7 +1116,21 @@ function FeedCard({
 
       {/* Horizontal scrollable media row: location → photos → add photo */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm, marginHorizontal: -spacing.md }} contentContainerStyle={{ gap: spacing.sm, paddingHorizontal: spacing.md }}>
-        <View style={[styles.mapTile, { width: halfWidth }]}>
+        <TouchableOpacity
+          style={[styles.mapTile, { width: halfWidth }]}
+          activeOpacity={item.location_lat != null ? 0.7 : 1}
+          onPress={() => {
+            if (item.location_lat != null && item.location_lng != null) {
+              const label = encodeURIComponent(item.location_name || 'Match Location');
+              const url = Platform.select({
+                ios: `maps:0,0?q=${label}&ll=${item.location_lat},${item.location_lng}`,
+                android: `geo:${item.location_lat},${item.location_lng}?q=${item.location_lat},${item.location_lng}(${label})`,
+                default: `https://www.google.com/maps/dir/?api=1&destination=${item.location_lat},${item.location_lng}`,
+              });
+              Linking.openURL(url!);
+            }
+          }}
+        >
           <View style={[styles.mapPlaceholder, { width: halfWidth, height: halfWidth * 0.75 }]}>
             <View style={styles.mapGridLines}>
               <View style={[styles.mapGridH, { top: '25%' }]} />
@@ -1128,12 +1145,12 @@ function FeedCard({
             </View>
             <View style={styles.mapLabelContainer}>
               <View style={styles.mapLabelPill}>
-                <Ionicons name="location-outline" size={10} color={colors.textOnPrimary} />
+                <Ionicons name={item.location_lat != null ? 'navigate-outline' : 'location-outline'} size={10} color={colors.textOnPrimary} />
                 <Text style={styles.mapLabelText} numberOfLines={1}>{item.location_name || 'Location'}</Text>
               </View>
             </View>
           </View>
-        </View>
+        </TouchableOpacity>
         {imagesList.map((img) => (
           <TouchableOpacity
             key={img.id}
@@ -2530,6 +2547,8 @@ export default function HomeScreen() {
           match_type: editMatch.match_type ?? 'casual',
           status: editMatch.status,
           location_name: editMatch.location_name ?? null,
+          location_lat: editMatch.location_lat ?? null,
+          location_lng: editMatch.location_lng ?? null,
           notes: editMatch.notes ?? null,
           is_public: editMatch.is_public,
           match_format: editMatch.match_format ?? '1v1',

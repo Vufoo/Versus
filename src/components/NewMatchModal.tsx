@@ -21,6 +21,8 @@ import { supabase } from '../lib/supabase';
 import { SPORTS, sportLabel, SPORTS_2V2 } from '../constants/sports';
 import UserSearch from './UserSearch';
 import type { SearchedUser } from './UserSearch';
+import LocationPickerModal from './LocationPickerModal';
+import type { PickedLocation } from './LocationPickerModal';
 
 const SCREEN_H = Dimensions.get('window').height;
 
@@ -32,6 +34,7 @@ type Props = {
   initialSport?: string;
   initialMatchType?: 'casual' | 'ranked';
   initialDate?: string;
+  initialLocation?: { latitude: number; longitude: number; name: string } | null;
 };
 
 function makeStyles(c: ThemeColors) {
@@ -140,7 +143,7 @@ function makeStyles(c: ThemeColors) {
   });
 }
 
-export default function NewMatchModal({ visible, onClose, onCreated, colors, initialSport, initialMatchType, initialDate }: Props) {
+export default function NewMatchModal({ visible, onClose, onCreated, colors, initialSport, initialMatchType, initialDate, initialLocation }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [opponent, setOpponent] = useState<SearchedUser | null>(null);
@@ -151,6 +154,9 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   const [matchFormat, setMatchFormat] = useState<'1v1' | '2v2'>('1v1');
   const [isPublic, setIsPublic] = useState(true);
   const [location, setLocation] = useState('');
+  const [locationLat, setLocationLat] = useState<number | null>(null);
+  const [locationLng, setLocationLng] = useState<number | null>(null);
+  const [locationPicker, setLocationPicker] = useState(false);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [startNow, setStartNow] = useState(true);
@@ -166,6 +172,13 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
 
   useEffect(() => { if (initialSport) setSport(initialSport); }, [initialSport]);
   useEffect(() => { if (initialMatchType) setMatchType(initialMatchType); }, [initialMatchType]);
+  useEffect(() => {
+    if (initialLocation) {
+      setLocation(initialLocation.name);
+      setLocationLat(initialLocation.latitude);
+      setLocationLng(initialLocation.longitude);
+    }
+  }, [initialLocation?.latitude, initialLocation?.longitude]);
   const supports2v2 = SPORTS_2V2.includes(sport);
   useEffect(() => { if (!supports2v2) setMatchFormat('1v1'); }, [supports2v2]);
 
@@ -238,6 +251,8 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
           status: matchStatus,
           scheduled_at: scheduledAt,
           location_name: location.trim() || null,
+          location_lat: locationLat,
+          location_lng: locationLng,
           notes: notes.trim() || null,
           is_public: isPublic,
           match_format: matchFormat,
@@ -298,6 +313,8 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
     setTeammate(null);
     setOpponent2(null);
     setLocation('');
+    setLocationLat(null);
+    setLocationLng(null);
     setNotes('');
     setMatchType(initialMatchType ?? 'casual');
     setIsPublic(true);
@@ -480,7 +497,17 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
               )}
 
               <Text style={styles.label}>Location</Text>
-              <TextInput style={styles.input} placeholder="Court or gym name" placeholderTextColor={colors.textSecondary} value={location} onChangeText={setLocation} />
+              <TextInput style={styles.input} placeholder="Court or gym name" placeholderTextColor={colors.textSecondary} value={location} onChangeText={(t) => { setLocation(t); if (!t.trim()) { setLocationLat(null); setLocationLng(null); } }} />
+              <TouchableOpacity
+                style={[styles.timeBtn, { marginBottom: spacing.md }]}
+                onPress={() => setLocationPicker(true)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="map-outline" size={18} color={colors.primary} />
+                <Text style={styles.timeText}>
+                  {locationLat != null ? 'Change pin on map' : 'Pick on map'}
+                </Text>
+              </TouchableOpacity>
 
               <Text style={styles.label}>Notes</Text>
               <TextInput style={[styles.input, styles.notesInput]} placeholder="Format, rules, anything else..." placeholderTextColor={colors.textSecondary} value={notes} onChangeText={setNotes} multiline />
@@ -501,6 +528,19 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
             </ScrollView>
           </View>
         </View>
+
+        <LocationPickerModal
+          visible={locationPicker}
+          onClose={() => setLocationPicker(false)}
+          onConfirm={(loc: PickedLocation) => {
+            setLocation(loc.name || location);
+            setLocationLat(loc.latitude);
+            setLocationLng(loc.longitude);
+            setLocationPicker(false);
+          }}
+          colors={colors}
+          initial={locationLat != null && locationLng != null ? { latitude: locationLat, longitude: locationLng, name: location } : null}
+        />
 
         {/* Time picker sub-modal */}
         <Modal visible={timePicker} transparent animationType="fade">

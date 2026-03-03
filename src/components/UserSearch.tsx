@@ -4,7 +4,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  FlatList,
+  ScrollView,
   ActivityIndicator,
   StyleSheet,
   Image,
@@ -182,13 +182,13 @@ export default function UserSearch({ colors, onSelect, excludeUserId, excludeUse
         <Text style={styles.empty}>No users found</Text>
       )}
       {!loading && results.length > 0 && (
-        <FlatList
-          data={results}
-          keyExtractor={(item) => item.user_id}
+        <ScrollView
           style={styles.list}
           keyboardShouldPersistTaps="handled"
-          renderItem={({ item }) => renderRow(item)}
-        />
+          nestedScrollEnabled
+        >
+          {results.map((item) => renderRow(item))}
+        </ScrollView>
       )}
       {showSuggestions && (
         <View style={styles.list}>
