@@ -3,8 +3,8 @@ export const SPORT_EMOJI: Record<string, string> = {
   'Pickleball': '\u{1F952}', // pickle (pickleball)
   'Badminton': '\u{1F3F8}',
   'Ping Pong': '\u{1F3D3}',
-  'Racquetball': '\u{1F4A5}',
-  'Squash': '\u{1F94E}',
+  'Racquetball': '\u{1F3AF}',
+  'Squash': '\u26AB', // black circle (squash ball)
   'Basketball': '\u{1F3C0}',
   'Golf': '\u26F3',
   'Volleyball': '\u{1F3D0}',
@@ -32,15 +32,15 @@ export function sportLabel(name: string): string {
 }
 
 /** Sport scoring rules: game format [target, winBy] or 'set' for tennis-style sets */
-export const SPORT_SCORING: Record<string, { target: number; winBy: number } | 'set'> = {
+export const SPORT_SCORING: Record<string, { target: number; winBy: number; lowerWins?: boolean } | 'set'> = {
   Tennis: 'set',
   Pickleball: { target: 11, winBy: 2 },
   Badminton: { target: 21, winBy: 2 },
   'Ping Pong': { target: 11, winBy: 2 },
-  Racquetball: { target: 15, winBy: 2 },
+  Racquetball: { target: 15, winBy: 1 },
   Squash: { target: 11, winBy: 2 },
   Basketball: { target: 0, winBy: 0 },
-  Golf: { target: 0, winBy: 0 },
+  Golf: { target: 0, winBy: 0, lowerWins: true },
   Volleyball: { target: 25, winBy: 2 },
 };
 

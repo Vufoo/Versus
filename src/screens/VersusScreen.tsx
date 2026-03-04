@@ -14,6 +14,19 @@ import { SPORTS, sportLabel } from '../constants/sports';
 
 type Flow = null | 'ranked' | 'casual' | 'local';
 
+function tierColor(tier: string | null): string {
+  switch (tier) {
+    case 'Beginner': return '#9E9E9E';
+    case 'Bronze': return '#CD7F32';
+    case 'Silver': return '#C0C0C0';
+    case 'Gold': return '#FFD700';
+    case 'Platinum': return '#00BCD4';
+    case 'Diamond': return '#64B5F6';
+    case 'Pro': return '#F44336';
+    default: return '#9E9E9E';
+  }
+}
+
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     container: {
@@ -133,6 +146,12 @@ export default function VersusScreen() {
   const closeFlow = () => setFlow(null);
 
   const [sportRatings, setSportRatings] = useState<Record<string, { rank_tier: string | null; rank_div: string | null; vp: number }>>({});
+  const [preferredSports, setPreferredSports] = useState<string[]>([]);
+
+  // Default to first preferred sport once loaded
+  useEffect(() => {
+    if (preferredSports.length > 0) setSport(preferredSports[0]);
+  }, [preferredSports]);
 
   useEffect(() => {
     let cancelled = false;
@@ -154,11 +173,22 @@ export default function VersusScreen() {
           }
           setSportRatings(map);
         }
+
+        const { data: prof } = await supabase.from('profiles').select('preferred_sports').eq('user_id', user.id).maybeSingle();
+        if (!cancelled && prof?.preferred_sports) setPreferredSports(prof.preferred_sports);
       } catch { /* swallow */ }
     };
     load();
     return () => { cancelled = true; };
   }, []);
+
+  const orderedSports = useMemo(() => {
+    if (preferredSports.length === 0) return SPORTS;
+    const prefSet = new Set(preferredSports);
+    const preferred = SPORTS.filter((s) => prefSet.has(s));
+    const rest = SPORTS.filter((s) => !prefSet.has(s));
+    return [...preferred, ...rest] as readonly string[];
+  }, [preferredSports]);
 
   const currentRating = sportRatings[sport];
   const rankDisplay = currentRating
@@ -179,7 +209,7 @@ export default function VersusScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.sportsRow}
         >
-          {SPORTS.map((s) => {
+          {orderedSports.map((s) => {
             const isSelected = s === sport;
             return (
               <TouchableOpacity
@@ -206,7 +236,7 @@ export default function VersusScreen() {
             <Text style={styles.rankSport}>{sport}</Text>
           </View>
           <View style={styles.rankRight}>
-            <Text style={styles.rankValue}>{rankDisplay}</Text>
+            <Text style={[styles.rankValue, { color: tierColor(currentRating?.rank_tier ?? null) }]}>{rankDisplay}</Text>
             {/* <Text style={styles.rankHint}>Ranks update after verified matches.</Text> */}
           </View>
         </View>
@@ -273,6 +303,7 @@ export default function VersusScreen() {
         colors={colors}
         initialSport={sport}
         initialMatchType={flow === 'ranked' ? 'ranked' : flow === 'casual' ? 'casual' : (localIsRanked ? 'ranked' : 'casual')}
+        preferredSports={preferredSports}
       />
     </View>
   );

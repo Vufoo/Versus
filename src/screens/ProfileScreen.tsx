@@ -28,6 +28,19 @@ import { SPORTS, sportLabel, SPORT_EMOJI } from '../constants/sports';
 
 type ProfileTab = 'overview' | 'rankings';
 
+function tierColor(tier: string | null): string {
+  switch (tier) {
+    case 'Beginner': return '#9E9E9E';
+    case 'Bronze': return '#CD7F32';
+    case 'Silver': return '#C0C0C0';
+    case 'Gold': return '#FFD700';
+    case 'Platinum': return '#00BCD4';
+    case 'Diamond': return '#64B5F6';
+    case 'Pro': return '#F44336';
+    default: return '#9E9E9E';
+  }
+}
+
 type MatchHistoryItem = {
   id: string;
   sport_name: string;
@@ -403,6 +416,7 @@ export default function ProfileScreen() {
     avatar_url: string | null;
     date_of_birth: string | null;
     gender: string | null;
+    location: string | null;
   } | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editName, setEditName] = useState('');
@@ -486,7 +500,7 @@ export default function ProfileScreen() {
 
       const { data: p } = await supabase
         .from('profiles')
-        .select('username, full_name, vp_total, preferred_sports, avatar_url, date_of_birth, gender')
+        .select('username, full_name, vp_total, preferred_sports, avatar_url, date_of_birth, gender, location')
         .eq('user_id', user.id)
         .maybeSingle();
 
@@ -506,6 +520,7 @@ export default function ProfileScreen() {
         avatar_url: p?.avatar_url ?? null,
         date_of_birth: p?.date_of_birth ?? null,
         gender: p?.gender ?? null,
+        location: p?.location ?? null,
       });
       if (p?.avatar_url) {
         const resolved = await resolveAvatarUrl(p.avatar_url);
@@ -637,7 +652,7 @@ export default function ProfileScreen() {
     setEditName(profile?.full_name ?? '');
     setEditDob(profile?.date_of_birth ?? '');
     setEditGender(profile?.gender ?? '');
-    setEditLocation('');
+    setEditLocation(profile?.location ?? '');
     setShowEditModal(true);
   };
 
@@ -650,6 +665,7 @@ export default function ProfileScreen() {
         full_name: editName.trim() || null,
         date_of_birth: editDob.trim() || null,
         gender: editGender.trim() || null,
+        location: editLocation.trim() || null,
       };
       const { error } = await supabase.from('profiles').update(updates).eq('user_id', user.id);
       if (error) { Alert.alert('Save failed', error.message); return; }
@@ -754,7 +770,7 @@ export default function ProfileScreen() {
                   <View key={item.sport} style={styles.rankCard}>
                     <Text style={styles.rankCardEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
                     <Text style={styles.rankCardSport} numberOfLines={1}>{item.sport}</Text>
-                    <Text style={styles.rankCardTier}>
+                    <Text style={[styles.rankCardTier, { color: tierColor(item.rank_tier) }]}>
                       {item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}
                     </Text>
                     <View style={styles.rankCardBottomRow}>
@@ -870,7 +886,7 @@ export default function ProfileScreen() {
                   <View style={styles.rankPageInner}>
                     <Text style={styles.rankEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
                     <Text style={styles.rankSport}>{item.sport}</Text>
-                    <Text style={styles.rankTier}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}</Text>
+                    <Text style={[styles.rankTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}</Text>
                     <View style={styles.rankStatRow}>
                       <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.vp}</Text><Text style={styles.rankStatLabel}>VP</Text></View>
                       <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.wins}</Text><Text style={styles.rankStatLabel}>Wins</Text></View>
@@ -937,6 +953,16 @@ export default function ProfileScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
+
+                <Text style={styles.editLabel}>Location</Text>
+                <TextInput
+                  style={styles.editInput}
+                  value={editLocation}
+                  onChangeText={setEditLocation}
+                  placeholder="City, state or region"
+                  placeholderTextColor={colors.textSecondary}
+                  autoCapitalize="words"
+                />
 
                 <TouchableOpacity
                   style={[styles.saveEditBtn, savingEdit && { opacity: 0.6 }]}

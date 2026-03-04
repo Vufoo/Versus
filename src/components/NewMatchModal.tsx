@@ -35,6 +35,7 @@ type Props = {
   initialMatchType?: 'casual' | 'ranked';
   initialDate?: string;
   initialLocation?: { latitude: number; longitude: number; name: string } | null;
+  preferredSports?: string[];
 };
 
 function makeStyles(c: ThemeColors) {
@@ -81,14 +82,15 @@ function makeStyles(c: ThemeColors) {
     matchTypeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
     matchTypeChip: {
       flex: 1,
-      minHeight: 36,
-      paddingVertical: spacing.xs,
+      height: 36,
       borderRadius: borderRadius.md,
       borderWidth: 1,
       borderColor: c.border,
       backgroundColor: c.background,
+      flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
+      gap: 5,
     },
     matchTypeChipSel: { backgroundColor: c.primary, borderColor: c.primaryDark },
     matchTypeLbl: { ...typography.label, color: c.textSecondary },
@@ -166,7 +168,7 @@ function makeStyles(c: ThemeColors) {
   });
 }
 
-export default function NewMatchModal({ visible, onClose, onCreated, colors, initialSport, initialMatchType, initialDate, initialLocation }: Props) {
+export default function NewMatchModal({ visible, onClose, onCreated, colors, initialSport, initialMatchType, initialDate, initialLocation, preferredSports = [] }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [opponent, setOpponent] = useState<SearchedUser | null>(null);
@@ -198,6 +200,14 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const orderedSports = useMemo(() => {
+    if (preferredSports.length === 0) return SPORTS;
+    const prefSet = new Set(preferredSports);
+    const preferred = SPORTS.filter((s) => prefSet.has(s));
+    const rest = SPORTS.filter((s) => !prefSet.has(s));
+    return [...preferred, ...rest] as readonly string[];
+  }, [preferredSports]);
+
   useEffect(() => { if (initialSport) setSport(initialSport); }, [initialSport]);
   useEffect(() => { if (initialMatchType) setMatchType(initialMatchType); }, [initialMatchType]);
   useEffect(() => {
@@ -222,7 +232,8 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
         .from('follows')
         .select('followed_id')
         .eq('follower_id', user.id)
-        .eq('status', 'accepted');
+        .eq('status', 'accepted')
+        .limit(5);
       if (fRows && fRows.length > 0) {
         const ids = fRows.map((r: any) => r.followed_id);
         const { data: profiles } = await supabase
@@ -276,7 +287,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
     setShowSuggestions(false);
   };
 
-  const dateId = initialDate ?? new Date().toISOString().slice(0, 10);
+  const dateId = initialDate ?? (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`; })();
 
   const handleSave = async () => {
     if (matchType === 'ranked' && !opponent) {
@@ -502,18 +513,18 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
               <Text style={[styles.label, { marginTop: spacing.md }]}>Visibility</Text>
               <View style={styles.matchTypeRow}>
                 <TouchableOpacity style={[styles.matchTypeChip, isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(true)} activeOpacity={0.8}>
-                  <Ionicons name="globe-outline" size={16} color={isPublic ? colors.textOnPrimary : colors.textSecondary} style={{ marginBottom: 2 }} />
+                  <Ionicons name="globe-outline" size={16} color={isPublic ? colors.textOnPrimary : colors.textSecondary} />
                   <Text style={[styles.matchTypeLbl, isPublic && styles.matchTypeLblSel]}>Public</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.matchTypeChip, !isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(false)} activeOpacity={0.8}>
-                  <Ionicons name="lock-closed-outline" size={16} color={!isPublic ? colors.textOnPrimary : colors.textSecondary} style={{ marginBottom: 2 }} />
+                  <Ionicons name="lock-closed-outline" size={16} color={!isPublic ? colors.textOnPrimary : colors.textSecondary} />
                   <Text style={[styles.matchTypeLbl, !isPublic && styles.matchTypeLblSel]}>Private</Text>
                 </TouchableOpacity>
               </View>
 
               <Text style={styles.label}>Sport</Text>
               <View style={styles.sportsRow}>
-                {SPORTS.map((s) => (
+                {orderedSports.map((s) => (
                   <TouchableOpacity key={s} style={[styles.sportChip, s === sport && styles.sportChipSel]} onPress={() => setSport(s)} activeOpacity={0.8}>
                     <Text style={[styles.sportChipLbl, s === sport && styles.sportChipLblSel]}>{sportLabel(s)}</Text>
                   </TouchableOpacity>
@@ -541,7 +552,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                   onPress={() => setStartNow(true)}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="flash" size={16} color={startNow ? colors.textOnPrimary : colors.textSecondary} style={{ marginBottom: 2 }} />
+                  <Ionicons name="flash" size={16} color={startNow ? colors.textOnPrimary : colors.textSecondary} />
                   <Text style={[styles.matchTypeLbl, startNow && styles.matchTypeLblSel]}>Start now</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -549,7 +560,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                   onPress={() => setStartNow(false)}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="calendar-outline" size={16} color={!startNow ? colors.textOnPrimary : colors.textSecondary} style={{ marginBottom: 2 }} />
+                  <Ionicons name="calendar-outline" size={16} color={!startNow ? colors.textOnPrimary : colors.textSecondary} />
                   <Text style={[styles.matchTypeLbl, !startNow && styles.matchTypeLblSel]}>Schedule</Text>
                 </TouchableOpacity>
               </View>

@@ -49,6 +49,8 @@ create table if not exists public.profiles (
 
   vp_total       integer not null default 0,
 
+  location       text,
+
   last_lat       numeric(9, 6),
   last_lng       numeric(9, 6),
 
@@ -57,6 +59,7 @@ create table if not exists public.profiles (
   is_admin       boolean not null default false,
   membership_status text not null default 'free',
   location_visibility text not null default 'private',
+  profile_visibility text not null default 'public',
 
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now()
@@ -69,8 +72,10 @@ alter table public.profiles
   add column if not exists is_admin boolean not null default false,
   add column if not exists membership_status text not null default 'free',
   add column if not exists location_visibility text not null default 'private',
+  add column if not exists profile_visibility text not null default 'public',
   add column if not exists date_of_birth date,
-  add column if not exists gender text;
+  add column if not exists gender text,
+  add column if not exists location text;
 
 -- RLS for profiles -----------------------------------------------------------
 alter table public.profiles enable row level security;
@@ -606,6 +611,14 @@ begin
   end if;
 end $$;
 
+-- Migration: add delete_requested to match_participants for mutual delete confirmation
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'match_participants' and column_name = 'delete_requested') then
+    alter table public.match_participants add column delete_requested boolean not null default false;
+  end if;
+end $$;
+
 -- RLS: allow invited opponent to update match (for accept flow)
 drop policy if exists "Creators and participants can update matches" on public.matches;
 create policy "Creators and participants can update matches"
@@ -684,6 +697,7 @@ select
     'score', mp.score,
     'vp_delta', mp.vp_delta,
     'ready', coalesce(mp.ready, false),
+    'delete_requested', coalesce(mp.delete_requested, false),
     'username', p.username,
     'full_name', p.full_name,
     'avatar_url', p.avatar_url
@@ -793,25 +807,48 @@ begin
   -- Update rank tier and division based on total VP
   update public.user_sport_ratings
   set rank_tier = case
-        when v_new_vp >= 500 then 'Diamond'
-        when v_new_vp >= 350 then 'Platinum'
-        when v_new_vp >= 225 then 'Gold'
-        when v_new_vp >= 125 then 'Silver'
-        when v_new_vp >= 50  then 'Bronze'
+        when v_new_vp >= 50 then 'Pro'
+        when v_new_vp >= 38 then 'Diamond'
+        when v_new_vp >= 28 then 'Platinum'
+        when v_new_vp >= 20 then 'Gold'
+        when v_new_vp >= 12 then 'Silver'
+        when v_new_vp >= 2  then 'Bronze'
+        when v_new_vp >= 1  then 'Beginner'
         else null
       end,
       rank_div = case
-        when v_new_vp >= 500 then
-          case when v_new_vp >= 650 then 'I' when v_new_vp >= 575 then 'II' else 'III' end
-        when v_new_vp >= 350 then
-          case when v_new_vp >= 450 then 'I' when v_new_vp >= 400 then 'II' else 'III' end
-        when v_new_vp >= 225 then
-          case when v_new_vp >= 300 then 'I' when v_new_vp >= 260 then 'II' else 'III' end
-        when v_new_vp >= 125 then
-          case when v_new_vp >= 185 then 'I' when v_new_vp >= 150 then 'II' else 'III' end
-        when v_new_vp >= 50 then
-          case when v_new_vp >= 95 then 'I' when v_new_vp >= 70 then 'II' else 'III' end
-        else null
+        when v_new_vp >= 50 then null          -- Pro: no division
+        when v_new_vp >= 38 then               -- Diamond: 38–49 VP
+          case
+            when v_new_vp >= 46 then 'I'
+            when v_new_vp >= 42 then 'II'
+            else 'III'
+          end
+        when v_new_vp >= 28 then               -- Platinum: 28–37 VP
+          case
+            when v_new_vp >= 36 then 'I'
+            when v_new_vp >= 32 then 'II'
+            else 'III'
+          end
+        when v_new_vp >= 20 then               -- Gold: 20–27 VP
+          case
+            when v_new_vp >= 26 then 'I'
+            when v_new_vp >= 23 then 'II'
+            else 'III'
+          end
+        when v_new_vp >= 12 then               -- Silver: 12–19 VP
+          case
+            when v_new_vp >= 18 then 'I'
+            when v_new_vp >= 15 then 'II'
+            else 'III'
+          end
+        when v_new_vp >= 2 then                -- Bronze: 2–11 VP
+          case
+            when v_new_vp >= 8 then 'I'
+            when v_new_vp >= 5 then 'II'
+            else 'III'
+          end
+        else null                              -- Beginner or unranked: no division
       end
   where user_id = p_user_id and sport_id = p_sport_id;
 end;
@@ -845,30 +882,67 @@ begin
   if v_new_vp is not null then
     update public.user_sport_ratings
     set rank_tier = case
-          when v_new_vp >= 500 then 'Diamond'
-          when v_new_vp >= 350 then 'Platinum'
-          when v_new_vp >= 225 then 'Gold'
-          when v_new_vp >= 125 then 'Silver'
-          when v_new_vp >= 50  then 'Bronze'
+          when v_new_vp >= 50 then 'Pro'
+          when v_new_vp >= 38 then 'Diamond'
+          when v_new_vp >= 28 then 'Platinum'
+          when v_new_vp >= 20 then 'Gold'
+          when v_new_vp >= 12 then 'Silver'
+          when v_new_vp >= 2  then 'Bronze'
+          when v_new_vp >= 1  then 'Beginner'
           else null
         end,
         rank_div = case
-          when v_new_vp >= 500 then
-            case when v_new_vp >= 650 then 'I' when v_new_vp >= 575 then 'II' else 'III' end
-          when v_new_vp >= 350 then
-            case when v_new_vp >= 450 then 'I' when v_new_vp >= 400 then 'II' else 'III' end
-          when v_new_vp >= 225 then
-            case when v_new_vp >= 300 then 'I' when v_new_vp >= 260 then 'II' else 'III' end
-          when v_new_vp >= 125 then
-            case when v_new_vp >= 185 then 'I' when v_new_vp >= 150 then 'II' else 'III' end
-          when v_new_vp >= 50 then
-            case when v_new_vp >= 95 then 'I' when v_new_vp >= 70 then 'II' else 'III' end
-          else null
+          when v_new_vp >= 50 then null          -- Pro: no division
+          when v_new_vp >= 38 then               -- Diamond: 38–49 VP
+            case
+              when v_new_vp >= 46 then 'I'
+              when v_new_vp >= 42 then 'II'
+              else 'III'
+            end
+          when v_new_vp >= 28 then               -- Platinum: 28–37 VP
+            case
+              when v_new_vp >= 36 then 'I'
+              when v_new_vp >= 32 then 'II'
+              else 'III'
+            end
+          when v_new_vp >= 20 then               -- Gold: 20–27 VP
+            case
+              when v_new_vp >= 26 then 'I'
+              when v_new_vp >= 23 then 'II'
+              else 'III'
+            end
+          when v_new_vp >= 12 then               -- Silver: 12–19 VP
+            case
+              when v_new_vp >= 18 then 'I'
+              when v_new_vp >= 15 then 'II'
+              else 'III'
+            end
+          when v_new_vp >= 2 then                -- Bronze: 2–11 VP
+            case
+              when v_new_vp >= 8 then 'I'
+              when v_new_vp >= 5 then 'II'
+              else 'III'
+            end
+          else null                               -- Beginner or unranked: no division
         end
     where user_id = p_user_id and sport_id = p_sport_id;
   end if;
 end;
 $$ language plpgsql security definer;
+
+-- RPC: delete the calling user's own account (requires security definer to touch auth.users) --
+create or replace function public.delete_own_account()
+returns void
+language plpgsql security definer
+set search_path = public
+as $$
+begin
+  delete from auth.users where id = auth.uid();
+end;
+$$;
+
+revoke all on function public.delete_own_account() from anon, authenticated;
+grant execute on function public.delete_own_account() to authenticated;
 
 -- RPC: atomically finish a match (prevents race conditions) ---------------------
 create or replace function public.finish_match(

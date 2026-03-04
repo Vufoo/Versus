@@ -20,6 +20,19 @@ import { SPORTS, SPORT_EMOJI } from '../constants/sports';
 
 type ProfileTab = 'overview' | 'rankings';
 
+function tierColor(tier: string | null): string {
+  switch (tier) {
+    case 'Beginner': return '#9E9E9E';
+    case 'Bronze': return '#CD7F32';
+    case 'Silver': return '#C0C0C0';
+    case 'Gold': return '#FFD700';
+    case 'Platinum': return '#00BCD4';
+    case 'Diamond': return '#64B5F6';
+    case 'Pro': return '#F44336';
+    default: return '#9E9E9E';
+  }
+}
+
 type MatchHistoryItem = {
   id: string;
   sport_name: string;
@@ -194,12 +207,14 @@ export default function UserProfileScreen() {
   const [matchHistory, setMatchHistory] = useState<MatchHistoryItem[]>([]);
   const [followState, setFollowState] = useState<'none' | 'pending' | 'accepted'>('none');
   const [togglingFollow, setTogglingFollow] = useState(false);
+  const [targetProfileVisibility, setTargetProfileVisibility] = useState<'public' | 'private'>('public');
 
   const loadProfile = useCallback(async () => {
     if (!targetUserId) return;
     setLoadingProfile(true);
     try {
-      const { data: p } = await supabase.from('profiles').select('username, full_name, vp_total, preferred_sports, avatar_url').eq('user_id', targetUserId).maybeSingle();
+      const { data: p } = await supabase.from('profiles').select('username, full_name, vp_total, preferred_sports, avatar_url, profile_visibility').eq('user_id', targetUserId).maybeSingle();
+      setTargetProfileVisibility((p as any)?.profile_visibility === 'private' ? 'private' : 'public');
       const { count: fing } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', targetUserId).eq('status', 'accepted');
       const { count: fers } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('followed_id', targetUserId).eq('status', 'accepted');
       const { data: ratings } = await supabase.from('user_sport_ratings').select('vp, rank_tier, rank_div, wins, losses, sports!inner(name)').eq('user_id', targetUserId);
@@ -421,7 +436,7 @@ export default function UserProfileScreen() {
                   <View key={item.sport} style={styles.rankCard}>
                     <Text style={styles.rankCardEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
                     <Text style={styles.rankCardSport} numberOfLines={1}>{item.sport}</Text>
-                    <Text style={styles.rankCardTier}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}</Text>
+                    <Text style={[styles.rankCardTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}</Text>
                     <Text style={styles.rankCardVp}>{item.vp}</Text>
                     <Text style={styles.rankCardVpLabel}>VP</Text>
                     <View style={styles.rankCardStats}>
@@ -435,7 +450,9 @@ export default function UserProfileScreen() {
 
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Match history</Text>
-              {matchHistory.length === 0 ? (
+              {!isOwnProfile && targetProfileVisibility === 'private' ? (
+                <Text style={styles.placeholder}>This user's match history is private.</Text>
+              ) : matchHistory.length === 0 ? (
                 <Text style={styles.placeholder}>No matches yet.</Text>
               ) : (
                 matchHistory.map((m, idx) => {
@@ -492,7 +509,7 @@ export default function UserProfileScreen() {
                   <View style={styles.rankPageInner}>
                     <Text style={styles.rankEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
                     <Text style={styles.rankSport}>{item.sport}</Text>
-                    <Text style={styles.rankTier}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}</Text>
+                    <Text style={[styles.rankTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}</Text>
                     <View style={styles.rankStatRow}>
                       <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.vp}</Text><Text style={styles.rankStatLabel}>VP</Text></View>
                       <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.wins}</Text><Text style={styles.rankStatLabel}>Wins</Text></View>

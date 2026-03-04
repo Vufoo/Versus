@@ -129,15 +129,17 @@ export default function SettingsScreen() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [profile, setProfile] = useState<{ username: string | null } | null>(null);
   const [locationVisibility, setLocationVisibility] = useState<'public' | 'private'>('private');
+  const [profileVisibility, setProfileVisibility] = useState<'public' | 'private'>('public');
 
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setUserEmail(user.email ?? null);
-      const { data: p } = await supabase.from('profiles').select('username, location_visibility').eq('user_id', user.id).maybeSingle();
+      const { data: p } = await supabase.from('profiles').select('username, location_visibility, profile_visibility').eq('user_id', user.id).maybeSingle();
       setProfile(p ? { username: p.username } : null);
-      setLocationVisibility((p as { location_visibility?: string })?.location_visibility === 'public' ? 'public' : 'private');
+      setLocationVisibility((p as any)?.location_visibility === 'public' ? 'public' : 'private');
+      setProfileVisibility((p as any)?.profile_visibility === 'private' ? 'private' : 'public');
     })();
   }, []);
 
@@ -151,6 +153,13 @@ export default function SettingsScreen() {
       update.last_lng = null;
     }
     await supabase.from('profiles').update(update).eq('user_id', user.id);
+  };
+
+  const updateProfileVisibility = async (value: 'public' | 'private') => {
+    setProfileVisibility(value);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    await supabase.from('profiles').update({ profile_visibility: value }).eq('user_id', user.id);
   };
 
   const handleSignOut = async () => {
@@ -238,7 +247,17 @@ export default function SettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Delete account', 'Are you sure? This action cannot be undone.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive' }])} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Delete account', 'Are you sure? This will permanently delete your account and all data. This cannot be undone.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => {
+              try {
+                const { error } = await supabase.rpc('delete_own_account');
+                if (error) throw error;
+                await supabase.auth.signOut();
+                setSignedIn(false);
+                navigation.goBack();
+              } catch (e: any) {
+                Alert.alert('Error', e?.message ?? 'Failed to delete account. Please try again.');
+              }
+            }}])} activeOpacity={0.7}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="trash-outline" size={20} color={colors.error} />
               <Text style={[styles.settingLabel, { color: colors.error }]}>Delete account</Text>
@@ -318,13 +337,35 @@ export default function SettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Coming soon', 'Profile visibility settings will be available in a future update.')} activeOpacity={0.7}>
+          <View style={styles.settingRow}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="eye-outline" size={20} color={colors.textSecondary} />
-              <Text style={styles.settingLabel}>Profile visibility</Text>
+              <View style={styles.settingRowTextBlock}>
+                <Text style={styles.settingLabel}>Profile visibility</Text>
+                <Text style={styles.settingValue}>
+                  {profileVisibility === 'private' ? 'Match history hidden from others' : 'Match history visible to others'}
+                </Text>
+              </View>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-          </TouchableOpacity>
+            <View style={styles.themeChips}>
+              <TouchableOpacity
+                style={[styles.themeChip, profileVisibility === 'private' && styles.themeChipSelected]}
+                activeOpacity={0.8}
+                onPress={() => updateProfileVisibility('private')}
+              >
+                <Ionicons name="lock-closed-outline" size={14} color={profileVisibility === 'private' ? colors.textOnPrimary : colors.textSecondary} />
+                <Text style={[styles.themeChipText, profileVisibility === 'private' && styles.themeChipTextSelected]}>Private</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.themeChip, profileVisibility === 'public' && styles.themeChipSelected]}
+                activeOpacity={0.8}
+                onPress={() => updateProfileVisibility('public')}
+              >
+                <Ionicons name="globe-outline" size={14} color={profileVisibility === 'public' ? colors.textOnPrimary : colors.textSecondary} />
+                <Text style={[styles.themeChipText, profileVisibility === 'public' && styles.themeChipTextSelected]}>Public</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
 
         <View style={styles.settingSection}>

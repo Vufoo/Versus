@@ -18,8 +18,15 @@ import NewMatchModal from '../components/NewMatchModal';
 
 type CalendarDay = { id: string; day: number; isCurrentMonth: boolean; isToday: boolean };
 
+function localDateStr(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function buildMonthGrid(year: number, month: number): CalendarDay[][] {
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = localDateStr(new Date());
   const firstDay = new Date(year, month, 1);
   const startWeekday = firstDay.getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -201,8 +208,8 @@ function createPlanStyles(colors: ThemeColors) {
       borderRadius: 4,
     },
     matchInfo: { flex: 1 },
-    matchTitle: { ...typography.body, fontSize: 14, fontWeight: '600', color: colors.text },
-    matchSub: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+    matchTitle: { ...typography.body, fontSize: 13, fontWeight: '600', color: colors.text },
+    matchSub: { ...typography.caption, fontSize: 11, color: colors.textSecondary, marginTop: 1 },
     matchStatus: {
       ...typography.label,
       fontSize: 10,
@@ -230,7 +237,7 @@ export default function PlanMatchScreen() {
   const styles = useMemo(() => createPlanStyles(colors), [colors]);
 
   const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
+  const todayStr = localDateStr(today);
   const [calMonth, setCalMonth] = useState(today.getMonth());
   const [calYear, setCalYear] = useState(today.getFullYear());
   const [selectedDayId, setSelectedDayId] = useState<string>(todayStr);
@@ -270,12 +277,12 @@ export default function PlanMatchScreen() {
   useEffect(() => { loadMatches(); }, [loadMatches]);
 
   const matchDayIds = useMemo(
-    () => new Set(allMatches.map((m) => m.scheduled_at?.slice(0, 10)).filter(Boolean)),
+    () => new Set(allMatches.map((m) => m.scheduled_at ? localDateStr(new Date(m.scheduled_at)) : null).filter(Boolean)),
     [allMatches],
   );
 
   const selectedDayMatches = useMemo(
-    () => allMatches.filter((m) => m.scheduled_at?.slice(0, 10) === selectedDayId),
+    () => allMatches.filter((m) => m.scheduled_at ? localDateStr(new Date(m.scheduled_at)) === selectedDayId : false),
     [allMatches, selectedDayId],
   );
 
@@ -408,11 +415,11 @@ export default function PlanMatchScreen() {
             <View key={m.id} style={styles.matchCard}>
               <View style={[styles.matchDot, { backgroundColor: sc }]} />
               <View style={styles.matchInfo}>
-                <Text style={styles.matchTitle}>
+                <Text style={styles.matchTitle} numberOfLines={1}>
                   {sportLabel(m.sport_name)} vs {opponent?.full_name ?? opponent?.username ?? 'TBD'}
                 </Text>
-                <Text style={styles.matchSub}>
-                  {timeStr}{m.location_name ? ` · ${m.location_name}` : ''}{m.match_type ? ` · ${m.match_type}` : ''}
+                <Text style={styles.matchSub} numberOfLines={1}>
+                  {timeStr}{m.match_type ? ` · ${m.match_type.charAt(0).toUpperCase() + m.match_type.slice(1)}` : ''}
                 </Text>
               </View>
               <Text style={[styles.matchStatus, { backgroundColor: `${sc}18`, color: sc }]}>

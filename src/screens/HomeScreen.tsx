@@ -19,6 +19,7 @@ import {
   Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import MapPreview from '../components/MapPreview';
 import { useIsFocused, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { TabParamList } from '../navigation/TabNavigator';
 import { Ionicons } from '@expo/vector-icons';
@@ -42,6 +43,7 @@ type Participant = {
   score: string | null;
   vp_delta: number;
   ready?: boolean;
+  delete_requested?: boolean;
   username: string | null;
   full_name: string | null;
   avatar_url: string | null;
@@ -271,8 +273,11 @@ function FeedCard({
     gamesList.length > 0 ? gamesList.map((g) => ({ score_challenger: String(g.score_challenger), score_opponent: String(g.score_opponent) })) : [{ score_challenger: '', score_opponent: '' }],
   );
   const [saving, setSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveValidationError, setSaveValidationError] = useState<string | null>(null);
+  const editingScoreRef = useRef(false);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const localGamesRef = useRef(localGames);
+  localGamesRef.current = localGames;
   const [startStopLoading, setStartStopLoading] = useState(false);
   const [readyLoading, setReadyLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -314,6 +319,7 @@ function FeedCard({
   }, [item.images]);
 
   useEffect(() => {
+    if (editingScoreRef.current) return;
     const gs = (item.games ?? []) as MatchGame[];
     setLocalGames(
       gs.length > 0 ? gs.map((g) => ({ score_challenger: String(g.score_challenger), score_opponent: String(g.score_opponent) })) : [{ score_challenger: '', score_opponent: '' }],
@@ -581,20 +587,34 @@ function FeedCard({
     setLocalGames((prev) => [...prev, { score_challenger: '', score_opponent: '' }]);
   };
 
+  const handleScoreChange = (idx: number, field: 'score_challenger' | 'score_opponent', value: string) => {
+    editingScoreRef.current = true;
+    setLocalGames((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], [field]: value };
+      return next;
+    });
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      handleSaveGames();
+    }, 1500);
+  };
+
   const performSaveGames = async () => {
     if (!currentUserId) return;
     setSaving(true);
+    const games = localGamesRef.current;
     try {
       await supabase.from('match_games').delete().eq('match_id', item.id);
       const savedGames: MatchGame[] = [];
-      for (let i = 0; i < localGames.length; i++) {
-        const sc = parseInt(localGames[i].score_challenger, 10) || 0;
-        const so = parseInt(localGames[i].score_opponent, 10) || 0;
+      for (let i = 0; i < games.length; i++) {
+        const sc = parseInt(games[i].score_challenger, 10) || 0;
+        const so = parseInt(games[i].score_opponent, 10) || 0;
         await supabase.from('match_games').insert({ match_id: item.id, game_number: i + 1, score_challenger: sc, score_opponent: so });
         savedGames.push({ game_number: i + 1, score_challenger: sc, score_opponent: so });
       }
-      const totalP1 = localGames.reduce((a, g) => a + (parseInt(g.score_challenger, 10) || 0), 0);
-      const totalP2 = localGames.reduce((a, g) => a + (parseInt(g.score_opponent, 10) || 0), 0);
+      const totalP1 = games.reduce((a, g) => a + (parseInt(g.score_challenger, 10) || 0), 0);
+      const totalP2 = games.reduce((a, g) => a + (parseInt(g.score_opponent, 10) || 0), 0);
       if (p1) await supabase.from('match_participants').update({ score: String(totalP1) }).eq('match_id', item.id).eq('user_id', p1.user_id);
       if (p2) await supabase.from('match_participants').update({ score: String(totalP2) }).eq('match_id', item.id).eq('user_id', p2.user_id);
       updateFeedItem(item.id, (m) => ({
@@ -609,8 +629,7 @@ function FeedCard({
     } catch { /* swallow */ }
     finally {
       setSaving(false);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2000);
+      editingScoreRef.current = false;
     }
   };
 
@@ -621,10 +640,11 @@ function FeedCard({
 
   const handleSaveGames = async () => {
     if (!currentUserId || saving) return;
+    const games = localGamesRef.current;
     const errors: string[] = [];
-    for (let i = 0; i < localGames.length; i++) {
-      const sc = parseInt(localGames[i].score_challenger, 10) || 0;
-      const so = parseInt(localGames[i].score_opponent, 10) || 0;
+    for (let i = 0; i < games.length; i++) {
+      const sc = parseInt(games[i].score_challenger, 10) || 0;
+      const so = parseInt(games[i].score_opponent, 10) || 0;
       if (sc > 0 || so > 0) {
         const err = validateGameScore(item.sport_name, sc, so);
         if (err) errors.push(`Game ${i + 1}: ${err}`);
@@ -716,28 +736,75 @@ function FeedCard({
     }
   };
 
+  const performFullDelete = async () => {
+    // Reverse sport ratings if this was a completed ranked match
+    if (item.status === 'completed' && item.match_type === 'ranked') {
+      const pts = (item.participants ?? []) as Participant[];
+      const { data: sportRow } = await supabase.from('sports').select('id').eq('name', item.sport_name).maybeSingle();
+      if (sportRow?.id) {
+        for (const p of pts) {
+          await supabase.rpc('reverse_sport_rating', {
+            p_user_id: p.user_id,
+            p_sport_id: sportRow.id,
+            p_vp_loss: Math.max(0, p.vp_delta ?? 0),
+            p_was_win: p.result === 'win',
+            p_was_loss: p.result === 'loss',
+          });
+        }
+      }
+    }
+    await supabase.from('matches').delete().eq('id', item.id);
+    onRefresh();
+  };
+
   const handleDelete = async () => {
     if (!currentUserId || deleteLoading) return;
     setDeleteLoading(true);
     try {
-      // Reverse sport ratings if this was a completed ranked match
-      if (item.status === 'completed' && item.match_type === 'ranked') {
-        const participants = (item.participants ?? []) as Participant[];
-        const { data: sportRow } = await supabase.from('sports').select('id').eq('name', item.sport_name).maybeSingle();
-        if (sportRow?.id) {
-          for (const p of participants) {
-            await supabase.rpc('reverse_sport_rating', {
-              p_user_id: p.user_id,
-              p_sport_id: sportRow.id,
-              p_vp_loss: p.vp_delta ?? 0,
-              p_was_win: p.result === 'win',
-              p_was_loss: p.result === 'loss',
-            });
-          }
+      if (isRanked) {
+        // Ranked: mutual confirmation — set delete_requested on this participant
+        const alreadyRequested = myParticipant?.delete_requested === true;
+        if (alreadyRequested) return; // already voted
+
+        await supabase.from('match_participants').update({ delete_requested: true }).eq('match_id', item.id).eq('user_id', currentUserId);
+        // Optimistic update
+        updateFeedItem(item.id, (m) => ({
+          ...m,
+          participants: m.participants.map((p) =>
+            p.user_id === currentUserId ? { ...p, delete_requested: true } : p
+          ),
+        }));
+
+        // Query the DB for the real state to avoid race conditions
+        // (both users may click at the same time — local state won't have the other's update)
+        const { data: dbParticipants } = await supabase
+          .from('match_participants')
+          .select('user_id, delete_requested')
+          .eq('match_id', item.id);
+        const allConfirmed = dbParticipants && dbParticipants.length > 0 &&
+          dbParticipants.every((p) => p.delete_requested === true);
+        if (allConfirmed) {
+          await performFullDelete();
         }
+      } else {
+        // Casual/local: instant delete by any participant
+        await performFullDelete();
       }
-      await supabase.from('matches').delete().eq('id', item.id);
-      onRefresh();
+    } catch { /* swallow */ }
+    finally { setDeleteLoading(false); }
+  };
+
+  const handleCancelDelete = async () => {
+    if (!currentUserId || deleteLoading) return;
+    setDeleteLoading(true);
+    try {
+      await supabase.from('match_participants').update({ delete_requested: false }).eq('match_id', item.id).eq('user_id', currentUserId);
+      updateFeedItem(item.id, (m) => ({
+        ...m,
+        participants: m.participants.map((p) =>
+          p.user_id === currentUserId ? { ...p, delete_requested: false } : p
+        ),
+      }));
     } catch { /* swallow */ }
     finally { setDeleteLoading(false); }
   };
@@ -1078,36 +1145,65 @@ function FeedCard({
                 </TouchableOpacity>
               </>
             )}
-            {String(item.created_by) === String(currentUserId) && (
-              <TouchableOpacity
-                style={[styles.deleteButton, deleteLoading && { opacity: 0.6 }]}
-                onPress={handleDelete}
-                disabled={deleteLoading}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="trash-outline" size={14} color={colors.error} />
-                <Text style={styles.deleteButtonText}>Delete</Text>
-              </TouchableOpacity>
-            )}
+            {isParticipant && item.status !== 'in_progress' && item.status !== 'paused' && (() => {
+              const myDeleteRequested = myParticipant?.delete_requested === true;
+              const deleteCount = participants.filter((p) => p.delete_requested === true).length;
+              const totalParticipants = participants.length;
+
+              if (isRanked && myDeleteRequested) {
+                return (
+                  <View style={{ alignItems: 'center', gap: 2 }}>
+                    <Text style={[typography.caption, { fontSize: 10, color: colors.textSecondary }]}>
+                      Delete {deleteCount}/{totalParticipants} confirmed
+                    </Text>
+                    {participants.filter((p) => p.delete_requested === true).map((p) => (
+                      <Text key={p.user_id} style={[typography.caption, { fontSize: 10, color: colors.error }]}>{getName(p)} ✓</Text>
+                    ))}
+                    <TouchableOpacity
+                      style={[styles.deleteButton, deleteLoading && { opacity: 0.6 }]}
+                      onPress={handleCancelDelete}
+                      disabled={deleteLoading}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="close-circle" size={14} color={colors.error} />
+                      <Text style={styles.deleteButtonText}>Cancel delete</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              }
+
+              return (
+                <TouchableOpacity
+                  style={[styles.deleteButton, deleteLoading && { opacity: 0.6 }]}
+                  onPress={handleDelete}
+                  disabled={deleteLoading}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="trash-outline" size={14} color={colors.error} />
+                  <Text style={styles.deleteButtonText}>
+                    {isRanked && deleteCount > 0 ? `Delete (${deleteCount}/${totalParticipants})` : 'Delete'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })()}
           </View>
           {(item.status === 'in_progress' || item.status === 'paused') && (
             <View style={styles.gamesEditSection}>
                 {/* Player name header — aligns above each input column */}
                 <View style={styles.scoreHeaderRow}>
-                  <View style={{ width: 28 }} />
                   <Text style={styles.scoreHeaderName} numberOfLines={1}>{p1 ? getName(p1) : 'Challenger'}</Text>
                   <View style={{ width: 20 }} />
                   <Text style={styles.scoreHeaderName} numberOfLines={1}>{p2 ? getName(p2) : 'Opponent'}</Text>
                 </View>
                 {localGames.map((game, idx) => (
                   <View key={idx} style={styles.gameRow}>
-                    <Text style={styles.gameLabel}>G{idx + 1}</Text>
+                    <View style={styles.gameLabelWrap}>
+                      <Text style={styles.gameLabelText}>G{idx + 1}</Text>
+                    </View>
                     <TextInput
                       style={styles.scoreInput}
                       value={game.score_challenger}
-                      onChangeText={(t) => setLocalGames((prev) => {
-                        const next = [...prev]; next[idx] = { ...next[idx], score_challenger: t }; return next;
-                      })}
+                      onChangeText={(t) => handleScoreChange(idx, 'score_challenger', t)}
                       placeholder="0"
                       placeholderTextColor={colors.textSecondary}
                       keyboardType="numeric"
@@ -1116,9 +1212,7 @@ function FeedCard({
                     <TextInput
                       style={styles.scoreInput}
                       value={game.score_opponent}
-                      onChangeText={(t) => setLocalGames((prev) => {
-                        const next = [...prev]; next[idx] = { ...next[idx], score_opponent: t }; return next;
-                      })}
+                      onChangeText={(t) => handleScoreChange(idx, 'score_opponent', t)}
                       placeholder="0"
                       placeholderTextColor={colors.textSecondary}
                       keyboardType="numeric"
@@ -1141,24 +1235,26 @@ function FeedCard({
                 )}
                 <View style={styles.gameActionsRow}>
                   <TouchableOpacity style={styles.addGameBtn} onPress={handleAddGame} activeOpacity={0.8}>
-                    <Ionicons name="add" size={18} color={colors.primary} />
+                    <Ionicons name="add" size={14} color={colors.primary} />
                     <Text style={styles.addGameBtnText}>Add game</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.saveScoreBtn, (saving || saveSuccess) && styles.saveScoreBtnDisabled]} onPress={handleSaveGames} disabled={saving || saveSuccess} activeOpacity={0.8}>
-                    {saving ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
-                        <ActivityIndicator size="small" color={colors.textOnPrimary} />
-                        <Text style={styles.saveScoreBtnText}>Saving...</Text>
-                      </View>
-                    ) : saveSuccess ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
-                        <Ionicons name="checkmark-circle" size={18} color={colors.textOnPrimary} />
-                        <Text style={styles.saveScoreBtnText}>Saved!</Text>
-                      </View>
-                    ) : (
-                      <Text style={styles.saveScoreBtnText}>Save</Text>
-                    )}
-                  </TouchableOpacity>
+                  {isParticipant && (
+                    <TouchableOpacity
+                      style={[styles.deleteButton, deleteLoading && { opacity: 0.6 }]}
+                      onPress={handleDelete}
+                      disabled={deleteLoading}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="trash-outline" size={14} color={colors.error} />
+                      <Text style={styles.deleteButtonText}>Delete</Text>
+                    </TouchableOpacity>
+                  )}
+                  {saving && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                      <ActivityIndicator size="small" color={colors.textSecondary} />
+                      <Text style={[typography.caption, { fontSize: 10, color: colors.textSecondary }]}>Saving...</Text>
+                    </View>
+                  )}
                 </View>
               </View>
           )}
@@ -1183,17 +1279,23 @@ function FeedCard({
           }}
         >
           <View style={[styles.mapPlaceholder, { width: halfWidth, height: halfWidth * 0.75 }]}>
-            <View style={styles.mapGridLines}>
-              <View style={[styles.mapGridH, { top: '25%' }]} />
-              <View style={[styles.mapGridH, { top: '50%' }]} />
-              <View style={[styles.mapGridH, { top: '75%' }]} />
-              <View style={[styles.mapGridV, { left: '25%' }]} />
-              <View style={[styles.mapGridV, { left: '50%' }]} />
-              <View style={[styles.mapGridV, { left: '75%' }]} />
-            </View>
-            <View style={styles.mapPinContainer}>
-              <Ionicons name="location" size={24} color={colors.primary} />
-            </View>
+            {item.location_lat != null && item.location_lng != null && MapPreview != null ? (
+              <MapPreview latitude={item.location_lat} longitude={item.location_lng} />
+            ) : (
+              <>
+                <View style={styles.mapGridLines}>
+                  <View style={[styles.mapGridH, { top: '25%' }]} />
+                  <View style={[styles.mapGridH, { top: '50%' }]} />
+                  <View style={[styles.mapGridH, { top: '75%' }]} />
+                  <View style={[styles.mapGridV, { left: '25%' }]} />
+                  <View style={[styles.mapGridV, { left: '50%' }]} />
+                  <View style={[styles.mapGridV, { left: '75%' }]} />
+                </View>
+                <View style={styles.mapPinContainer}>
+                  <Ionicons name="location" size={24} color={colors.primary} />
+                </View>
+              </>
+            )}
             <View style={styles.mapLabelContainer}>
               <View style={styles.mapLabelPill}>
                 <Ionicons name={item.location_lat != null ? 'navigate-outline' : 'location-outline'} size={10} color={colors.textOnPrimary} />
@@ -1560,7 +1662,8 @@ function createHomeStyles(colors: ThemeColors) {
     scoreHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, marginBottom: 4 },
     scoreHeaderName: { ...typography.label, fontSize: 11, color: colors.textSecondary, width: 48, textAlign: 'center' },
     gameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, marginBottom: spacing.xs },
-    gameLabel: { ...typography.label, fontSize: 11, color: colors.textSecondary, width: 28, textAlign: 'right' },
+    gameLabelWrap: { width: 0, alignItems: 'flex-end' as const, overflow: 'visible' as const },
+    gameLabelText: { ...typography.label, fontSize: 11, color: colors.textSecondary, marginRight: 4, width: 24 },
     scoreCol: { alignItems: 'center', gap: 2 },
     scorePlayerLabel: { ...typography.caption, fontSize: 12, fontWeight: '600', color: colors.text },
     validationErrorBanner: {
@@ -1577,13 +1680,13 @@ function createHomeStyles(colors: ThemeColors) {
     validationCancelBtnText: { ...typography.label, fontSize: 14 },
     validationSaveAnywayBtn: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: borderRadius.md },
     validationSaveAnywayBtnText: { ...typography.label, fontSize: 14, color: '#FFF' },
-    gameActionsRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm, marginTop: spacing.sm, width: '100%' },
+    gameActionsRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm, marginTop: spacing.md, width: '100%' },
     addGameBtn: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
       borderWidth: 1,
       borderColor: colors.primary,
       borderRadius: borderRadius.sm,
@@ -1593,7 +1696,7 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       marginBottom: spacing.lg,
-      marginTop: spacing.sm
+      marginTop: spacing.md,
     },
     playerCol: { flex: 1, alignItems: 'center', gap: spacing.xs },
     playerName: { ...typography.label, color: colors.text, textAlign: 'center' },
@@ -1662,8 +1765,8 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       gap: 4,
       backgroundColor: colors.primary,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
       borderRadius: borderRadius.sm,
     },
     startButtonText: { ...typography.label, fontSize: 11, color: colors.textOnPrimary },
@@ -1706,8 +1809,8 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       gap: 4,
       backgroundColor: colors.error,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
       borderRadius: borderRadius.sm,
     },
     pauseButtonText: { ...typography.label, fontSize: 11, color: '#FFF' },
@@ -1716,8 +1819,8 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       gap: 4,
       backgroundColor: colors.success,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
       borderRadius: borderRadius.sm,
     },
     resumeButtonText: { ...typography.label, fontSize: 11, color: '#FFF' },
@@ -1755,8 +1858,8 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
       borderWidth: 1,
       borderColor: colors.error,
       borderRadius: borderRadius.sm,
@@ -2088,6 +2191,7 @@ export default function HomeScreen() {
   const notifSlideAnim = useRef(new Animated.Value(-400)).current;
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [preferredSports, setPreferredSports] = useState<string[]>([]);
   const [feedItems, setFeedItems] = useState<FeedMatch[]>([]);
   const [loadingFeed, setLoadingFeed] = useState(true);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -2140,6 +2244,8 @@ export default function HomeScreen() {
       if (!user) return;
       setCurrentUserId(user.id);
       refreshFollowStates(user.id);
+      const { data: prof } = await supabase.from('profiles').select('preferred_sports').eq('user_id', user.id).maybeSingle();
+      if (prof?.preferred_sports) setPreferredSports(prof.preferred_sports);
     })();
   }, []);
 
@@ -2287,11 +2393,14 @@ export default function HomeScreen() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'match_participants' }, () => {
         loadFeedDebounced(false);
       })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${currentUserId}` }, () => {
+        loadNotifications();
+      })
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [isFocused, currentUserId, loadFeedDebounced]);
+  }, [isFocused, currentUserId, loadFeedDebounced, loadNotifications]);
 
   const hasPendingRankedMatch = useMemo(() => {
     if (!currentUserId) return false;
@@ -2313,6 +2422,44 @@ export default function HomeScreen() {
     return () => clearInterval(interval);
   }, [isFocused, loadFeed, loadNotifications, hasPendingRankedMatch]);
 
+  // Safety net: when feed reloads and a ranked match has all participants delete_requested,
+  // auto-trigger the actual deletion (handles race condition where both users clicked simultaneously)
+  const deletingMatchRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!currentUserId) return;
+    feedItems.forEach(async (m) => {
+      if (String(m.match_type || '').toLowerCase() !== 'ranked') return;
+      const pts = Array.isArray(m.participants) ? m.participants : [];
+      if (pts.length < 2) return;
+      const amIn = pts.some((p) => String(p?.user_id) === String(currentUserId));
+      if (!amIn) return;
+      const allWantDelete = pts.every((p) => p.delete_requested === true);
+      if (!allWantDelete) return;
+      if (deletingMatchRef.current.has(m.id)) return; // already processing
+      deletingMatchRef.current.add(m.id);
+      try {
+        // Reverse sport ratings if completed ranked
+        if (m.status === 'completed') {
+          const { data: sportRow } = await supabase.from('sports').select('id').eq('name', m.sport_name).maybeSingle();
+          if (sportRow?.id) {
+            for (const p of pts) {
+              await supabase.rpc('reverse_sport_rating', {
+                p_user_id: p.user_id,
+                p_sport_id: sportRow.id,
+                p_vp_loss: Math.max(0, p.vp_delta ?? 0),
+                p_was_win: p.result === 'win',
+                p_was_loss: p.result === 'loss',
+              });
+            }
+          }
+        }
+        await supabase.from('matches').delete().eq('id', m.id);
+        loadFeed(false);
+      } catch { /* swallow — other user may have already deleted */ }
+      finally { deletingMatchRef.current.delete(m.id); }
+    });
+  }, [feedItems, currentUserId, loadFeed]);
+
   const myFeed = useMemo(
     () => feedItems.filter((m) => (m.participants ?? []).some((p) => p.user_id === currentUserId)),
     [feedItems, currentUserId],
@@ -2321,7 +2468,16 @@ export default function HomeScreen() {
     () => feedItems.filter((m) => (m.status === 'confirmed' || m.status === 'completed') && (m.is_public !== false)),
     [feedItems],
   );
-  const displayedItems = feedMode === 'my' ? myFeed : publicFeed;
+  const displayedItems = useMemo(() => {
+    const feed = feedMode === 'my' ? myFeed : publicFeed;
+    if (preferredSports.length === 0) return feed;
+    const prefSet = new Set(preferredSports);
+    return [...feed].sort((a, b) => {
+      const aP = prefSet.has(a.sport_name) ? 0 : 1;
+      const bP = prefSet.has(b.sport_name) ? 0 : 1;
+      return aP - bP;
+    });
+  }, [feedMode, myFeed, publicFeed, preferredSports]);
 
   useEffect(() => {
     const matchId = route.params?.scrollToMatchId;
