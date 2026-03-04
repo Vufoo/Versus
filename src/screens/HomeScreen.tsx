@@ -171,38 +171,44 @@ function getName(p: Participant): string {
   return p.full_name ?? p.username ?? 'Unknown';
 }
 
+function gameWinnerP1(
+  g: { score_challenger: number; score_opponent: number },
+  lowerWins: boolean,
+): boolean {
+  return lowerWins ? g.score_challenger < g.score_opponent : g.score_challenger > g.score_opponent;
+}
+
 function formatMatchScore(
   sportName: string,
   games: { score_challenger: number; score_opponent: number }[],
   p1Name: string,
-  p2Name: string
+  p2Name: string,
 ): { main: string; sub: string | null } {
   const filtered = games.filter((g) => g.score_challenger > 0 || g.score_opponent > 0);
   if (filtered.length === 0) return { main: '', sub: null };
 
   const rules = SPORT_SCORING[sportName];
   const isSetBased = rules === 'set';
+  const lowerWins = rules !== 'set' && !!(rules as { lowerWins?: boolean }).lowerWins;
 
-  if (isSetBased && filtered.length > 0) {
+  // Tennis: sets won as main, set scores as sub
+  if (isSetBased) {
     const setsP1 = filtered.filter((g) => g.score_challenger > g.score_opponent).length;
     const setsP2 = filtered.filter((g) => g.score_opponent > g.score_challenger).length;
     const setScores = filtered.map((g) => `${g.score_challenger}-${g.score_opponent}`).join(', ');
-    return {
-      main: `${setsP1} - ${setsP2}`,
-      sub: setScores,
-    };
+    return { main: `${setsP1} - ${setsP2}`, sub: setScores };
   }
 
-  const totalP1 = filtered.reduce((a, g) => a + g.score_challenger, 0);
-  const totalP2 = filtered.reduce((a, g) => a + g.score_opponent, 0);
-  if (filtered.length === 1) {
-    return { main: `${totalP1} - ${totalP2}`, sub: null };
+  // Multi-game: games won as main, individual scores as sub
+  if (filtered.length > 1) {
+    const gamesP1 = filtered.filter((g) => gameWinnerP1(g, lowerWins)).length;
+    const gamesP2 = filtered.filter((g) => gameWinnerP1({ score_challenger: g.score_opponent, score_opponent: g.score_challenger }, lowerWins)).length;
+    const gameScores = filtered.map((g) => `${g.score_challenger}-${g.score_opponent}`).join(', ');
+    return { main: `${gamesP1} - ${gamesP2}`, sub: gameScores };
   }
-  const gameScores = filtered.map((g) => `${g.score_challenger}-${g.score_opponent}`).join(', ');
-  return {
-    main: `${totalP1} - ${totalP2}`,
-    sub: gameScores,
-  };
+
+  // Single game: show actual score
+  return { main: `${filtered[0].score_challenger} - ${filtered[0].score_opponent}`, sub: null };
 }
 
 function formatDuration(ms: number): string {
@@ -244,6 +250,7 @@ function FeedCard({
   onInviteOpponent,
   onEditMatch,
   navigation,
+  onNotifyUpdate,
 }: {
   item: FeedMatch;
   currentUserId: string | null;
@@ -254,6 +261,7 @@ function FeedCard({
   onInviteOpponent?: (match: FeedMatch) => void;
   onEditMatch?: (match: FeedMatch) => void;
   navigation: { navigate: (screen: string, params?: object) => void };
+  onNotifyUpdate?: () => void;
 }) {
   const challenger = (item.participants ?? []).find((p) => p.role === 'challenger');
   const opponent = (item.participants ?? []).find((p) => p.role === 'opponent');
@@ -282,6 +290,7 @@ function FeedCard({
   const [readyLoading, setReadyLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [winnerPickerVisible, setWinnerPickerVisible] = useState(false);
+  const [winnerSelection, setWinnerSelection] = useState<string | null>(null); // null = draw
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
 
@@ -469,11 +478,18 @@ function FeedCard({
   const canStartRanked = isRanked && participants.length >= requiredParticipants && (statusConfirmed || readyCount >= requiredParticipants);
   const canStartCasual = !isRanked && !isLocal && participants.length >= requiredParticipants;
   const canStartLocal = isLocal && participants.length >= 1;
-  const canStart = canStartRanked || canStartCasual || canStartLocal;
+  const isScheduledFuture = !!(
+    item.scheduled_at &&
+    new Date(item.scheduled_at) > new Date() &&
+    !item.started_at &&
+    (item.status === 'pending' || item.status === 'confirmed')
+  );
+  const canStartMeetsCriteria = canStartRanked || canStartCasual || canStartLocal;
+  const canStart = canStartMeetsCriteria && !isScheduledFuture;
 
   const handleStart = async () => {
     if (!currentUserId || startStopLoading) return;
-    if (!canStart) return;
+    if (!canStartMeetsCriteria) return;
     setStartStopLoading(true);
     try {
       const startedAt = new Date().toISOString();
@@ -481,6 +497,7 @@ function FeedCard({
         .eq('id', item.id)
         .in('status', ['confirmed', 'pending', 'planned']);
       updateFeedItem(item.id, (m) => ({ ...m, status: 'in_progress', started_at: startedAt }));
+      onNotifyUpdate?.();
     } catch { /* swallow */ }
     finally { setStartStopLoading(false); }
   };
@@ -489,10 +506,14 @@ function FeedCard({
     if (!currentUserId || startStopLoading) return;
     setStartStopLoading(true);
     try {
-      await supabase.from('matches').update({ status: 'paused' })
+      const { data } = await supabase.from('matches').update({ status: 'paused' })
         .eq('id', item.id)
-        .eq('status', 'in_progress');
-      updateFeedItem(item.id, (m) => ({ ...m, status: 'paused' }));
+        .eq('status', 'in_progress')
+        .select('id');
+      if (data && data.length > 0) {
+        updateFeedItem(item.id, (m) => ({ ...m, status: 'paused' }));
+        onNotifyUpdate?.();
+      }
     } catch { /* swallow */ }
     finally { setStartStopLoading(false); }
   };
@@ -501,10 +522,14 @@ function FeedCard({
     if (!currentUserId || startStopLoading) return;
     setStartStopLoading(true);
     try {
-      await supabase.from('matches').update({ status: 'in_progress' })
+      const { data } = await supabase.from('matches').update({ status: 'in_progress' })
         .eq('id', item.id)
-        .eq('status', 'paused');
-      updateFeedItem(item.id, (m) => ({ ...m, status: 'in_progress' }));
+        .eq('status', 'paused')
+        .select('id');
+      if (data && data.length > 0) {
+        updateFeedItem(item.id, (m) => ({ ...m, status: 'in_progress' }));
+        onNotifyUpdate?.();
+      }
     } catch { /* swallow */ }
     finally { setStartStopLoading(false); }
   };
@@ -558,13 +583,22 @@ function FeedCard({
       const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
       const finisherName = myProfile?.full_name ?? myProfile?.username ?? 'Someone';
       const matchTypeLabel = item.match_type ? String(item.match_type).charAt(0).toUpperCase() + String(item.match_type).slice(1) : 'Match';
+      const winnerName = winnerParticipant ? (winnerParticipant.full_name ?? winnerParticipant.username ?? 'Someone') : null;
       for (const p of participants) {
         if (p.user_id !== currentUserId) {
+          let notifBody: string;
+          if (winnerUserId === null) {
+            notifBody = `${finisherName} marked the match as a draw.`;
+          } else if (p.user_id === winnerUserId) {
+            notifBody = `You won! ${finisherName} finished the match.`;
+          } else {
+            notifBody = `${winnerName} won the match!`;
+          }
           await supabase.from('notifications').insert({
             user_id: p.user_id,
             type: 'match_finished',
             title: `${matchTypeLabel} match finished`,
-            body: winnerUserId === null ? `${finisherName} marked the match as a draw.` : `${finisherName} finished the match.`,
+            body: notifBody,
             data: { match_id: item.id, from_user_id: currentUserId },
           });
         }
@@ -573,21 +607,59 @@ function FeedCard({
     finally { setStartStopLoading(false); }
   };
 
+  const detectWinnerFromScores = (): string | null => {
+    const rules = SPORT_SCORING[item.sport_name];
+    const isSetBased = rules === 'set';
+    const lowerWins = rules !== 'set' && !!(rules as { lowerWins?: boolean }).lowerWins;
+    let gamesP1 = 0, gamesP2 = 0;
+    for (const g of localGames) {
+      const sc = parseInt(g.score_challenger, 10) || 0;
+      const so = parseInt(g.score_opponent, 10) || 0;
+      if (sc === 0 && so === 0) continue;
+      const p1Wins = isSetBased || !lowerWins ? sc > so : sc < so;
+      if (p1Wins) gamesP1++;
+      else if (isSetBased || !lowerWins ? so > sc : so < sc) gamesP2++;
+    }
+    if (gamesP1 > gamesP2) return p1?.user_id ?? null;
+    if (gamesP2 > gamesP1) return p2?.user_id ?? null;
+    return null; // draw / tied
+  };
+
   const handleFinish = () => {
     if (!currentUserId || startStopLoading) return;
+    setWinnerSelection(detectWinnerFromScores());
     setWinnerPickerVisible(true);
   };
 
   const selectWinner = (userId: string | null) => {
+    setWinnerSelection(userId);
+  };
+
+  const confirmWinner = () => {
     setWinnerPickerVisible(false);
-    finishWithWinner(userId);
+    finishWithWinner(winnerSelection);
   };
 
   const handleAddGame = () => {
+    editingScoreRef.current = true;
     setLocalGames((prev) => [...prev, { score_challenger: '', score_opponent: '' }]);
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      handleSaveGames();
+    }, 1500);
   };
 
+  const amChallenger = myParticipant?.role === 'challenger';
+  const amOpponent = myParticipant?.role === 'opponent';
+  const canEditChallenger = !isRanked || amChallenger;
+  const canEditOpponent = !isRanked || amOpponent;
+
   const handleScoreChange = (idx: number, field: 'score_challenger' | 'score_opponent', value: string) => {
+    // Ranked: only allow editing your own column
+    if (isRanked) {
+      if (field === 'score_challenger' && !amChallenger) return;
+      if (field === 'score_opponent' && !amOpponent) return;
+    }
     editingScoreRef.current = true;
     setLocalGames((prev) => {
       const next = [...prev];
@@ -605,27 +677,85 @@ function FeedCard({
     setSaving(true);
     const games = localGamesRef.current;
     try {
-      await supabase.from('match_games').delete().eq('match_id', item.id);
-      const savedGames: MatchGame[] = [];
-      for (let i = 0; i < games.length; i++) {
-        const sc = parseInt(games[i].score_challenger, 10) || 0;
-        const so = parseInt(games[i].score_opponent, 10) || 0;
-        await supabase.from('match_games').insert({ match_id: item.id, game_number: i + 1, score_challenger: sc, score_opponent: so });
-        savedGames.push({ game_number: i + 1, score_challenger: sc, score_opponent: so });
+      if (isRanked && myParticipant) {
+        // Ranked: update only the current user's score column per game row.
+        // Uses ensure-row-exists + column-specific update to avoid overwriting
+        // the opponent's scores even under concurrent edits.
+        for (let i = 0; i < games.length; i++) {
+          const gameNum = i + 1;
+          const myScore = amChallenger
+            ? (parseInt(games[i].score_challenger, 10) || 0)
+            : (parseInt(games[i].score_opponent, 10) || 0);
+
+          // Step 1: ensure the game row exists without clobbering existing data
+          await supabase.from('match_games').upsert(
+            { match_id: item.id, game_number: gameNum, score_challenger: 0, score_opponent: 0 },
+            { onConflict: 'match_id,game_number', ignoreDuplicates: true },
+          );
+
+          // Step 2: update only our column
+          if (amChallenger) {
+            await supabase.from('match_games')
+              .update({ score_challenger: myScore })
+              .eq('match_id', item.id).eq('game_number', gameNum);
+          } else {
+            await supabase.from('match_games')
+              .update({ score_opponent: myScore })
+              .eq('match_id', item.id).eq('game_number', gameNum);
+          }
+        }
+
+        // Update own participant score total
+        const myTotal = games.reduce(
+          (a, g) => a + (amChallenger ? (parseInt(g.score_challenger, 10) || 0) : (parseInt(g.score_opponent, 10) || 0)),
+          0,
+        );
+        await supabase.from('match_participants')
+          .update({ score: String(myTotal) })
+          .eq('match_id', item.id).eq('user_id', currentUserId);
+
+        // Re-fetch games from DB to get both users' latest scores
+        const { data: freshGames } = await supabase
+          .from('match_games')
+          .select('game_number, score_challenger, score_opponent')
+          .eq('match_id', item.id)
+          .order('game_number');
+        const savedGames: MatchGame[] = (freshGames ?? []).map((g) => ({
+          game_number: g.game_number,
+          score_challenger: g.score_challenger,
+          score_opponent: g.score_opponent,
+        }));
+        updateFeedItem(item.id, (m) => ({
+          ...m,
+          games: savedGames,
+          participants: m.participants.map((p) =>
+            p.user_id === currentUserId ? { ...p, score: String(myTotal) } : p,
+          ),
+        }));
+      } else {
+        // Casual: any participant can write all scores; last writer wins
+        await supabase.from('match_games').delete().eq('match_id', item.id);
+        const savedGames: MatchGame[] = [];
+        for (let i = 0; i < games.length; i++) {
+          const sc = parseInt(games[i].score_challenger, 10) || 0;
+          const so = parseInt(games[i].score_opponent, 10) || 0;
+          await supabase.from('match_games').insert({ match_id: item.id, game_number: i + 1, score_challenger: sc, score_opponent: so });
+          savedGames.push({ game_number: i + 1, score_challenger: sc, score_opponent: so });
+        }
+        const totalP1 = games.reduce((a, g) => a + (parseInt(g.score_challenger, 10) || 0), 0);
+        const totalP2 = games.reduce((a, g) => a + (parseInt(g.score_opponent, 10) || 0), 0);
+        if (p1) await supabase.from('match_participants').update({ score: String(totalP1) }).eq('match_id', item.id).eq('user_id', p1.user_id);
+        if (p2) await supabase.from('match_participants').update({ score: String(totalP2) }).eq('match_id', item.id).eq('user_id', p2.user_id);
+        updateFeedItem(item.id, (m) => ({
+          ...m,
+          games: savedGames,
+          participants: m.participants.map((p) => {
+            if (p1 && p.user_id === p1.user_id) return { ...p, score: String(totalP1) };
+            if (p2 && p.user_id === p2.user_id) return { ...p, score: String(totalP2) };
+            return p;
+          }),
+        }));
       }
-      const totalP1 = games.reduce((a, g) => a + (parseInt(g.score_challenger, 10) || 0), 0);
-      const totalP2 = games.reduce((a, g) => a + (parseInt(g.score_opponent, 10) || 0), 0);
-      if (p1) await supabase.from('match_participants').update({ score: String(totalP1) }).eq('match_id', item.id).eq('user_id', p1.user_id);
-      if (p2) await supabase.from('match_participants').update({ score: String(totalP2) }).eq('match_id', item.id).eq('user_id', p2.user_id);
-      updateFeedItem(item.id, (m) => ({
-        ...m,
-        games: savedGames,
-        participants: m.participants.map((p) => {
-          if (p1 && p.user_id === p1.user_id) return { ...p, score: String(totalP1) };
-          if (p2 && p.user_id === p2.user_id) return { ...p, score: String(totalP2) };
-          return p;
-        }),
-      }));
     } catch { /* swallow */ }
     finally {
       setSaving(false);
@@ -809,6 +939,35 @@ function FeedCard({
     finally { setDeleteLoading(false); }
   };
 
+  const handleCancelMatch = () => {
+    if (!currentUserId || deleteLoading) return;
+    Alert.alert(
+      'Cancel match',
+      'Are you sure you want to cancel this match?',
+      [
+        { text: 'Keep', style: 'cancel' },
+        {
+          text: 'Cancel match',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleteLoading(true);
+            try {
+              await supabase.from('matches').update({ status: 'canceled' }).eq('id', item.id);
+              // Remove pending match invite notifications so the invited opponent's inbox is clean
+              await supabase
+                .from('notifications')
+                .delete()
+                .eq('type', 'match_invite')
+                .eq('data->>match_id', item.id);
+              updateFeedItem(item.id, (m) => ({ ...m, status: 'canceled' }));
+            } catch { /* swallow */ }
+            finally { setDeleteLoading(false); }
+          },
+        },
+      ],
+    );
+  };
+
   if (!p1) return null;
 
   const isCompleted = item.status === 'completed';
@@ -877,7 +1036,10 @@ function FeedCard({
           adjustsFontSizeToFit
           minimumFontScale={0.85}
         >
-          {dateStr} · Created {createdTime}{startedTime ? ` · Started ${startedTime}` : ''}
+          {isScheduledFuture
+            ? `Scheduled: ${new Date(item.scheduled_at!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · ${new Date(item.scheduled_at!).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+            : `${dateStr} · Created ${createdTime}${startedTime ? ` · Started ${startedTime}` : ''}`
+          }
         </Text>
       </View>
 
@@ -1165,12 +1327,18 @@ function FeedCard({
                       disabled={deleteLoading}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="close-circle" size={14} color={colors.error} />
+                      <Ionicons name="close-circle" size={14} color={colors.textOnPrimary} />
                       <Text style={styles.deleteButtonText}>Cancel delete</Text>
                     </TouchableOpacity>
                   </View>
                 );
               }
+
+              const isPendingState = item.status === 'pending' || item.status === 'confirmed';
+              const cancelBtnIcon = isPendingState ? 'close-outline' : 'trash-outline';
+              const cancelBtnLabel = isPendingState
+                ? (isRanked && deleteCount > 0 ? `Cancel (${deleteCount}/${totalParticipants})` : 'Cancel')
+                : (isRanked && deleteCount > 0 ? `Delete (${deleteCount}/${totalParticipants})` : 'Delete');
 
               return (
                 <TouchableOpacity
@@ -1179,10 +1347,8 @@ function FeedCard({
                   disabled={deleteLoading}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="trash-outline" size={14} color={colors.error} />
-                  <Text style={styles.deleteButtonText}>
-                    {isRanked && deleteCount > 0 ? `Delete (${deleteCount}/${totalParticipants})` : 'Delete'}
-                  </Text>
+                  <Ionicons name={cancelBtnIcon} size={14} color={colors.textOnPrimary} />
+                  <Text style={styles.deleteButtonText}>{cancelBtnLabel}</Text>
                 </TouchableOpacity>
               );
             })()}
@@ -1201,21 +1367,23 @@ function FeedCard({
                       <Text style={styles.gameLabelText}>G{idx + 1}</Text>
                     </View>
                     <TextInput
-                      style={styles.scoreInput}
+                      style={[styles.scoreInput, !canEditChallenger && styles.scoreInputDisabled]}
                       value={game.score_challenger}
                       onChangeText={(t) => handleScoreChange(idx, 'score_challenger', t)}
                       placeholder="0"
                       placeholderTextColor={colors.textSecondary}
                       keyboardType="numeric"
+                      editable={canEditChallenger}
                     />
                     <Text style={styles.scoreEditVs}>–</Text>
                     <TextInput
-                      style={styles.scoreInput}
+                      style={[styles.scoreInput, !canEditOpponent && styles.scoreInputDisabled]}
                       value={game.score_opponent}
                       onChangeText={(t) => handleScoreChange(idx, 'score_opponent', t)}
                       placeholder="0"
                       placeholderTextColor={colors.textSecondary}
                       keyboardType="numeric"
+                      editable={canEditOpponent}
                     />
                   </View>
                 ))}
@@ -1245,7 +1413,7 @@ function FeedCard({
                       disabled={deleteLoading}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="trash-outline" size={14} color={colors.error} />
+                      <Ionicons name="trash-outline" size={14} color={colors.textOnPrimary} />
                       <Text style={styles.deleteButtonText}>Delete</Text>
                     </TouchableOpacity>
                   )}
@@ -1473,11 +1641,11 @@ function FeedCard({
           <View style={styles.winnerPickerOptions}>
             {p1 && (
               <TouchableOpacity
-                style={styles.winnerPickerOption}
+                style={[styles.winnerPickerOption, winnerSelection === p1.user_id && styles.winnerPickerOptionSel]}
                 onPress={() => selectWinner(p1.user_id)}
                 activeOpacity={0.8}
               >
-                <View style={styles.winnerPickerAvatarWrap}>
+                <View style={[styles.winnerPickerAvatarWrap, winnerSelection === p1.user_id && { borderWidth: 2, borderColor: colors.primary }]}>
                   {p1AvatarUrl ? (
                     <Image source={{ uri: p1AvatarUrl }} style={styles.winnerPickerAvatarImg} />
                   ) : (
@@ -1486,17 +1654,17 @@ function FeedCard({
                     </View>
                   )}
                 </View>
-                <Text style={styles.winnerPickerName}>{getName(p1)}</Text>
+                <Text style={[styles.winnerPickerName, winnerSelection === p1.user_id && { color: colors.primary }]}>{getName(p1)}</Text>
                 <Text style={styles.winnerPickerRole}>Challenger</Text>
               </TouchableOpacity>
             )}
             {p2 && (
               <TouchableOpacity
-                style={styles.winnerPickerOption}
+                style={[styles.winnerPickerOption, winnerSelection === p2.user_id && styles.winnerPickerOptionSel]}
                 onPress={() => selectWinner(p2.user_id)}
                 activeOpacity={0.8}
               >
-                <View style={styles.winnerPickerAvatarWrap}>
+                <View style={[styles.winnerPickerAvatarWrap, winnerSelection === p2.user_id && { borderWidth: 2, borderColor: colors.primary }]}>
                   {p2AvatarUrl ? (
                     <Image source={{ uri: p2AvatarUrl }} style={styles.winnerPickerAvatarImg} />
                   ) : (
@@ -1505,22 +1673,25 @@ function FeedCard({
                     </View>
                   )}
                 </View>
-                <Text style={styles.winnerPickerName}>{getName(p2)}</Text>
+                <Text style={[styles.winnerPickerName, winnerSelection === p2.user_id && { color: colors.primary }]}>{getName(p2)}</Text>
                 <Text style={styles.winnerPickerRole}>Opponent</Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity
-              style={styles.winnerPickerOption}
+              style={[styles.winnerPickerOption, winnerSelection === null && styles.winnerPickerOptionSel]}
               onPress={() => selectWinner(null)}
               activeOpacity={0.8}
             >
-              <View style={[styles.winnerPickerAvatarWrap, styles.winnerPickerDrawWrap]}>
-                <Ionicons name="remove-circle-outline" size={36} color={colors.textSecondary} />
+              <View style={[styles.winnerPickerAvatarWrap, styles.winnerPickerDrawWrap, winnerSelection === null && { borderColor: colors.primary }]}>
+                <Ionicons name="remove-circle-outline" size={36} color={winnerSelection === null ? colors.primary : colors.textSecondary} />
               </View>
-              <Text style={styles.winnerPickerName}>Draw</Text>
+              <Text style={[styles.winnerPickerName, winnerSelection === null && { color: colors.primary }]}>Draw</Text>
               <Text style={styles.winnerPickerRole}>Tie</Text>
             </TouchableOpacity>
           </View>
+          <TouchableOpacity style={styles.winnerPickerConfirm} onPress={confirmWinner} activeOpacity={0.8}>
+            <Text style={styles.winnerPickerConfirmText}>Confirm</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.winnerPickerCancel} onPress={() => setWinnerPickerVisible(false)}>
             <Text style={[styles.winnerPickerCancelText, { color: colors.textSecondary }]}>Cancel</Text>
           </TouchableOpacity>
@@ -1680,16 +1851,18 @@ function createHomeStyles(colors: ThemeColors) {
     validationCancelBtnText: { ...typography.label, fontSize: 14 },
     validationSaveAnywayBtn: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: borderRadius.md },
     validationSaveAnywayBtnText: { ...typography.label, fontSize: 14, color: '#FFF' },
-    gameActionsRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm, marginTop: spacing.md, width: '100%' },
+    gameActionsRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: spacing.sm, width: '100%' },
     addGameBtn: {
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'center',
       gap: 4,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
+      paddingHorizontal: 11,
+      paddingVertical: 6,
       borderWidth: 1,
       borderColor: colors.primary,
       borderRadius: borderRadius.sm,
+      minWidth: 95,
     },
     addGameBtnText: { ...typography.label, fontSize: 11, color: colors.primary },
     playersRow: {
@@ -1703,7 +1876,7 @@ function createHomeStyles(colors: ThemeColors) {
     vsCol: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
     vsText: {
       ...typography.caption,
-      color: '#0F172A',
+      color: colors.text,
       fontWeight: '700',
       marginTop: spacing.md,
       marginBottom: spacing.sm,
@@ -1749,7 +1922,8 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'column',
       alignItems: 'center',
       marginBottom: spacing.sm,
-      paddingTop: spacing.sm,
+      paddingTop: spacing.md,
+      paddingBottom: spacing.sm,
       borderTopWidth: 1,
       borderTopColor: colors.divider,
     },
@@ -1757,17 +1931,19 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: spacing.sm,
+      gap: 12,
       marginBottom: 0,
     },
     startButton: {
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'center',
       gap: 4,
       backgroundColor: colors.primary,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
+      paddingHorizontal: 11,
+      paddingVertical: 6,
       borderRadius: borderRadius.sm,
+      minWidth: 95,
     },
     startButtonText: { ...typography.label, fontSize: 11, color: colors.textOnPrimary },
     readyUpCenterButton: {
@@ -1807,21 +1983,25 @@ function createHomeStyles(colors: ThemeColors) {
     pauseButton: {
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'center',
       gap: 4,
       backgroundColor: colors.error,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
+      paddingHorizontal: 11,
+      paddingVertical: 6,
       borderRadius: borderRadius.sm,
+      minWidth: 95,
     },
     pauseButtonText: { ...typography.label, fontSize: 11, color: '#FFF' },
     resumeButton: {
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'center',
       gap: 4,
       backgroundColor: colors.success,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
+      paddingHorizontal: 11,
+      paddingVertical: 6,
       borderRadius: borderRadius.sm,
+      minWidth: 95,
     },
     resumeButtonText: { ...typography.label, fontSize: 11, color: '#FFF' },
     scoreEditRow: {
@@ -1843,6 +2023,7 @@ function createHomeStyles(colors: ThemeColors) {
       backgroundColor: colors.background,
       textAlign: 'center' as const,
     },
+    scoreInputDisabled: { opacity: 0.35, backgroundColor: colors.cardBg },
     scoreEditVs: { ...typography.label, color: colors.textSecondary, width: 20, textAlign: 'center' as const },
     saveScoreBtn: {
       flexDirection: 'row',
@@ -1857,14 +2038,15 @@ function createHomeStyles(colors: ThemeColors) {
     deleteButton: {
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'center',
       gap: 4,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
-      borderWidth: 1,
-      borderColor: colors.error,
+      paddingHorizontal: 11,
+      paddingVertical: 6,
+      backgroundColor: colors.error,
       borderRadius: borderRadius.sm,
+      minWidth: 95,
     },
-    deleteButtonText: { ...typography.label, fontSize: 11, color: colors.error },
+    deleteButtonText: { ...typography.label, fontSize: 11, color: colors.textOnPrimary },
 
     locationRow: {
       flexDirection: 'row',
@@ -1940,7 +2122,7 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingTop: spacing.sm,
+      paddingTop: spacing.md,
       paddingBottom: spacing.md,
       borderTopWidth: 1,
       borderTopColor: colors.divider,
@@ -2144,6 +2326,7 @@ function createHomeStyles(colors: ThemeColors) {
     winnerPickerSubtitle: { ...typography.caption, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.lg },
     winnerPickerOptions: { flexDirection: 'row', justifyContent: 'center', gap: spacing.lg, marginBottom: spacing.lg },
     winnerPickerOption: { alignItems: 'center', flex: 1 },
+    winnerPickerOptionSel: { },
     winnerPickerAvatarWrap: {
       width: 72,
       height: 72,
@@ -2162,6 +2345,14 @@ function createHomeStyles(colors: ThemeColors) {
     winnerPickerInitials: { fontSize: 24, fontWeight: '700' },
     winnerPickerName: { ...typography.body, fontWeight: '600', color: colors.text, textAlign: 'center' },
     winnerPickerRole: { ...typography.caption, fontSize: 11, color: colors.textSecondary, marginTop: 2 },
+    winnerPickerConfirm: {
+      backgroundColor: colors.primary,
+      paddingVertical: spacing.md,
+      borderRadius: borderRadius.md,
+      alignItems: 'center',
+      marginBottom: spacing.sm,
+    },
+    winnerPickerConfirmText: { ...typography.heading, fontSize: 16, color: colors.textOnPrimary },
     winnerPickerCancel: { paddingVertical: spacing.sm, alignItems: 'center' },
     winnerPickerCancelText: { ...typography.label, fontSize: 14 },
   });
@@ -2185,6 +2376,7 @@ export default function HomeScreen() {
   const route = useRoute<RouteProp<TabParamList, 'Home'>>();
   const styles = useMemo(() => createHomeStyles(colors), [colors]);
   const [feedMode, setFeedMode] = useState<FeedMode>('my');
+  const [pendingScrollMatchId, setPendingScrollMatchId] = useState<string | null>(null);
   const [notifsVisible, setNotifsVisible] = useState(false);
   const navigation = useNavigation<any>();
   const feedListRef = useRef<FlatList>(null);
@@ -2379,9 +2571,11 @@ export default function HomeScreen() {
     let timer: ReturnType<typeof setTimeout>;
     return (showLoading = true) => {
       clearTimeout(timer);
-      timer = setTimeout(() => loadFeed(showLoading), 300);
+      timer = setTimeout(() => loadFeed(showLoading), 100);
     };
   }, [loadFeed]);
+
+  const realtimeChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   useEffect(() => {
     if (!isFocused || !currentUserId) return;
@@ -2393,14 +2587,19 @@ export default function HomeScreen() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'match_participants' }, () => {
         loadFeedDebounced(false);
       })
+      .on('broadcast', { event: 'match_updated' }, () => {
+        loadFeed(false);
+      })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${currentUserId}` }, () => {
         loadNotifications();
       })
       .subscribe();
+    realtimeChannelRef.current = channel;
     return () => {
+      realtimeChannelRef.current = null;
       supabase.removeChannel(channel);
     };
-  }, [isFocused, currentUserId, loadFeedDebounced, loadNotifications]);
+  }, [isFocused, currentUserId, loadFeedDebounced, loadFeed, loadNotifications]);
 
   const hasPendingRankedMatch = useMemo(() => {
     if (!currentUserId) return false;
@@ -2413,14 +2612,23 @@ export default function HomeScreen() {
     });
   }, [feedItems, currentUserId]);
 
+  const hasActiveMatch = useMemo(() => {
+    if (!currentUserId) return false;
+    return feedItems.some((m) => {
+      const participants = Array.isArray(m.participants) ? m.participants : [];
+      const amIn = participants.some((p: Participant) => String(p?.user_id) === String(currentUserId));
+      return amIn && (m.status === 'in_progress' || m.status === 'paused');
+    });
+  }, [feedItems, currentUserId]);
+
   useEffect(() => {
     if (!isFocused) return;
     const interval = setInterval(() => {
       loadFeed(false);
       loadNotifications();
-    }, hasPendingRankedMatch ? 5000 : 20000);
+    }, (hasPendingRankedMatch || hasActiveMatch) ? 5000 : 20000);
     return () => clearInterval(interval);
-  }, [isFocused, loadFeed, loadNotifications, hasPendingRankedMatch]);
+  }, [isFocused, loadFeed, loadNotifications, hasPendingRankedMatch, hasActiveMatch]);
 
   // Safety net: when feed reloads and a ranked match has all participants delete_requested,
   // auto-trigger the actual deletion (handles race condition where both users clicked simultaneously)
@@ -2479,16 +2687,24 @@ export default function HomeScreen() {
     });
   }, [feedMode, myFeed, publicFeed, preferredSports]);
 
+  // Capture scrollToMatchId param immediately and clear it from route so it doesn't re-fire
   useEffect(() => {
     const matchId = route.params?.scrollToMatchId;
     if (!matchId) return;
+    setPendingScrollMatchId(matchId);
     setFeedMode('my');
-    const idx = myFeed.findIndex((i) => i.id === matchId);
+    navigation.setParams({ scrollToMatchId: undefined } as any);
+  }, [route.params?.scrollToMatchId]);
+
+  // Scroll once myFeed has loaded and contains the target match
+  useEffect(() => {
+    if (!pendingScrollMatchId || myFeed.length === 0) return;
+    const idx = myFeed.findIndex((i) => i.id === pendingScrollMatchId);
     if (idx >= 0) {
+      setPendingScrollMatchId(null);
       setTimeout(() => feedListRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.3 }), 400);
     }
-    navigation.setParams({ scrollToMatchId: undefined } as any);
-  }, [route.params?.scrollToMatchId, myFeed]);
+  }, [pendingScrollMatchId, myFeed]);
 
   const inviteExcludeIds = useMemo(() => {
     if (!inviteOpponentMatch) return undefined;
@@ -2750,6 +2966,9 @@ export default function HomeScreen() {
               onInviteOpponent={setInviteOpponentMatch}
               onEditMatch={setEditMatch}
               navigation={navigation}
+              onNotifyUpdate={() => {
+                realtimeChannelRef.current?.send({ type: 'broadcast', event: 'match_updated', payload: {} });
+              }}
             />
           )}
         />

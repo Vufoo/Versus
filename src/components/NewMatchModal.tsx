@@ -17,8 +17,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
-import { supabase } from '../lib/supabase';
-import { SPORTS, sportLabel, SPORTS_2V2 } from '../constants/sports';
+import { supabase, resolveAvatarUrl } from '../lib/supabase';
+import { SPORTS, sportLabel } from '../constants/sports';
 import UserSearch from './UserSearch';
 import type { SearchedUser } from './UserSearch';
 import LocationPickerModal from './LocationPickerModal';
@@ -172,11 +172,11 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [opponent, setOpponent] = useState<SearchedUser | null>(null);
-  const [teammate, setTeammate] = useState<SearchedUser | null>(null);
-  const [opponent2, setOpponent2] = useState<SearchedUser | null>(null);
+  // const [teammate, setTeammate] = useState<SearchedUser | null>(null);
+  // const [opponent2, setOpponent2] = useState<SearchedUser | null>(null);
   const [sport, setSport] = useState(initialSport ?? SPORTS[0]);
   const [matchType, setMatchType] = useState<'casual' | 'ranked'>(initialMatchType ?? 'casual');
-  const [matchFormat, setMatchFormat] = useState<'1v1' | '2v2'>('1v1');
+  // const [matchFormat, setMatchFormat] = useState<'1v1' | '2v2'>('1v1');
   const [isPublic, setIsPublic] = useState(true);
   const [location, setLocation] = useState('');
   const [locationLat, setLocationLat] = useState<number | null>(null);
@@ -184,7 +184,16 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   const [locationPicker, setLocationPicker] = useState(false);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
-  const [startNow, setStartNow] = useState(true);
+  const todayDateStr = useMemo(() => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
+  }, []);
+  const [scheduleDate, setScheduleDate] = useState<string>(initialDate ?? todayDateStr);
+  const [startNow, setStartNow] = useState<boolean>(!initialDate || initialDate === todayDateStr);
+  const [datePicker, setDatePicker] = useState(false);
+  const [dpYear, setDpYear] = useState(initialDate ? parseInt(initialDate.slice(0,4)) : new Date().getFullYear());
+  const [dpMonth, setDpMonth] = useState(initialDate ? parseInt(initialDate.slice(5,7)) : new Date().getMonth()+1);
+  const [dpDay, setDpDay] = useState(initialDate ? parseInt(initialDate.slice(8,10)) : new Date().getDate());
 
   const [timeHour, setTimeHour] = useState(5);
   const [timeMinute, setTimeMinute] = useState(0);
@@ -217,8 +226,20 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
       setLocationLng(initialLocation.longitude);
     }
   }, [initialLocation?.latitude, initialLocation?.longitude]);
-  const supports2v2 = SPORTS_2V2.includes(sport);
-  useEffect(() => { if (!supports2v2) setMatchFormat('1v1'); }, [supports2v2]);
+  // const supports2v2 = SPORTS_2V2.includes(sport);
+  // useEffect(() => { if (!supports2v2) setMatchFormat('1v1'); }, [supports2v2]);
+
+  useEffect(() => {
+    if (initialDate) {
+      setScheduleDate(initialDate);
+      setDpYear(parseInt(initialDate.slice(0,4)));
+      setDpMonth(parseInt(initialDate.slice(5,7)));
+      setDpDay(parseInt(initialDate.slice(8,10)));
+      const today = new Date();
+      const todayId = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+      if (initialDate !== todayId) setStartNow(false);
+    }
+  }, [initialDate]);
 
   useEffect(() => {
     (async () => {
@@ -233,19 +254,33 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
         .select('followed_id')
         .eq('follower_id', user.id)
         .eq('status', 'accepted')
-        .limit(5);
+        .limit(4);
       if (fRows && fRows.length > 0) {
         const ids = fRows.map((r: any) => r.followed_id);
         const { data: profiles } = await supabase
           .from('profiles')
           .select('user_id, username, full_name, avatar_url')
           .in('user_id', ids);
-        if (profiles) setFriends(profiles as SearchedUser[]);
+        if (profiles) {
+          const resolved = await Promise.all(
+            (profiles as SearchedUser[]).map(async (u) => ({
+              ...u,
+              avatar_url: await resolveAvatarUrl(u.avatar_url) ?? u.avatar_url,
+            })),
+          );
+          setFriends(resolved);
+        }
       }
     })();
   }, []);
 
   const formatTime = () => `${timeHour}:${timeMinute.toString().padStart(2, '0')} ${timeAmPm}`;
+
+  const formatScheduleDate = () => {
+    const d = new Date(scheduleDate + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  };
+  const daysInPickerMonth = new Date(dpYear, dpMonth, 0).getDate();
 
   const handleLocationChange = (text: string) => {
     setLocation(text);
@@ -287,17 +322,15 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
     setShowSuggestions(false);
   };
 
-  const dateId = initialDate ?? (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`; })();
-
   const handleSave = async () => {
     if (matchType === 'ranked' && !opponent) {
       Alert.alert('Ranked match requires opponent', 'Please invite at least one opponent to create a ranked match.');
       return;
     }
-    if (matchFormat === '2v2' && (!teammate || !opponent || !opponent2)) {
-      Alert.alert('2v2 requires full teams', 'Please invite a teammate and two opponents for 2v2.');
-      return;
-    }
+    // if (matchFormat === '2v2' && (!teammate || !opponent || !opponent2)) {
+    //   Alert.alert('2v2 requires full teams', 'Please invite a teammate and two opponents for 2v2.');
+    //   return;
+    // }
     setSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -312,7 +345,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
         scheduledAt = new Date().toISOString();
         matchStatus = 'pending';
       } else {
-        const d = new Date(dateId + 'T00:00:00');
+        const d = new Date(scheduleDate + 'T00:00:00');
         let h = timeHour;
         if (timeAmPm === 'PM' && h !== 12) h += 12;
         if (timeAmPm === 'AM' && h === 12) h = 0;
@@ -334,10 +367,10 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
           location_lng: locationLng,
           notes: notes.trim() || null,
           is_public: isPublic,
-          match_format: matchFormat,
+          match_format: '1v1',
           invited_opponent_id: opponent?.user_id ?? null,
-          invited_teammate_id: matchFormat === '2v2' ? teammate?.user_id ?? null : null,
-          invited_opponent_2_id: matchFormat === '2v2' ? opponent2?.user_id ?? null : null,
+          invited_teammate_id: null,
+          invited_opponent_2_id: null,
         })
         .select('id')
         .single();
@@ -347,8 +380,8 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
         { match_id: match.id, user_id: user.id, role: 'challenger', ...(matchType === 'ranked' ? { ready: true } : {}) },
       ];
       const notifBody = startNow
-        ? `${sportLabel(sport)} ${matchType} ${matchFormat} match starting now!`
-        : `${sportLabel(sport)} ${matchType} match on ${new Date(dateId).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at ${formatTime()}`;
+        ? `${sportLabel(sport)} ${matchType} 1v1 match starting now!`
+        : `${sportLabel(sport)} ${matchType} match on ${formatScheduleDate()} at ${formatTime()}`;
       const matchTypeLabel = matchType.charAt(0).toUpperCase() + matchType.slice(1);
       if (opponent) {
         await supabase.from('notifications').insert({
@@ -356,27 +389,11 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
           type: 'match_invite',
           title: `${currentUsername ?? 'Someone'} challenged you to a ${matchTypeLabel} match!`,
           body: notifBody,
-          data: { match_id: match.id, from_user_id: user.id, slot: matchFormat === '2v2' ? 'opponent' : 'opponent' },
+          data: { match_id: match.id, from_user_id: user.id, slot: 'opponent' },
         });
       }
-      if (matchFormat === '2v2' && teammate) {
-        await supabase.from('notifications').insert({
-          user_id: teammate.user_id,
-          type: 'match_invite',
-          title: `${currentUsername ?? 'Someone'} invited you as teammate for a ${matchTypeLabel} match!`,
-          body: notifBody,
-          data: { match_id: match.id, from_user_id: user.id, slot: 'teammate' },
-        });
-      }
-      if (matchFormat === '2v2' && opponent2) {
-        await supabase.from('notifications').insert({
-          user_id: opponent2.user_id,
-          type: 'match_invite',
-          title: `${currentUsername ?? 'Someone'} challenged you to a ${matchTypeLabel} match!`,
-          body: notifBody,
-          data: { match_id: match.id, from_user_id: user.id, slot: 'opponent_2' },
-        });
-      }
+      // if (matchFormat === '2v2' && teammate) { ... }
+      // if (matchFormat === '2v2' && opponent2) { ... }
       await supabase.from('match_participants').insert(participants);
 
       reset();
@@ -389,8 +406,8 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
 
   const reset = () => {
     setOpponent(null);
-    setTeammate(null);
-    setOpponent2(null);
+    // setTeammate(null);
+    // setOpponent2(null);
     setLocation('');
     setLocationLat(null);
     setLocationLng(null);
@@ -399,9 +416,10 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
     setNotes('');
     setMatchType(initialMatchType ?? 'casual');
     setIsPublic(true);
-    setMatchFormat('1v1');
+    // setMatchFormat('1v1');
     setSport(initialSport ?? SPORTS[0]);
-    setStartNow(true);
+    setScheduleDate(initialDate ?? todayDateStr);
+    setStartNow(!initialDate || initialDate === todayDateStr);
   };
 
   const getInitials = (u: SearchedUser) =>
@@ -417,7 +435,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
           {/* Card sits outside the backdrop — no Pressable wrapping it */}
           <View style={styles.card}>
             <View style={styles.header}>
-              <Text style={styles.title}>New match</Text>
+              <Text style={styles.title}>New Match</Text>
               <TouchableOpacity onPress={onClose} hitSlop={12}>
                 <Ionicons name="close" size={24} color={colors.textSecondary} />
               </TouchableOpacity>
@@ -430,76 +448,23 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
               bounces={true}
             >
               <Text style={styles.label}>Invite opponent (optional for casual, required for ranked)</Text>
-              {matchFormat === '2v2' ? (
-                <>
-                  <Text style={[styles.label, { marginTop: spacing.sm }]}>Teammate</Text>
-                  {teammate ? (
-                    <View style={styles.selectedOpp}>
-                      {teammate.avatar_url ? (
-                        <Image source={{ uri: teammate.avatar_url }} style={styles.oppAvatarImg} />
-                      ) : (
-                        <View style={styles.oppAvatar}><Text style={styles.oppInitials}>{getInitials(teammate)}</Text></View>
-                      )}
-                      <Text style={styles.oppName}>{teammate.full_name ?? teammate.username}{teammate.username ? ` (@${teammate.username})` : ''}</Text>
-                      <TouchableOpacity style={styles.oppRemove} onPress={() => setTeammate(null)} hitSlop={8}>
-                        <Ionicons name="close-circle" size={22} color={colors.textSecondary} />
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <UserSearch colors={colors} excludeUserId={currentUserId ?? undefined} onSelect={setTeammate} placeholder="Search teammate..." suggestions={friends} suggestionsTitle={friends.length > 0 ? 'Friends' : undefined} />
-                  )}
-                  <Text style={[styles.label, { marginTop: spacing.md }]}>Opponent 1</Text>
-                  {opponent ? (
-                    <View style={styles.selectedOpp}>
-                      {opponent.avatar_url ? (
-                        <Image source={{ uri: opponent.avatar_url }} style={styles.oppAvatarImg} />
-                      ) : (
-                        <View style={styles.oppAvatar}><Text style={styles.oppInitials}>{getInitials(opponent)}</Text></View>
-                      )}
-                      <Text style={styles.oppName}>{opponent.full_name ?? opponent.username}{opponent.username ? ` (@${opponent.username})` : ''}</Text>
-                      <TouchableOpacity style={styles.oppRemove} onPress={() => setOpponent(null)} hitSlop={8}>
-                        <Ionicons name="close-circle" size={22} color={colors.textSecondary} />
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <UserSearch colors={colors} excludeUserId={currentUserId ?? undefined} onSelect={setOpponent} placeholder="Search opponent 1..." suggestions={friends} suggestionsTitle={friends.length > 0 ? 'Friends' : undefined} />
-                  )}
-                  <Text style={[styles.label, { marginTop: spacing.md }]}>Opponent 2</Text>
-                  {opponent2 ? (
-                    <View style={styles.selectedOpp}>
-                      {opponent2.avatar_url ? (
-                        <Image source={{ uri: opponent2.avatar_url }} style={styles.oppAvatarImg} />
-                      ) : (
-                        <View style={styles.oppAvatar}><Text style={styles.oppInitials}>{getInitials(opponent2)}</Text></View>
-                      )}
-                      <Text style={styles.oppName}>{opponent2.full_name ?? opponent2.username}{opponent2.username ? ` (@${opponent2.username})` : ''}</Text>
-                      <TouchableOpacity style={styles.oppRemove} onPress={() => setOpponent2(null)} hitSlop={8}>
-                        <Ionicons name="close-circle" size={22} color={colors.textSecondary} />
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <UserSearch colors={colors} excludeUserId={currentUserId ?? undefined} onSelect={setOpponent2} placeholder="Search opponent 2..." suggestions={friends} suggestionsTitle={friends.length > 0 ? 'Friends' : undefined} />
-                  )}
-                </>
-              ) : (
-                <>
-                  {opponent ? (
-                    <View style={styles.selectedOpp}>
-                      {opponent.avatar_url ? (
-                        <Image source={{ uri: opponent.avatar_url }} style={styles.oppAvatarImg} />
-                      ) : (
-                        <View style={styles.oppAvatar}><Text style={styles.oppInitials}>{getInitials(opponent)}</Text></View>
-                      )}
-                      <Text style={styles.oppName}>{opponent.full_name ?? opponent.username}{opponent.username ? ` (@${opponent.username})` : ''}</Text>
-                      <TouchableOpacity style={styles.oppRemove} onPress={() => setOpponent(null)} hitSlop={8}>
-                        <Ionicons name="close-circle" size={22} color={colors.textSecondary} />
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <UserSearch colors={colors} excludeUserId={currentUserId ?? undefined} onSelect={setOpponent} placeholder="Search by username or name..." suggestions={friends} suggestionsTitle={friends.length > 0 ? 'Friends' : undefined} />
-                  )}
-                </>
-              )}
+              <>
+                {opponent ? (
+                  <View style={styles.selectedOpp}>
+                    {opponent.avatar_url ? (
+                      <Image source={{ uri: opponent.avatar_url }} style={styles.oppAvatarImg} />
+                    ) : (
+                      <View style={styles.oppAvatar}><Text style={styles.oppInitials}>{getInitials(opponent)}</Text></View>
+                    )}
+                    <Text style={styles.oppName}>{opponent.full_name ?? opponent.username}{opponent.username ? ` (@${opponent.username})` : ''}</Text>
+                    <TouchableOpacity style={styles.oppRemove} onPress={() => setOpponent(null)} hitSlop={8}>
+                      <Ionicons name="close-circle" size={22} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <UserSearch colors={colors} excludeUserId={currentUserId ?? undefined} onSelect={setOpponent} placeholder="Search by username or name..." suggestions={friends} suggestionsTitle={friends.length > 0 ? 'Friends' : undefined} />
+                )}
+              </>
 
               <Text style={[styles.label, { marginTop: spacing.md }]}>Match type</Text>
               <View style={styles.matchTypeRow}>
@@ -531,19 +496,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                 ))}
               </View>
 
-              {supports2v2 && (
-                <>
-                  <Text style={[styles.label, { marginTop: spacing.md }]}>Format</Text>
-                  <View style={styles.matchTypeRow}>
-                    <TouchableOpacity style={[styles.matchTypeChip, matchFormat === '1v1' && styles.matchTypeChipSel]} onPress={() => setMatchFormat('1v1')} activeOpacity={0.8}>
-                      <Text style={[styles.matchTypeLbl, matchFormat === '1v1' && styles.matchTypeLblSel]}>1v1</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.matchTypeChip, matchFormat === '2v2' && styles.matchTypeChipSel]} onPress={() => setMatchFormat('2v2')} activeOpacity={0.8}>
-                      <Text style={[styles.matchTypeLbl, matchFormat === '2v2' && styles.matchTypeLblSel]}>2v2</Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              )}
+              {/* 2v2 format disabled */}
 
               <Text style={[styles.label, { marginTop: spacing.md }]}>When</Text>
               <View style={styles.matchTypeRow}>
@@ -567,6 +520,13 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
 
               {!startNow && (
                 <>
+                  <Text style={styles.label}>Date</Text>
+                  <View style={styles.timeRow}>
+                    <TouchableOpacity style={styles.timeBtn} onPress={() => setDatePicker(true)} activeOpacity={0.8}>
+                      <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                      <Text style={styles.timeText}>{formatScheduleDate()}</Text>
+                    </TouchableOpacity>
+                  </View>
                   <Text style={styles.label}>Time</Text>
                   <View style={styles.timeRow}>
                     <TouchableOpacity style={styles.timeBtn} onPress={() => setTimePicker(true)} activeOpacity={0.8}>
@@ -621,7 +581,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                 <Text style={styles.summaryText}>
                   {startNow
                     ? 'Match starts immediately.'
-                    : `Scheduled for ${new Date(dateId).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at ${formatTime()}.`}
+                    : `Scheduled for ${formatScheduleDate()} at ${formatTime()}.`}
                   {opponent ? ` ${opponent.full_name ?? opponent.username} will be notified.` : ''}
                 </Text>
               </View>
@@ -645,6 +605,45 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
           colors={colors}
           initial={locationLat != null && locationLng != null ? { latitude: locationLat, longitude: locationLng, name: location } : null}
         />
+
+        {/* Date picker sub-modal */}
+        <Modal visible={datePicker} transparent animationType="fade">
+          <View style={styles.tpOverlay}>
+            <View style={styles.tpCard}>
+              <View style={styles.tpHeader}>
+                <Text style={styles.tpTitle}>Pick a date</Text>
+                <TouchableOpacity onPress={() => setDatePicker(false)} hitSlop={12}><Ionicons name="close" size={22} color={colors.textSecondary} /></TouchableOpacity>
+              </View>
+              <View style={styles.tpRow}>
+                <View style={styles.tpCol}>
+                  <TouchableOpacity style={styles.tpArrow} onPress={() => setDpMonth((m) => m >= 12 ? 1 : m + 1)}><Ionicons name="chevron-up" size={28} color={colors.text} /></TouchableOpacity>
+                  <Text style={[styles.tpValue, { fontSize: 22, minWidth: 100 }]}>{['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dpMonth - 1]}</Text>
+                  <TouchableOpacity style={styles.tpArrow} onPress={() => setDpMonth((m) => m <= 1 ? 12 : m - 1)}><Ionicons name="chevron-down" size={28} color={colors.text} /></TouchableOpacity>
+                  <Text style={styles.tpSmall}>Month</Text>
+                </View>
+                <View style={styles.tpCol}>
+                  <TouchableOpacity style={styles.tpArrow} onPress={() => setDpDay((d) => d >= daysInPickerMonth ? 1 : d + 1)}><Ionicons name="chevron-up" size={28} color={colors.text} /></TouchableOpacity>
+                  <Text style={styles.tpValue}>{dpDay}</Text>
+                  <TouchableOpacity style={styles.tpArrow} onPress={() => setDpDay((d) => d <= 1 ? daysInPickerMonth : d - 1)}><Ionicons name="chevron-down" size={28} color={colors.text} /></TouchableOpacity>
+                  <Text style={styles.tpSmall}>Day</Text>
+                </View>
+                <View style={styles.tpCol}>
+                  <TouchableOpacity style={styles.tpArrow} onPress={() => setDpYear((y) => y + 1)}><Ionicons name="chevron-up" size={28} color={colors.text} /></TouchableOpacity>
+                  <Text style={styles.tpValue}>{dpYear}</Text>
+                  <TouchableOpacity style={styles.tpArrow} onPress={() => setDpYear((y) => Math.max(new Date().getFullYear(), y - 1))}><Ionicons name="chevron-down" size={28} color={colors.text} /></TouchableOpacity>
+                  <Text style={styles.tpSmall}>Year</Text>
+                </View>
+              </View>
+              <TouchableOpacity style={styles.tpDone} onPress={() => {
+                const pad = (n: number) => String(n).padStart(2, '0');
+                setScheduleDate(`${dpYear}-${pad(dpMonth)}-${pad(dpDay)}`);
+                setDatePicker(false);
+              }} activeOpacity={0.9}>
+                <Text style={styles.tpDoneText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
 
         {/* Time picker sub-modal */}
         <Modal visible={timePicker} transparent animationType="fade">

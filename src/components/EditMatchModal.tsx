@@ -17,7 +17,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { supabase } from '../lib/supabase';
-import { SPORTS_2V2 } from '../constants/sports';
 import LocationPickerModal from './LocationPickerModal';
 import type { PickedLocation } from './LocationPickerModal';
 
@@ -129,15 +128,20 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
   const [locationPicker, setLocationPicker] = useState(false);
   const [notes, setNotes] = useState('');
   const [isPublic, setIsPublic] = useState(true);
-  const [matchFormat, setMatchFormat] = useState<'1v1' | '2v2'>('1v1');
+  // const [matchFormat, setMatchFormat] = useState<'1v1' | '2v2'>('1v1');
   const [scheduledAt, setScheduledAt] = useState<string | null>(null);
   const [timePicker, setTimePicker] = useState(false);
+  const [datePicker, setDatePicker] = useState(false);
+  const [dpYear, setDpYear] = useState(new Date().getFullYear());
+  const [dpMonth, setDpMonth] = useState(new Date().getMonth() + 1);
+  const [dpDay, setDpDay] = useState(new Date().getDate());
+  const [dpDateStr, setDpDateStr] = useState<string | null>(null);
   const [timeHour, setTimeHour] = useState(12);
   const [timeMinute, setTimeMinute] = useState(0);
   const [timeAmPm, setTimeAmPm] = useState<'AM' | 'PM'>('PM');
   const [saving, setSaving] = useState(false);
 
-  const supports2v2 = match ? SPORTS_2V2.includes(match.sport_name) : false;
+  // const supports2v2 = match ? SPORTS_2V2.includes(match.sport_name) : false;
   const canEditFormat = match && match.status !== 'in_progress' && match.status !== 'completed';
 
   useEffect(() => {
@@ -147,7 +151,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
       setLocationLng(match.location_lng ?? null);
       setNotes(match.notes ?? '');
       setIsPublic(match.is_public !== false);
-      setMatchFormat((match.match_format as '1v1' | '2v2') || '1v1');
+      // setMatchFormat((match.match_format as '1v1' | '2v2') || '1v1');
       setScheduledAt(match.scheduled_at);
       if (match.scheduled_at) {
         const d = new Date(match.scheduled_at);
@@ -164,6 +168,11 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
           setTimeHour(h === 12 ? 12 : h - 12);
           setTimeAmPm('PM');
         }
+        const dateStr = match.scheduled_at.slice(0, 10);
+        setDpDateStr(dateStr);
+        setDpYear(parseInt(dateStr.slice(0, 4)));
+        setDpMonth(parseInt(dateStr.slice(5, 7)));
+        setDpDay(parseInt(dateStr.slice(8, 10)));
       }
     }
   }, [match]);
@@ -176,7 +185,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
     try {
       let newScheduledAt: string | null = scheduledAt;
       if (scheduledAt) {
-        const dateStr = scheduledAt.slice(0, 10);
+        const dateStr = dpDateStr ?? scheduledAt.slice(0, 10);
         let h = timeHour;
         if (timeAmPm === 'PM' && h !== 12) h += 12;
         if (timeAmPm === 'AM' && h === 12) h = 0;
@@ -193,7 +202,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
         is_public: isPublic,
         scheduled_at: newScheduledAt,
       };
-      if (canEditFormat) updates.match_format = matchFormat;
+      // if (canEditFormat) updates.match_format = matchFormat;
 
       await supabase.from('matches').update(updates).eq('id', match.id);
       onClose();
@@ -232,24 +241,16 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                 </TouchableOpacity>
               </View>
 
-              {canEditFormat && supports2v2 && (
-                <>
-                  <Text style={styles.label}>Format</Text>
-                  <View style={styles.matchTypeRow}>
-                    <TouchableOpacity style={[styles.matchTypeChip, matchFormat === '1v1' && styles.matchTypeChipSel]} onPress={() => setMatchFormat('1v1')} activeOpacity={0.8}>
-                      <Text style={[styles.matchTypeLbl, matchFormat === '1v1' && styles.matchTypeLblSel]}>1v1</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.matchTypeChip, matchFormat === '2v2' && styles.matchTypeChipSel]} onPress={() => setMatchFormat('2v2')} activeOpacity={0.8}>
-                      <Text style={[styles.matchTypeLbl, matchFormat === '2v2' && styles.matchTypeLblSel]}>2v2</Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              )}
+              {/* 2v2 format disabled */}
 
               {scheduledAt && match.status !== 'in_progress' && match.status !== 'completed' && (
                 <>
-                  <Text style={styles.label}>Scheduled time</Text>
+                  <Text style={styles.label}>Scheduled date & time</Text>
                   <View style={styles.timeRow}>
+                    <TouchableOpacity style={styles.timeBtn} onPress={() => setDatePicker(true)} activeOpacity={0.8}>
+                      <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                      <Text style={styles.timeText}>{dpDateStr ? new Date(dpDateStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity style={styles.timeBtn} onPress={() => setTimePicker(true)} activeOpacity={0.8}>
                       <Ionicons name="time-outline" size={18} color={colors.primary} />
                       <Text style={styles.timeText}>{formatTime()}</Text>
@@ -293,6 +294,46 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
           colors={colors}
           initial={locationLat != null && locationLng != null ? { latitude: locationLat, longitude: locationLng, name: location } : null}
         />
+
+        <Modal visible={datePicker} transparent animationType="fade">
+          <View style={styles.tpOverlay}>
+            <View style={styles.tpCard}>
+              <View style={styles.tpHeader}>
+                <Text style={styles.tpTitle}>Pick a date</Text>
+                <TouchableOpacity onPress={() => setDatePicker(false)} hitSlop={12}>
+                  <Ionicons name="close" size={22} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.tpRow}>
+                <View style={styles.tpCol}>
+                  <TouchableOpacity style={styles.tpArrow} onPress={() => setDpMonth((m) => m >= 12 ? 1 : m + 1)}><Ionicons name="chevron-up" size={28} color={colors.text} /></TouchableOpacity>
+                  <Text style={[styles.tpValue, { fontSize: 22, minWidth: 100 }]}>{['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dpMonth - 1]}</Text>
+                  <TouchableOpacity style={styles.tpArrow} onPress={() => setDpMonth((m) => m <= 1 ? 12 : m - 1)}><Ionicons name="chevron-down" size={28} color={colors.text} /></TouchableOpacity>
+                  <Text style={styles.tpSmall}>Month</Text>
+                </View>
+                <View style={styles.tpCol}>
+                  <TouchableOpacity style={styles.tpArrow} onPress={() => setDpDay((d) => { const max = new Date(dpYear, dpMonth, 0).getDate(); return d >= max ? 1 : d + 1; })}><Ionicons name="chevron-up" size={28} color={colors.text} /></TouchableOpacity>
+                  <Text style={styles.tpValue}>{dpDay}</Text>
+                  <TouchableOpacity style={styles.tpArrow} onPress={() => setDpDay((d) => { const max = new Date(dpYear, dpMonth, 0).getDate(); return d <= 1 ? max : d - 1; })}><Ionicons name="chevron-down" size={28} color={colors.text} /></TouchableOpacity>
+                  <Text style={styles.tpSmall}>Day</Text>
+                </View>
+                <View style={styles.tpCol}>
+                  <TouchableOpacity style={styles.tpArrow} onPress={() => setDpYear((y) => y + 1)}><Ionicons name="chevron-up" size={28} color={colors.text} /></TouchableOpacity>
+                  <Text style={styles.tpValue}>{dpYear}</Text>
+                  <TouchableOpacity style={styles.tpArrow} onPress={() => setDpYear((y) => Math.max(new Date().getFullYear(), y - 1))}><Ionicons name="chevron-down" size={28} color={colors.text} /></TouchableOpacity>
+                  <Text style={styles.tpSmall}>Year</Text>
+                </View>
+              </View>
+              <TouchableOpacity style={styles.tpDone} onPress={() => {
+                const pad = (n: number) => String(n).padStart(2, '0');
+                setDpDateStr(`${dpYear}-${pad(dpMonth)}-${pad(dpDay)}`);
+                setDatePicker(false);
+              }} activeOpacity={0.9}>
+                <Text style={styles.tpDoneText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
 
         <Modal visible={timePicker} transparent animationType="fade">
           <View style={styles.tpOverlay}>

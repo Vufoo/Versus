@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
@@ -234,6 +234,7 @@ export default function PlanMatchScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
+  const isFocused = useIsFocused();
   const styles = useMemo(() => createPlanStyles(colors), [colors]);
 
   const today = new Date();
@@ -274,7 +275,7 @@ export default function PlanMatchScreen() {
     finally { setLoadingMatches(false); }
   }, []);
 
-  useEffect(() => { loadMatches(); }, [loadMatches]);
+  useEffect(() => { if (isFocused) loadMatches(); }, [isFocused, loadMatches]);
 
   const matchDayIds = useMemo(
     () => new Set(allMatches.map((m) => m.scheduled_at ? localDateStr(new Date(m.scheduled_at)) : null).filter(Boolean)),
@@ -396,14 +397,14 @@ export default function PlanMatchScreen() {
         </View>
         <TouchableOpacity style={styles.createBtn} onPress={() => setModalVisible(true)} activeOpacity={0.85}>
           <Ionicons name="add" size={18} color={colors.textOnPrimary} />
-          <Text style={styles.createBtnText}>New match</Text>
+          <Text style={styles.createBtnText}>New Match</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxl }}>
         {selectedDayMatches.length === 0 && (
           <Text style={styles.emptyText}>
-            No matches on this day.{'\n'}Tap "New match" to schedule one.
+            No matches on this day.{'\n'}Tap "New Match" to schedule one.
           </Text>
         )}
         {selectedDayMatches.map((m) => {
@@ -412,7 +413,12 @@ export default function PlanMatchScreen() {
           const opponent = (m.participants ?? []).find((p: any) => p.user_id !== currentUserId);
           const sc = statusColor(m.status);
           return (
-            <View key={m.id} style={styles.matchCard}>
+            <TouchableOpacity
+              key={m.id}
+              style={styles.matchCard}
+              onPress={() => navigation.navigate('Home', { scrollToMatchId: m.id })}
+              activeOpacity={0.8}
+            >
               <View style={[styles.matchDot, { backgroundColor: sc }]} />
               <View style={styles.matchInfo}>
                 <Text style={styles.matchTitle} numberOfLines={1}>
@@ -425,7 +431,7 @@ export default function PlanMatchScreen() {
               <Text style={[styles.matchStatus, { backgroundColor: `${sc}18`, color: sc }]}>
                 {m.status}
               </Text>
-            </View>
+            </TouchableOpacity>
           );
         })}
       </ScrollView>

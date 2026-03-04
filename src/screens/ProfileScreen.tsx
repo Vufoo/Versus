@@ -422,7 +422,8 @@ export default function ProfileScreen() {
   const [editName, setEditName] = useState('');
   const [editDob, setEditDob] = useState('');
   const [editGender, setEditGender] = useState('');
-  const [editLocation, setEditLocation] = useState('');
+  const [editCity, setEditCity] = useState('');
+  const [editState, setEditState] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [followingCount, setFollowingCount] = useState(0);
@@ -652,7 +653,9 @@ export default function ProfileScreen() {
     setEditName(profile?.full_name ?? '');
     setEditDob(profile?.date_of_birth ?? '');
     setEditGender(profile?.gender ?? '');
-    setEditLocation(profile?.location ?? '');
+    const locParts = (profile?.location ?? '').split(', ');
+    setEditCity(locParts[0] ?? '');
+    setEditState(locParts.slice(1).join(', '));
     setShowEditModal(true);
   };
 
@@ -665,7 +668,7 @@ export default function ProfileScreen() {
         full_name: editName.trim() || null,
         date_of_birth: editDob.trim() || null,
         gender: editGender.trim() || null,
-        location: editLocation.trim() || null,
+        location: [editCity.trim(), editState.trim()].filter(Boolean).join(', ') || null,
       };
       const { error } = await supabase.from('profiles').update(updates).eq('user_id', user.id);
       if (error) { Alert.alert('Save failed', error.message); return; }
@@ -954,14 +957,25 @@ export default function ProfileScreen() {
                   ))}
                 </View>
 
-                <Text style={styles.editLabel}>Location</Text>
+                <Text style={styles.editLabel}>City <Text style={{ fontWeight: '400', color: colors.textSecondary }}>(optional)</Text></Text>
                 <TextInput
                   style={styles.editInput}
-                  value={editLocation}
-                  onChangeText={setEditLocation}
-                  placeholder="City, state or region"
+                  value={editCity}
+                  onChangeText={setEditCity}
+                  placeholder="e.g. San Francisco"
                   placeholderTextColor={colors.textSecondary}
                   autoCapitalize="words"
+                />
+
+                <Text style={styles.editLabel}>State <Text style={{ fontWeight: '400', color: colors.textSecondary }}>(optional)</Text></Text>
+                <TextInput
+                  style={styles.editInput}
+                  value={editState}
+                  onChangeText={setEditState}
+                  placeholder="e.g. CA"
+                  placeholderTextColor={colors.textSecondary}
+                  autoCapitalize="characters"
+                  maxLength={50}
                 />
 
                 <TouchableOpacity

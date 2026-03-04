@@ -13,7 +13,12 @@
       "backgroundColor": "#FDF6ED"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "icon": {
+        "light": "./assets/versus_blue.png",
+        "dark": "./assets/versus_dark.png",
+        "tinted": "./assets/versus_dark.png"
+      }
     },
     "android": {
       "adaptiveIcon": {

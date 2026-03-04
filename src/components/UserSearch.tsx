@@ -191,10 +191,10 @@ export default function UserSearch({ colors, onSelect, excludeUserId, excludeUse
         </ScrollView>
       )}
       {showSuggestions && (
-        <View style={styles.list}>
+        <ScrollView style={styles.list} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
           {suggestionsTitle && <Text style={styles.sugTitle}>{suggestionsTitle}</Text>}
           {suggestions!.map((u) => renderRow(u, true))}
-        </View>
+        </ScrollView>
       )}
     </View>
   );

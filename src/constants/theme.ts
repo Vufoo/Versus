@@ -25,8 +25,8 @@ export const lightColors = {
   border: '#E8DED4',
   divider: '#EDE4DA',
   // Status
-  success: '#2D6A2D',
-  error: '#B91C1C',
+  success: '#166534',
+  error: '#991B1B',
   warning: '#B45309',
 } as const;
 
@@ -44,8 +44,8 @@ export const darkColors = {
   textOnPrimary: '#FFFFFF',
   border: '#3A3228',
   divider: '#2A241D',
-  success: '#4ADE80',
-  error: '#F97373',
+  success: '#16A34A',
+  error: '#DC2626',
   warning: '#FBBF24',
 } as const;
 

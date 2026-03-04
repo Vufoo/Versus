@@ -632,7 +632,7 @@ export default function MapScreen() {
         {!droppedPin && (
           <TouchableOpacity style={styles.fab} onPress={() => setShowNewMatch(true)} activeOpacity={0.85}>
             <Ionicons name="add" size={20} color={colors.textOnPrimary} />
-            <Text style={styles.fabText}>New match</Text>
+            <Text style={styles.fabText}>New Match</Text>
           </TouchableOpacity>
         )}
 

@@ -256,7 +256,7 @@ export default function VersusScreen() {
             <Ionicons name="person-add-outline" size={28} color={colors.textOnPrimary} />
           </View>
           <Text style={styles.primaryButtonTitle}>
-            New match
+            New Match
           </Text>
           <Text style={styles.primaryButtonSub}>
             Set up with someone in person. Choose ranked or casual, pick settings, and send an invite.
