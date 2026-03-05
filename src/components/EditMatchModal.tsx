@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { supabase } from '../lib/supabase';
+import { SPORTS_2V2 } from '../constants/sports';
 import LocationPickerModal from './LocationPickerModal';
 import type { PickedLocation } from './LocationPickerModal';
 
@@ -101,6 +102,8 @@ function makeStyles(c: ThemeColors) {
     cta: { marginTop: spacing.lg, backgroundColor: c.primary, paddingVertical: spacing.md, borderRadius: borderRadius.md, alignItems: 'center' },
     ctaDisabled: { opacity: 0.5 },
     ctaText: { ...typography.heading, color: c.textOnPrimary },
+    deleteCta: { marginTop: spacing.sm, paddingVertical: spacing.md, borderRadius: borderRadius.md, alignItems: 'center', borderWidth: 1, borderColor: '#E53935' },
+    deleteCtaText: { ...typography.heading, color: '#E53935' },
     tpOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.lg },
     tpCard: { width: '100%', backgroundColor: c.surface, borderRadius: borderRadius.lg, padding: spacing.lg, borderWidth: 1, borderColor: c.border },
     tpHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
@@ -128,7 +131,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
   const [locationPicker, setLocationPicker] = useState(false);
   const [notes, setNotes] = useState('');
   const [isPublic, setIsPublic] = useState(true);
-  // const [matchFormat, setMatchFormat] = useState<'1v1' | '2v2'>('1v1');
+  const [matchFormat, setMatchFormat] = useState<'1v1' | '2v2'>('1v1');
   const [scheduledAt, setScheduledAt] = useState<string | null>(null);
   const [timePicker, setTimePicker] = useState(false);
   const [datePicker, setDatePicker] = useState(false);
@@ -140,8 +143,9 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
   const [timeMinute, setTimeMinute] = useState(0);
   const [timeAmPm, setTimeAmPm] = useState<'AM' | 'PM'>('PM');
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
-  // const supports2v2 = match ? SPORTS_2V2.includes(match.sport_name) : false;
+  const supports2v2 = match ? SPORTS_2V2.includes(match.sport_name) : false;
   const canEditFormat = match && match.status !== 'in_progress' && match.status !== 'completed';
 
   useEffect(() => {
@@ -151,7 +155,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
       setLocationLng(match.location_lng ?? null);
       setNotes(match.notes ?? '');
       setIsPublic(match.is_public !== false);
-      // setMatchFormat((match.match_format as '1v1' | '2v2') || '1v1');
+      setMatchFormat((match.match_format as '1v1' | '2v2') || '1v1');
       setScheduledAt(match.scheduled_at);
       if (match.scheduled_at) {
         const d = new Date(match.scheduled_at);
@@ -202,7 +206,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
         is_public: isPublic,
         scheduled_at: newScheduledAt,
       };
-      // if (canEditFormat) updates.match_format = matchFormat;
+      if (canEditFormat) updates.match_format = matchFormat;
 
       await supabase.from('matches').update(updates).eq('id', match.id);
       onClose();
@@ -211,6 +215,33 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
       Alert.alert('Error', e?.message ?? 'Could not save changes.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = () => {
+    if (!match || deleting) return;
+    const doDelete = async () => {
+      setDeleting(true);
+      try {
+        await supabase.from('notifications').delete().eq('type', 'match_invite').filter('data->>match_id', 'eq', match.id);
+        const { data, error } = await supabase.rpc('delete_match_as_participant', { p_match_id: match.id });
+        if (error) throw error;
+        if (!data?.ok) throw new Error(data?.error ?? 'Could not delete match.');
+        onClose();
+        onSaved?.();
+      } catch (e: any) {
+        Alert.alert('Delete failed', e?.message ?? 'Could not delete match.');
+      } finally {
+        setDeleting(false);
+      }
+    };
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to permanently delete this match?')) doDelete();
+    } else {
+      Alert.alert('Delete match', 'Are you sure you want to permanently delete this match?', [
+        { text: 'Keep', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: doDelete },
+      ]);
     }
   };
 
@@ -241,7 +272,18 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                 </TouchableOpacity>
               </View>
 
-              {/* 2v2 format disabled */}
+              {canEditFormat && supports2v2 && (
+                <>
+                  <Text style={styles.label}>Format</Text>
+                  <View style={styles.matchTypeRow}>
+                    {(['1v1', '2v2'] as const).map((f) => (
+                      <TouchableOpacity key={f} style={[styles.matchTypeChip, matchFormat === f && styles.matchTypeChipSel]} onPress={() => setMatchFormat(f)} activeOpacity={0.8}>
+                        <Text style={[styles.matchTypeLbl, matchFormat === f && styles.matchTypeLblSel]}>{f}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              )}
 
               {scheduledAt && match.status !== 'in_progress' && match.status !== 'completed' && (
                 <>
@@ -277,6 +319,9 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
 
               <TouchableOpacity style={[styles.cta, saving && styles.ctaDisabled]} onPress={handleSave} disabled={saving}>
                 {saving ? <ActivityIndicator color={colors.textOnPrimary} /> : <Text style={styles.ctaText}>Save changes</Text>}
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.deleteCta, deleting && styles.ctaDisabled]} onPress={handleDelete} disabled={deleting}>
+                {deleting ? <ActivityIndicator color="#E53935" /> : <Text style={styles.deleteCtaText}>Delete match</Text>}
               </TouchableOpacity>
             </ScrollView>
           </View>

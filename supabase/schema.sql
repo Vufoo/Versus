@@ -689,6 +689,8 @@ select
   m.notes,
   m.created_by,
   m.invited_opponent_id,
+  m.invited_teammate_id,
+  m.invited_opponent_2_id,
   s.name as sport_name,
   s.slug as sport_slug,
   array_agg(jsonb_build_object(
@@ -1049,6 +1051,54 @@ begin
 
   -- Complete the match
   update matches set status = 'completed', ended_at = now() where id = p_match_id;
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+-- RLS: allow creator, confirmed participants, or invited users to delete a match
+drop policy if exists "Creators and participants can delete matches" on public.matches;
+drop policy if exists "Only creators can delete matches" on public.matches;
+create policy "Creators and participants can delete matches"
+  on public.matches for delete
+  using (
+    auth.uid() = created_by
+    or exists (
+      select 1 from public.match_participants
+      where match_id = id and user_id = auth.uid()
+    )
+    or invited_opponent_id = auth.uid()
+    or invited_teammate_id = auth.uid()
+    or invited_opponent_2_id = auth.uid()
+  );
+
+-- RPC: delete a match — security definer bypasses RLS, auth check is enforced inside
+create or replace function public.delete_match_as_participant(p_match_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- Authorization: must be creator, confirmed participant, or invited user
+  if not exists (
+    select 1 from public.matches
+    where id = p_match_id
+      and (
+        created_by = auth.uid()
+        or exists (
+          select 1 from public.match_participants
+          where match_id = p_match_id and user_id = auth.uid()
+        )
+        or invited_opponent_id = auth.uid()
+        or invited_teammate_id = auth.uid()
+        or invited_opponent_2_id = auth.uid()
+      )
+  ) then
+    return jsonb_build_object('ok', false, 'error', 'Not authorized to delete this match');
+  end if;
+
+  delete from public.matches where id = p_match_id;
 
   return jsonb_build_object('ok', true);
 end;

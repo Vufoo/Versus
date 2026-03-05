@@ -70,6 +70,8 @@ type FeedMatch = {
   notes: string | null;
   created_by: string;
   invited_opponent_id: string | null;
+  invited_teammate_id: string | null;
+  invited_opponent_2_id: string | null;
   sport_name: string;
   sport_slug: string;
   participants: Participant[];
@@ -269,20 +271,34 @@ function FeedCard({
   colors: ThemeColors;
   onRefresh: () => void;
   updateFeedItem: (matchId: string, updater: (item: FeedMatch) => FeedMatch) => void;
-  onInviteOpponent?: (match: FeedMatch) => void;
+  onInviteOpponent?: (match: FeedMatch, slot?: 'opponent' | 'teammate' | 'opponent_2') => void;
   onEditMatch?: (match: FeedMatch) => void;
   navigation: { navigate: (screen: string, params?: object) => void };
   onNotifyUpdate?: () => void;
 }) {
-  const challenger = (item.participants ?? []).find((p) => p.role === 'challenger');
-  const opponent = (item.participants ?? []).find((p) => p.role === 'opponent');
-  const p1 = challenger ?? (item.participants ?? [])[0];
-  const p2 = opponent ?? (item.participants ?? [])[1];
+  const participantsParsed: Participant[] = (() => {
+    const raw = item.participants ?? [];
+    if (Array.isArray(raw)) return raw as Participant[];
+    if (typeof raw === 'string') { try { return JSON.parse(raw) as Participant[]; } catch { return []; } }
+    return [];
+  })();
+  const is2v2 = (item.match_format || '1v1') === '2v2';
+  const challenger = participantsParsed.find((p) => p.role === 'challenger');
+  const opponent = participantsParsed.find((p) => p.role === 'opponent');
+  const p1 = challenger ?? participantsParsed[0];
+  const p2 = opponent ?? participantsParsed[1];
   const creator = p1;
+  // 2v2 extras
+  const team1 = participantsParsed.filter((p) => p.role === 'challenger');
+  const team2 = participantsParsed.filter((p) => p.role === 'opponent');
+  const teammate = is2v2 ? (team1.find((p) => p.user_id !== item.created_by) ?? null) : null;
+  const opponent2 = is2v2 ? (team2[1] ?? null) : null;
 
   const [creatorAvatarUrl, setCreatorAvatarUrl] = useState<string | null>(null);
   const [p1AvatarUrl, setP1AvatarUrl] = useState<string | null>(null);
   const [p2AvatarUrl, setP2AvatarUrl] = useState<string | null>(null);
+  const [partner2AvatarUrl, setPartner2AvatarUrl] = useState<string | null>(null);
+  const [partner3AvatarUrl, setPartner3AvatarUrl] = useState<string | null>(null);
   const [liked, setLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(item.likes_count);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
@@ -322,6 +338,24 @@ function FeedCard({
     if (p1?.avatar_url) resolveAvatarUrl(p1.avatar_url).then(setP1AvatarUrl);
     if (p2?.avatar_url) resolveAvatarUrl(p2.avatar_url).then(setP2AvatarUrl);
   }, [creator?.avatar_url, p1?.avatar_url, p2?.avatar_url]);
+
+  useEffect(() => {
+    const isPracticeMatch = String(item.match_type || '').toLowerCase() === 'practice';
+    const is2v2Match = (item.match_format || '1v1') === '2v2';
+    const parts = (Array.isArray(item.participants) ? item.participants : []) as Participant[];
+    if (isPracticeMatch) {
+      const partners = parts.filter((p) => p.role === 'opponent');
+      if (partners[1]?.avatar_url) resolveAvatarUrl(partners[1].avatar_url).then(setPartner2AvatarUrl);
+      if (partners[2]?.avatar_url) resolveAvatarUrl(partners[2].avatar_url).then(setPartner3AvatarUrl);
+    } else if (is2v2Match) {
+      const challengers = parts.filter((p) => p.role === 'challenger');
+      const opponents = parts.filter((p) => p.role === 'opponent');
+      const tm = challengers.find((p) => p.user_id !== item.created_by);
+      const o2 = opponents[1];
+      if (tm?.avatar_url) resolveAvatarUrl(tm.avatar_url).then(setPartner2AvatarUrl);
+      if (o2?.avatar_url) resolveAvatarUrl(o2.avatar_url).then(setPartner3AvatarUrl);
+    }
+  }, [item.match_type, item.match_format, item.created_by, item.participants]);
 
   useEffect(() => {
     if (currentUserId) {
@@ -455,8 +489,8 @@ function FeedCard({
   const isRanked = String(item.match_type || '').toLowerCase() === 'ranked';
   const isLocal = String(item.match_type || '').toLowerCase() === 'local';
   const isPractice = String(item.match_type || '').toLowerCase() === 'practice';
-  const participantsRaw = item.participants ?? [];
-  const participants = (Array.isArray(participantsRaw) ? participantsRaw : (typeof participantsRaw === 'string' ? (() => { try { return JSON.parse(participantsRaw); } catch { return []; } })() : [])) as Participant[];
+  const participants = participantsParsed;
+  const practicePartners = isPractice ? participants.filter((p) => p.role === 'opponent').slice(0, 3) : [];
   const myParticipant = participants.find((p) => p?.user_id && String(p.user_id) === String(currentUserId));
   const requiredParticipants = (item.match_format || '1v1') === '2v2' ? 4 : 2;
   const isReady = (p: Participant) =>
@@ -492,7 +526,10 @@ function FeedCard({
   };
 
   const statusConfirmed = String(item.status || '').toLowerCase() === 'confirmed';
-  const canStartRanked = isRanked && participants.length >= requiredParticipants && (statusConfirmed || readyCount >= requiredParticipants);
+  // 2v2 ranked requires all 4 to explicitly ready up; 1v1 ranked can start once confirmed or both ready
+  const canStartRanked = isRanked && participants.length >= requiredParticipants && (
+    is2v2 ? readyCount >= requiredParticipants : (statusConfirmed || readyCount >= requiredParticipants)
+  );
   const canStartCasual = !isRanked && !isLocal && !isPractice && participants.length >= requiredParticipants;
   const canStartLocal = isLocal && participants.length >= 1;
   const canStartPractice = isPractice && participants.length >= 1;
@@ -645,12 +682,22 @@ function FeedCard({
 
   const handleFinish = () => {
     if (!currentUserId || startStopLoading) return;
-    if (isPractice) {
-      finishWithWinner(null);
-      return;
+    const doFinish = () => {
+      if (isPractice) {
+        finishWithWinner(null);
+        return;
+      }
+      setWinnerSelection(detectWinnerFromScores());
+      setWinnerPickerVisible(true);
+    };
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to finish this match?')) doFinish();
+    } else {
+      Alert.alert('Finish match?', 'Are you sure you want to finish this match?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Finish', onPress: doFinish },
+      ]);
     }
-    setWinnerSelection(detectWinnerFromScores());
-    setWinnerPickerVisible(true);
   };
 
   const selectWinner = (userId: string | null) => {
@@ -935,79 +982,79 @@ function FeedCard({
 
     const isPendingState = item.status === 'pending' || item.status === 'confirmed';
 
-    if (isRanked && !isPendingState) {
-      // Completed ranked matches require mutual consent to reverse ratings
+    const doRankedDeleteRequest = async () => {
+      setDeleteLoading(true);
+      try {
+        await supabase.from('match_participants').update({ delete_requested: true }).eq('match_id', item.id).eq('user_id', currentUserId);
+        updateFeedItem(item.id, (m) => ({
+          ...m,
+          participants: m.participants.map((p) =>
+            p.user_id === currentUserId ? { ...p, delete_requested: true } : p
+          ),
+        }));
+        // Query DB for real state to avoid race conditions
+        const { data: dbParticipants } = await supabase
+          .from('match_participants')
+          .select('user_id, delete_requested')
+          .eq('match_id', item.id);
+        const allConfirmed = dbParticipants && dbParticipants.length > 0 &&
+          dbParticipants.every((p) => p.delete_requested === true);
+        if (allConfirmed) {
+          await performFullDelete();
+        }
+      } catch (e: any) {
+        Alert.alert('Error', e?.message ?? 'Could not process delete request.');
+      } finally { setDeleteLoading(false); }
+    };
+
+    const doCasualDelete = async () => {
+      setDeleteLoading(true);
+      try {
+        await performFullDelete();
+      } catch (e: any) {
+        Alert.alert('Delete failed', e?.message ?? 'Could not delete match.');
+      } finally { setDeleteLoading(false); }
+    };
+
+    if (isRanked) {
       const alreadyRequested = myParticipant?.delete_requested === true;
       if (alreadyRequested) return;
-      Alert.alert(
-        'Delete match?',
-        'Both players must confirm to permanently delete this ranked match and reverse any rating changes.',
-        [
-          { text: 'Keep', style: 'cancel' },
-          {
-            text: 'Yes, request delete',
-            style: 'destructive',
-            onPress: async () => {
-              setDeleteLoading(true);
-              try {
-                await supabase.from('match_participants').update({ delete_requested: true }).eq('match_id', item.id).eq('user_id', currentUserId);
-                updateFeedItem(item.id, (m) => ({
-                  ...m,
-                  participants: m.participants.map((p) =>
-                    p.user_id === currentUserId ? { ...p, delete_requested: true } : p
-                  ),
-                }));
-                // Query DB for real state to avoid race conditions
-                const { data: dbParticipants } = await supabase
-                  .from('match_participants')
-                  .select('user_id, delete_requested')
-                  .eq('match_id', item.id);
-                const allConfirmed = dbParticipants && dbParticipants.length > 0 &&
-                  dbParticipants.every((p) => p.delete_requested === true);
-                if (allConfirmed) {
-                  await performFullDelete();
-                }
-              } catch (e: any) {
-                Alert.alert('Error', e?.message ?? 'Could not process delete request.');
-              } finally { setDeleteLoading(false); }
-            },
-          },
-        ],
-      );
+      if (Platform.OS === 'web') {
+        if (window.confirm('Both players must confirm to permanently delete this ranked match and reverse any rating changes.')) {
+          doRankedDeleteRequest();
+        }
+      } else {
+        Alert.alert(
+          'Delete match?',
+          'Both players must confirm to permanently delete this ranked match and reverse any rating changes.',
+          [
+            { text: 'Keep', style: 'cancel' },
+            { text: 'Yes, request delete', style: 'destructive', onPress: doRankedDeleteRequest },
+          ],
+        );
+      }
     } else if (isPendingState) {
-      // Cancel = delete for any match that hasn't started yet
-      Alert.alert('Cancel match', 'Are you sure you want to cancel this match? It will be permanently deleted.', [
-        { text: 'Keep', style: 'cancel' },
-        {
-          text: 'Cancel match',
-          style: 'destructive',
-          onPress: async () => {
-            setDeleteLoading(true);
-            try {
-              await performFullDelete();
-            } catch (e: any) {
-              Alert.alert('Error', e?.message ?? 'Could not cancel match.');
-            } finally { setDeleteLoading(false); }
-          },
-        },
-      ]);
+      if (Platform.OS === 'web') {
+        if (window.confirm('Are you sure you want to cancel this match? It will be permanently deleted.')) {
+          doCasualDelete();
+        }
+      } else {
+        Alert.alert('Cancel match', 'Are you sure you want to cancel this match? It will be permanently deleted.', [
+          { text: 'Keep', style: 'cancel' },
+          { text: 'Cancel match', style: 'destructive', onPress: doCasualDelete },
+        ]);
+      }
     } else {
-      // Hard delete for completed casual matches
-      Alert.alert('Delete match', 'Are you sure you want to permanently delete this match?', [
-        { text: 'Keep', style: 'cancel' },
-        {
-          text: 'Delete match',
-          style: 'destructive',
-          onPress: async () => {
-            setDeleteLoading(true);
-            try {
-              await performFullDelete();
-            } catch (e: any) {
-              Alert.alert('Delete failed', e?.message ?? 'Could not delete match. You may need to ask the match creator to delete it.');
-            } finally { setDeleteLoading(false); }
-          },
-        },
-      ]);
+      if (Platform.OS === 'web') {
+        if (window.confirm('Are you sure you want to permanently delete this match?')) {
+          doCasualDelete();
+        }
+      } else {
+        Alert.alert('Delete match', 'Are you sure you want to permanently delete this match?', [
+          { text: 'Keep', style: 'cancel' },
+          { text: 'Delete match', style: 'destructive', onPress: doCasualDelete },
+        ]);
+      }
     }
   };
 
@@ -1130,81 +1177,110 @@ function FeedCard({
         </Text>
       </View>
 
-      {isPractice ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.md }}>
-          <View style={{ alignItems: 'center', gap: spacing.xs }}>
-            <TouchableOpacity
-              onPress={() => p1 && navigation.navigate('UserProfile', { userId: p1.user_id })}
-              activeOpacity={0.7}
-              style={{ alignItems: 'center', gap: spacing.xs }}
-              disabled={!p1}
-            >
-              <Avatar
-                initials={p1 ? getInitials(p1) : '?'}
-                avatarUrl={p1AvatarUrl ?? p1?.avatar_url}
-                size={44}
-                colors={colors}
-              />
-              <Text style={styles.playerName} numberOfLines={1}>{p1 ? getName(p1) : 'Unknown'}</Text>
-            </TouchableOpacity>
-            {p1 && String(p1.user_id) === String(currentUserId) && (
-              <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>You</Text>
-            )}
-          </View>
-          <View style={{ marginLeft: spacing.xl, alignItems: 'center' }}>
-            {isCompleted && durationMs > 0 ? (
-              <View style={{
-                backgroundColor: colors.primary + '18',
-                borderRadius: borderRadius.md,
-                paddingHorizontal: spacing.md,
-                paddingVertical: spacing.sm,
-                borderWidth: 1,
-                borderColor: colors.primary + '40',
-              }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: colors.primary }}>
-                  Practiced for {formatPracticeDuration(durationMs)}
-                </Text>
-              </View>
-            ) : (isInProgress || isPaused) ? (
-              <Text style={{ fontSize: 20, fontWeight: '700', color: colors.primary, letterSpacing: 1 }}>
-                {formatDurationDigital(durationMs)}
-              </Text>
-            ) : (
-              <Text style={[typography.caption, { fontSize: 12, color: colors.textSecondary }]}>Solo practice</Text>
-            )}
-          </View>
-        </View>
-      ) : (
       <View style={styles.playersRow}>
         <View style={styles.playerCol}>
-          <TouchableOpacity
-            onPress={() => p1 && navigation.navigate('UserProfile', { userId: p1.user_id })}
-            activeOpacity={0.7}
-            style={{ alignItems: 'center', gap: spacing.xs }}
-            disabled={!p1}
-          >
-            <Avatar
-              initials={p1 ? getInitials(p1) : '?'}
-              avatarUrl={p1AvatarUrl ?? p1?.avatar_url}
-              size={44}
-              colors={colors}
-              isWinner={isCompleted && p1?.result === 'win'}
-            />
-            <Text style={styles.playerName} numberOfLines={1}>
-              {getName(p1!)}
-            </Text>
-          </TouchableOpacity>
-          {p1 && String(p1.user_id) === String(currentUserId) && (
-            <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>You</Text>
-          )}
-          {isRanked && p1 && (item.status === 'pending' || item.status === 'confirmed') && (
-            <Text style={[typography.caption, { fontSize: 12, fontWeight: '500', color: isReady(p1) ? colors.primary : colors.textSecondary }]}>
-              {isReady(p1) ? 'Ready ✓' : 'Not ready'}
-            </Text>
+          {is2v2 ? (
+            // 2v2 left side: creator + teammate
+            <View style={{ alignItems: 'center', gap: spacing.xs }}>
+              <View style={{ flexDirection: 'row', gap: 4, alignItems: 'flex-start' }}>
+                {/* Creator */}
+                <View style={{ alignItems: 'center', gap: 2, maxWidth: 58 }}>
+                  <TouchableOpacity onPress={() => p1 && navigation.navigate('UserProfile', { userId: p1.user_id })} activeOpacity={0.7}>
+                    <Avatar initials={p1 ? getInitials(p1) : '?'} avatarUrl={p1AvatarUrl ?? p1?.avatar_url} size={36} colors={colors} isWinner={isCompleted && p1?.result === 'win'} />
+                  </TouchableOpacity>
+                  <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>{p1 ? getName(p1) : '?'}</Text>
+                  {isRanked && p1 && (item.status === 'pending' || item.status === 'confirmed') && (
+                    <Text style={[typography.caption, { fontSize: 9, color: isReady(p1) ? colors.primary : colors.textSecondary }]}>{isReady(p1) ? '✓' : '—'}</Text>
+                  )}
+                </View>
+                {/* Teammate slot */}
+                <View style={{ alignItems: 'center', gap: 2, maxWidth: 58 }}>
+                  {teammate ? (
+                    <TouchableOpacity onPress={() => navigation.navigate('UserProfile', { userId: teammate.user_id })} activeOpacity={0.7}>
+                      <Avatar initials={getInitials(teammate)} avatarUrl={partner2AvatarUrl ?? teammate.avatar_url} size={36} colors={colors} isWinner={isCompleted && teammate.result === 'win'} />
+                    </TouchableOpacity>
+                  ) : item.invited_teammate_id ? (
+                    <View style={{ opacity: 0.5 }}><Avatar initials="?" size={36} colors={colors} /></View>
+                  ) : onInviteOpponent && item.created_by === currentUserId ? (
+                    <TouchableOpacity onPress={() => onInviteOpponent(item, 'teammate')} activeOpacity={0.8}>
+                      <View style={{ position: 'relative' }}>
+                        <Avatar initials="+" size={36} colors={colors} />
+                        <View style={{ position: 'absolute', bottom: -2, right: -2, backgroundColor: colors.primary, borderRadius: 8, padding: 2 }}>
+                          <Ionicons name="person-add" size={9} color={colors.textOnPrimary} />
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  ) : (
+                    <Avatar initials="?" size={36} colors={colors} />
+                  )}
+                  <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>
+                    {teammate ? getName(teammate) : item.invited_teammate_id ? 'Invited' : 'TBD'}
+                  </Text>
+                  {isRanked && teammate && (item.status === 'pending' || item.status === 'confirmed') && (
+                    <Text style={[typography.caption, { fontSize: 9, color: isReady(teammate) ? colors.primary : colors.textSecondary }]}>{isReady(teammate) ? '✓' : '—'}</Text>
+                  )}
+                </View>
+              </View>
+              {(p1?.user_id === currentUserId || teammate?.user_id === currentUserId) && (
+                <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>You</Text>
+              )}
+            </View>
+          ) : (
+            // 1v1 left side
+            <>
+              <TouchableOpacity
+                onPress={() => p1 && navigation.navigate('UserProfile', { userId: p1.user_id })}
+                activeOpacity={0.7}
+                style={{ alignItems: 'center', gap: spacing.xs }}
+                disabled={!p1}
+              >
+                <Avatar
+                  initials={p1 ? getInitials(p1) : '?'}
+                  avatarUrl={p1AvatarUrl ?? p1?.avatar_url}
+                  size={44}
+                  colors={colors}
+                  isWinner={isCompleted && p1?.result === 'win'}
+                />
+                <Text style={styles.playerName} numberOfLines={1}>
+                  {getName(p1!)}
+                </Text>
+              </TouchableOpacity>
+              {p1 && String(p1.user_id) === String(currentUserId) && (
+                <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>You</Text>
+              )}
+              {isRanked && p1 && (item.status === 'pending' || item.status === 'confirmed') && (
+                <Text style={[typography.caption, { fontSize: 12, fontWeight: '500', color: isReady(p1) ? colors.primary : colors.textSecondary }]}>
+                  {isReady(p1) ? 'Ready ✓' : 'Not ready'}
+                </Text>
+              )}
+            </>
           )}
         </View>
         <View style={styles.vsCol}>
-          {((isCompleted || isInProgress || isPaused) && hasScore) || (isCompleted && !hasScore) ? (
+          {isPractice ? (
+            <View style={{ alignItems: 'center' }}>
+              {isCompleted ? (
+                <View style={{
+                  backgroundColor: colors.primary + '18',
+                  borderRadius: borderRadius.sm,
+                  paddingHorizontal: spacing.sm,
+                  paddingVertical: 4,
+                  marginBottom: 2,
+                  borderWidth: 1,
+                  borderColor: colors.primary + '40',
+                }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary, letterSpacing: 0.2 }}>
+                    Practiced for {formatDurationDigital(durationMs)}
+                  </Text>
+                </View>
+              ) : (isInProgress || isPaused) ? (
+                <Text style={{ fontSize: 18, fontWeight: '700', color: colors.primary, letterSpacing: 1, marginBottom: 2 }}>
+                  {formatDurationDigital(durationMs)}
+                </Text>
+              ) : null}
+              <Text style={[styles.vsText, { fontSize: 9 }]}>{isCompleted ? (p2 ? 'PRACTICED WITH' : 'SOLO') : (p2 ? 'PRACTICE WITH' : 'SOLO')}</Text>
+            </View>
+          ) : ((isCompleted || isInProgress || isPaused) && hasScore) || (isCompleted && !hasScore) ? (
             <View style={{ alignItems: 'center' }}>
               {isCompleted && participants.every((p) => p?.result === 'draw') ? (
                 <View style={{ alignItems: 'center' }}>
@@ -1220,8 +1296,12 @@ function FeedCard({
               ) : (
                 <>
                   {isCompleted && (() => {
-                    const winner = participants.find((p) => p?.result === 'win');
-                    return winner ? (
+                    const firstWinner = participants.find((p) => p?.result === 'win');
+                    if (!firstWinner) return null;
+                    const winLabel = is2v2
+                      ? (firstWinner.role === 'challenger' ? 'Team 1 Wins!' : 'Team 2 Wins!')
+                      : `${getName(firstWinner)} Wins!`;
+                    return (
                       <View style={{
                         backgroundColor: colors.primary + '18',
                         borderRadius: borderRadius.sm,
@@ -1232,10 +1312,10 @@ function FeedCard({
                         borderColor: colors.primary + '40',
                       }}>
                         <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary, letterSpacing: 0.2 }}>
-                          🏆 {getName(winner)} Wins!
+                          🏆 {winLabel}
                         </Text>
                       </View>
-                    ) : null;
+                    );
                   })()}
                   {hasScore && <Text style={styles.scoreText}>{displayScoreMain}</Text>}
                   {hasScore && displayScoreSub && (
@@ -1313,7 +1393,129 @@ function FeedCard({
           )}
         </View>
         <View style={styles.playerCol}>
-          {p2 ? (
+          {isPractice ? (() => {
+            const PSIZE = 36;
+            const inviteBadge = (
+              <View style={{ position: 'absolute', bottom: -2, right: -2, backgroundColor: colors.primary, borderRadius: 8, padding: 3 }}>
+                <Ionicons name="person-add" size={10} color={colors.textOnPrimary} />
+              </View>
+            );
+            const partnerAvatar = (p: Participant, url: string | null) => (
+              <TouchableOpacity key={p.user_id} onPress={() => navigation.navigate('UserProfile', { userId: p.user_id })} activeOpacity={0.7} style={{ alignItems: 'center', gap: 2 }}>
+                <Avatar initials={getInitials(p)} avatarUrl={url ?? p.avatar_url} size={PSIZE} colors={colors} />
+                <Text numberOfLines={1} style={{ fontSize: 10, color: colors.text, fontWeight: '500', maxWidth: PSIZE + 8, textAlign: 'center' }}>
+                  {(p.full_name ?? p.username ?? '').split(' ')[0] || getInitials(p)}
+                </Text>
+              </TouchableOpacity>
+            );
+            const inviteBtn = onInviteOpponent && canControl ? (
+              <TouchableOpacity onPress={() => onInviteOpponent(item)} activeOpacity={0.8} style={{ alignItems: 'center', gap: 2 }}>
+                <View style={{ position: 'relative' }}>
+                  <Avatar initials="?" size={PSIZE} colors={colors} />
+                  {inviteBadge}
+                </View>
+                <Text style={{ fontSize: 10, color: colors.textSecondary, textAlign: 'center' }}>Invite</Text>
+              </TouchableOpacity>
+            ) : null;
+            const n = practicePartners.length;
+            if (n === 0) {
+              // single invite button centered
+              return inviteBtn ?? <Avatar initials="?" size={PSIZE} colors={colors} />;
+            }
+            if (n === 1) {
+              // [P1] [+] side by side
+              return (
+                <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                  {partnerAvatar(practicePartners[0], p2AvatarUrl)}
+                  {inviteBtn}
+                </View>
+              );
+            }
+            if (n === 2) {
+              // P1, P2, [+] stacked vertically
+              return (
+                <View style={{ alignItems: 'center', gap: 5 }}>
+                  {partnerAvatar(practicePartners[0], p2AvatarUrl)}
+                  {partnerAvatar(practicePartners[1], partner2AvatarUrl)}
+                  {inviteBtn}
+                </View>
+              );
+            }
+            // n === 3: [P1] top centered, [P2][P3] bottom  △
+            return (
+              <View style={{ alignItems: 'center', gap: 5 }}>
+                {partnerAvatar(practicePartners[0], p2AvatarUrl)}
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  {partnerAvatar(practicePartners[1], partner2AvatarUrl)}
+                  {partnerAvatar(practicePartners[2], partner3AvatarUrl)}
+                </View>
+              </View>
+            );
+          })() : is2v2 ? (
+            // 2v2 right side: opponent1 + opponent2
+            <View style={{ alignItems: 'center', gap: spacing.xs }}>
+              <View style={{ flexDirection: 'row', gap: 4, alignItems: 'flex-start' }}>
+                {/* Opponent 1 */}
+                <View style={{ alignItems: 'center', gap: 2, maxWidth: 58 }}>
+                  {p2 ? (
+                    <TouchableOpacity onPress={() => navigation.navigate('UserProfile', { userId: p2.user_id })} activeOpacity={0.7}>
+                      <Avatar initials={getInitials(p2)} avatarUrl={p2AvatarUrl ?? p2.avatar_url} size={36} colors={colors} isWinner={isCompleted && p2.result === 'win'} />
+                    </TouchableOpacity>
+                  ) : item.invited_opponent_id ? (
+                    <View style={{ opacity: 0.5 }}><Avatar initials="?" size={36} colors={colors} /></View>
+                  ) : onInviteOpponent && item.created_by === currentUserId ? (
+                    <TouchableOpacity onPress={() => onInviteOpponent(item, 'opponent')} activeOpacity={0.8}>
+                      <View style={{ position: 'relative' }}>
+                        <Avatar initials="+" size={36} colors={colors} />
+                        <View style={{ position: 'absolute', bottom: -2, right: -2, backgroundColor: colors.primary, borderRadius: 8, padding: 2 }}>
+                          <Ionicons name="person-add" size={9} color={colors.textOnPrimary} />
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  ) : (
+                    <Avatar initials="?" size={36} colors={colors} />
+                  )}
+                  <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>
+                    {p2 ? getName(p2) : item.invited_opponent_id ? 'Invited' : 'TBD'}
+                  </Text>
+                  {isRanked && p2 && (item.status === 'pending' || item.status === 'confirmed') && (
+                    <Text style={[typography.caption, { fontSize: 9, color: isReady(p2) ? colors.primary : colors.textSecondary }]}>{isReady(p2) ? '✓' : '—'}</Text>
+                  )}
+                </View>
+                {/* Opponent 2 slot */}
+                <View style={{ alignItems: 'center', gap: 2, maxWidth: 58 }}>
+                  {opponent2 ? (
+                    <TouchableOpacity onPress={() => navigation.navigate('UserProfile', { userId: opponent2.user_id })} activeOpacity={0.7}>
+                      <Avatar initials={getInitials(opponent2)} avatarUrl={partner3AvatarUrl ?? opponent2.avatar_url} size={36} colors={colors} isWinner={isCompleted && opponent2.result === 'win'} />
+                    </TouchableOpacity>
+                  ) : item.invited_opponent_2_id ? (
+                    <View style={{ opacity: 0.5 }}><Avatar initials="?" size={36} colors={colors} /></View>
+                  ) : onInviteOpponent && item.created_by === currentUserId ? (
+                    <TouchableOpacity onPress={() => onInviteOpponent(item, 'opponent_2')} activeOpacity={0.8}>
+                      <View style={{ position: 'relative' }}>
+                        <Avatar initials="+" size={36} colors={colors} />
+                        <View style={{ position: 'absolute', bottom: -2, right: -2, backgroundColor: colors.primary, borderRadius: 8, padding: 2 }}>
+                          <Ionicons name="person-add" size={9} color={colors.textOnPrimary} />
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  ) : (
+                    <Avatar initials="?" size={36} colors={colors} />
+                  )}
+                  <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>
+                    {opponent2 ? getName(opponent2) : item.invited_opponent_2_id ? 'Invited' : 'TBD'}
+                  </Text>
+                  {isRanked && opponent2 && (item.status === 'pending' || item.status === 'confirmed') && (
+                    <Text style={[typography.caption, { fontSize: 9, color: isReady(opponent2) ? colors.primary : colors.textSecondary }]}>{isReady(opponent2) ? '✓' : '—'}</Text>
+                  )}
+                </View>
+              </View>
+              {(p2?.user_id === currentUserId || opponent2?.user_id === currentUserId) && (
+                <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>You</Text>
+              )}
+            </View>
+          ) : p2 ? (
+            // 1v1 with opponent
             <>
               <TouchableOpacity
                 onPress={() => navigation.navigate('UserProfile', { userId: p2.user_id })}
@@ -1341,10 +1543,11 @@ function FeedCard({
               )}
             </>
           ) : (
+            // 1v1 no opponent yet
             <>
               {onInviteOpponent && canControl ? (
                 <TouchableOpacity
-                  onPress={() => onInviteOpponent(item)}
+                  onPress={() => onInviteOpponent(item, 'opponent')}
                   activeOpacity={0.8}
                   style={{ alignItems: 'center' }}
                 >
@@ -1366,7 +1569,6 @@ function FeedCard({
           )}
         </View>
       </View>
-      )}
 
       <View style={styles.detailsRow}>
         <View style={styles.detailsLeft}>
@@ -1453,7 +1655,7 @@ function FeedCard({
                 </TouchableOpacity>
               </>
             )}
-            {isParticipant && (item.status === 'pending' || item.status === 'confirmed' || item.status === 'completed') && (() => {
+            {(isRanked ? isParticipant : item.created_by === currentUserId) && (item.status === 'pending' || item.status === 'confirmed' || item.status === 'completed') && (() => {
               const myDeleteRequested = myParticipant?.delete_requested === true;
               const deleteCount = participants.filter((p) => p.delete_requested === true).length;
               const totalParticipants = participants.length;
@@ -1784,43 +1986,80 @@ function FeedCard({
           <Text style={styles.winnerPickerTitle}>Choose winner</Text>
           <Text style={styles.winnerPickerSubtitle}>Who won this match?</Text>
           <View style={styles.winnerPickerOptions}>
-            {p1 && (
-              <TouchableOpacity
-                style={[styles.winnerPickerOption, winnerSelection === p1.user_id && styles.winnerPickerOptionSel]}
-                onPress={() => selectWinner(p1.user_id)}
-                activeOpacity={0.8}
-              >
-                <View style={[styles.winnerPickerAvatarWrap, winnerSelection === p1.user_id && { borderWidth: 2, borderColor: colors.primary }]}>
-                  {p1AvatarUrl ? (
-                    <Image source={{ uri: p1AvatarUrl }} style={styles.winnerPickerAvatarImg} />
-                  ) : (
-                    <View style={[styles.winnerPickerAvatar, { backgroundColor: colors.primary }]}>
-                      <Text style={[styles.winnerPickerInitials, { color: colors.textOnPrimary }]}>{getInitials(p1)}</Text>
+            {is2v2 ? (
+              <>
+                {/* 2v2: pick a team */}
+                {p1 && (
+                  <TouchableOpacity
+                    style={[styles.winnerPickerOption, winnerSelection === p1.user_id && styles.winnerPickerOptionSel]}
+                    onPress={() => selectWinner(p1.user_id)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={{ flexDirection: 'row', gap: 4, marginBottom: 4 }}>
+                      <Avatar initials={p1 ? getInitials(p1) : '?'} avatarUrl={p1AvatarUrl ?? p1?.avatar_url} size={32} colors={colors} isWinner={winnerSelection === p1.user_id} />
+                      {teammate && <Avatar initials={getInitials(teammate)} avatarUrl={partner2AvatarUrl ?? teammate.avatar_url} size={32} colors={colors} isWinner={winnerSelection === p1.user_id} />}
                     </View>
-                  )}
-                </View>
-                <Text style={[styles.winnerPickerName, winnerSelection === p1.user_id && { color: colors.primary }]}>{getName(p1)}</Text>
-                <Text style={styles.winnerPickerRole}>Challenger</Text>
-              </TouchableOpacity>
-            )}
-            {p2 && (
-              <TouchableOpacity
-                style={[styles.winnerPickerOption, winnerSelection === p2.user_id && styles.winnerPickerOptionSel]}
-                onPress={() => selectWinner(p2.user_id)}
-                activeOpacity={0.8}
-              >
-                <View style={[styles.winnerPickerAvatarWrap, winnerSelection === p2.user_id && { borderWidth: 2, borderColor: colors.primary }]}>
-                  {p2AvatarUrl ? (
-                    <Image source={{ uri: p2AvatarUrl }} style={styles.winnerPickerAvatarImg} />
-                  ) : (
-                    <View style={[styles.winnerPickerAvatar, { backgroundColor: colors.primary }]}>
-                      <Text style={[styles.winnerPickerInitials, { color: colors.textOnPrimary }]}>{getInitials(p2)}</Text>
+                    <Text style={[styles.winnerPickerName, winnerSelection === p1.user_id && { color: colors.primary }]}>Team 1</Text>
+                    <Text style={styles.winnerPickerRole}>Challengers</Text>
+                  </TouchableOpacity>
+                )}
+                {p2 && (
+                  <TouchableOpacity
+                    style={[styles.winnerPickerOption, winnerSelection === p2.user_id && styles.winnerPickerOptionSel]}
+                    onPress={() => selectWinner(p2.user_id)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={{ flexDirection: 'row', gap: 4, marginBottom: 4 }}>
+                      <Avatar initials={getInitials(p2)} avatarUrl={p2AvatarUrl ?? p2.avatar_url} size={32} colors={colors} isWinner={winnerSelection === p2.user_id} />
+                      {opponent2 && <Avatar initials={getInitials(opponent2)} avatarUrl={partner3AvatarUrl ?? opponent2.avatar_url} size={32} colors={colors} isWinner={winnerSelection === p2.user_id} />}
                     </View>
-                  )}
-                </View>
-                <Text style={[styles.winnerPickerName, winnerSelection === p2.user_id && { color: colors.primary }]}>{getName(p2)}</Text>
-                <Text style={styles.winnerPickerRole}>Opponent</Text>
-              </TouchableOpacity>
+                    <Text style={[styles.winnerPickerName, winnerSelection === p2.user_id && { color: colors.primary }]}>Team 2</Text>
+                    <Text style={styles.winnerPickerRole}>Opponents</Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            ) : (
+              <>
+                {/* 1v1: pick a player */}
+                {p1 && (
+                  <TouchableOpacity
+                    style={[styles.winnerPickerOption, winnerSelection === p1.user_id && styles.winnerPickerOptionSel]}
+                    onPress={() => selectWinner(p1.user_id)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[styles.winnerPickerAvatarWrap, winnerSelection === p1.user_id && { borderWidth: 2, borderColor: colors.primary }]}>
+                      {p1AvatarUrl ? (
+                        <Image source={{ uri: p1AvatarUrl }} style={styles.winnerPickerAvatarImg} />
+                      ) : (
+                        <View style={[styles.winnerPickerAvatar, { backgroundColor: colors.primary }]}>
+                          <Text style={[styles.winnerPickerInitials, { color: colors.textOnPrimary }]}>{getInitials(p1)}</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.winnerPickerName, winnerSelection === p1.user_id && { color: colors.primary }]}>{getName(p1)}</Text>
+                    <Text style={styles.winnerPickerRole}>Challenger</Text>
+                  </TouchableOpacity>
+                )}
+                {p2 && (
+                  <TouchableOpacity
+                    style={[styles.winnerPickerOption, winnerSelection === p2.user_id && styles.winnerPickerOptionSel]}
+                    onPress={() => selectWinner(p2.user_id)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[styles.winnerPickerAvatarWrap, winnerSelection === p2.user_id && { borderWidth: 2, borderColor: colors.primary }]}>
+                      {p2AvatarUrl ? (
+                        <Image source={{ uri: p2AvatarUrl }} style={styles.winnerPickerAvatarImg} />
+                      ) : (
+                        <View style={[styles.winnerPickerAvatar, { backgroundColor: colors.primary }]}>
+                          <Text style={[styles.winnerPickerInitials, { color: colors.textOnPrimary }]}>{getInitials(p2)}</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.winnerPickerName, winnerSelection === p2.user_id && { color: colors.primary }]}>{getName(p2)}</Text>
+                    <Text style={styles.winnerPickerRole}>Opponent</Text>
+                  </TouchableOpacity>
+                )}
+              </>
             )}
             <TouchableOpacity
               style={[styles.winnerPickerOption, winnerSelection === null && styles.winnerPickerOptionSel]}
@@ -2564,6 +2803,7 @@ export default function HomeScreen() {
   }, []);
 
   const [inviteOpponentMatch, setInviteOpponentMatch] = useState<FeedMatch | null>(null);
+  const [inviteSlot, setInviteSlot] = useState<'opponent' | 'teammate' | 'opponent_2'>('opponent');
   const [editMatch, setEditMatch] = useState<FeedMatch | null>(null);
   const [followStates, setFollowStates] = useState<Record<string, 'none' | 'pending' | 'accepted'>>({});
 
@@ -2660,7 +2900,12 @@ export default function HomeScreen() {
         .select('*')
         .order('created_at', { ascending: false })
         .limit(50);
-      const newItems = (data ?? []) as FeedMatch[];
+      const parseParticipants = (raw: unknown): Participant[] => {
+        if (Array.isArray(raw)) return raw as Participant[];
+        if (typeof raw === 'string') { try { return JSON.parse(raw) as Participant[]; } catch { return []; } }
+        return [];
+      };
+      const newItems = (data ?? []).map((m: any) => ({ ...m, participants: parseParticipants(m.participants) })) as FeedMatch[];
       setFeedItems(newItems);
     } catch { /* swallow */ }
     finally { if (showLoading) setLoadingFeed(false); }
@@ -2821,8 +3066,7 @@ export default function HomeScreen() {
 
   const myFeed = useMemo(
     () => feedItems.filter((m) =>
-      (m.participants ?? []).some((p) => p.user_id === currentUserId) ||
-      m.invited_opponent_id === currentUserId
+      (m.participants ?? []).some((p) => p.user_id === currentUserId)
     ),
     [feedItems, currentUserId],
   );
@@ -2956,19 +3200,27 @@ export default function HomeScreen() {
   const handleInviteOpponent = async (match: FeedMatch, user: SearchedUser) => {
     if (!currentUserId) return;
     setInviteOpponentMatch(null);
+    const slot = inviteSlot;
     try {
-      await supabase.from('matches').update({ invited_opponent_id: user.user_id }).eq('id', match.id);
+      const updatePayload: Record<string, unknown> = {};
+      if (slot === 'teammate') updatePayload.invited_teammate_id = user.user_id;
+      else if (slot === 'opponent_2') updatePayload.invited_opponent_2_id = user.user_id;
+      else updatePayload.invited_opponent_id = user.user_id;
+      await supabase.from('matches').update(updatePayload).eq('id', match.id);
       const { data: myProfile } = await supabase.from('profiles').select('username').eq('user_id', currentUserId).maybeSingle();
-      const sportLabel = match.sport_name ?? 'Match';
+      const sportLabelStr = match.sport_name ?? 'Match';
       const matchType = match.match_type ?? 'casual';
       const matchTypeLabel = String(matchType).charAt(0).toUpperCase() + String(matchType).slice(1);
-      const notifBody = `${sportLabel} ${matchType} - ${myProfile?.username ?? 'Someone'} invited you!`;
+      const notifBody = `${sportLabelStr} ${matchType} - ${myProfile?.username ?? 'Someone'} invited you!`;
+      const inviteTitle = slot === 'teammate'
+        ? `${myProfile?.username ?? 'Someone'} invited you as their teammate in a ${matchTypeLabel} match!`
+        : `${myProfile?.username ?? 'Someone'} challenged you to a ${matchTypeLabel} match!`;
       await supabase.from('notifications').insert({
         user_id: user.user_id,
         type: 'match_invite',
-        title: `${myProfile?.username ?? 'Someone'} challenged you to a ${matchTypeLabel} match!`,
+        title: inviteTitle,
         body: notifBody,
-        data: { match_id: match.id, from_user_id: currentUserId, slot: 'opponent' },
+        data: { match_id: match.id, from_user_id: currentUserId, slot },
       });
       loadFeed();
     } catch (e: any) {
@@ -3094,7 +3346,7 @@ export default function HomeScreen() {
         <FlatList
           ref={feedListRef}
           data={displayedItems}
-          keyExtractor={(item) => `${item.id}-${item.status}-${(item.participants ?? []).length}-${(item.participants ?? []).map((p: Participant) => p?.ready).join(',')}`}
+          keyExtractor={(item) => { const pts = Array.isArray(item.participants) ? item.participants : []; return `${item.id}-${item.status}-${pts.length}-${pts.map((p: Participant) => p?.ready).join(',')}`; }}
           onScrollToIndexFailed={(info) => {
             setTimeout(() => feedListRef.current?.scrollToIndex({ index: info.index, animated: true }), 100);
           }}
@@ -3117,7 +3369,7 @@ export default function HomeScreen() {
               colors={colors}
               onRefresh={loadFeed}
               updateFeedItem={updateFeedItem}
-              onInviteOpponent={setInviteOpponentMatch}
+              onInviteOpponent={(match, slot) => { setInviteOpponentMatch(match); setInviteSlot(slot ?? 'opponent'); }}
               onEditMatch={setEditMatch}
               navigation={navigation}
               onNotifyUpdate={() => {
@@ -3155,7 +3407,7 @@ export default function HomeScreen() {
           <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setInviteOpponentMatch(null)} />
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Invite opponent</Text>
+              <Text style={styles.modalTitle}>{inviteSlot === 'teammate' ? 'Invite teammate' : 'Invite opponent'}</Text>
               <TouchableOpacity onPress={() => setInviteOpponentMatch(null)} hitSlop={12}>
                 <Ionicons name="close" size={24} color={colors.textSecondary} />
               </TouchableOpacity>
