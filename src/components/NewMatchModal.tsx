@@ -32,7 +32,7 @@ type Props = {
   onCreated?: () => void;
   colors: ThemeColors;
   initialSport?: string;
-  initialMatchType?: 'casual' | 'ranked';
+  initialMatchType?: 'casual' | 'ranked' | 'practice';
   initialDate?: string;
   initialLocation?: { latitude: number; longitude: number; name: string } | null;
   preferredSports?: string[];
@@ -175,7 +175,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   // const [teammate, setTeammate] = useState<SearchedUser | null>(null);
   // const [opponent2, setOpponent2] = useState<SearchedUser | null>(null);
   const [sport, setSport] = useState(initialSport ?? SPORTS[0]);
-  const [matchType, setMatchType] = useState<'casual' | 'ranked'>(initialMatchType ?? 'casual');
+  const [matchType, setMatchType] = useState<'casual' | 'ranked' | 'practice'>(initialMatchType ?? 'casual');
   // const [matchFormat, setMatchFormat] = useState<'1v1' | '2v2'>('1v1');
   const [isPublic, setIsPublic] = useState(true);
   const [location, setLocation] = useState('');
@@ -218,7 +218,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   }, [preferredSports]);
 
   useEffect(() => { if (initialSport) setSport(initialSport); }, [initialSport]);
-  useEffect(() => { if (initialMatchType) setMatchType(initialMatchType); }, [initialMatchType]);
+  useEffect(() => { if (initialMatchType) setMatchType(initialMatchType as 'casual' | 'ranked' | 'practice'); }, [initialMatchType]);
   useEffect(() => {
     if (initialLocation) {
       setLocation(initialLocation.name);
@@ -414,7 +414,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
     setLocationSuggestions([]);
     setShowSuggestions(false);
     setNotes('');
-    setMatchType(initialMatchType ?? 'casual');
+    setMatchType((initialMatchType ?? 'casual') as 'casual' | 'ranked' | 'practice');
     setIsPublic(true);
     // setMatchFormat('1v1');
     setSport(initialSport ?? SPORTS[0]);
@@ -447,7 +447,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
               keyboardShouldPersistTaps="handled"
               bounces={true}
             >
-              <Text style={styles.label}>Invite opponent (optional for casual, required for ranked)</Text>
+              <Text style={styles.label}>Invite opponent (optional for casual/practice, required for ranked)</Text>
               <>
                 {opponent ? (
                   <View style={styles.selectedOpp}>
@@ -468,14 +468,19 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
 
               <Text style={[styles.label, { marginTop: spacing.md }]}>Match type</Text>
               <View style={styles.matchTypeRow}>
-                {(['casual', 'ranked'] as const).map((t) => (
+                {(['casual', 'ranked', 'practice'] as const).map((t) => (
                   <TouchableOpacity key={t} style={[styles.matchTypeChip, matchType === t && styles.matchTypeChipSel]} onPress={() => setMatchType(t)} activeOpacity={0.8}>
-                    <Text style={[styles.matchTypeLbl, matchType === t && styles.matchTypeLblSel]}>{t === 'casual' ? 'Casual' : 'Ranked'}</Text>
+                    <Text style={[styles.matchTypeLbl, matchType === t && styles.matchTypeLblSel]}>{t === 'casual' ? 'Casual' : t === 'ranked' ? 'Ranked' : 'Practice'}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
+              {matchType === 'practice' && (
+                <Text style={[styles.label, { marginBottom: spacing.md, fontStyle: 'italic' }]}>
+                  Practice: track how long you train. No score or opponent required.
+                </Text>
+              )}
 
-              <Text style={[styles.label, { marginTop: spacing.md }]}>Visibility</Text>
+              <Text style={styles.label}>Visibility</Text>
               <View style={styles.matchTypeRow}>
                 <TouchableOpacity style={[styles.matchTypeChip, isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(true)} activeOpacity={0.8}>
                   <Ionicons name="globe-outline" size={16} color={isPublic ? colors.textOnPrimary : colors.textSecondary} />
@@ -498,7 +503,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
 
               {/* 2v2 format disabled */}
 
-              <Text style={[styles.label, { marginTop: spacing.md }]}>When</Text>
+              <Text style={styles.label}>When</Text>
               <View style={styles.matchTypeRow}>
                 <TouchableOpacity
                   style={[styles.matchTypeChip, startNow && styles.matchTypeChipSel]}

@@ -13,7 +13,7 @@ create extension if not exists "pgcrypto";
 do $$
 begin
   if not exists (select 1 from pg_type where typname = 'match_type') then
-    create type match_type as enum ('ranked', 'casual', 'local');
+    create type match_type as enum ('ranked', 'casual', 'local', 'practice');
   end if;
 
   if not exists (select 1 from pg_type where typname = 'match_status') then
@@ -688,6 +688,7 @@ select
   m.location_lng,
   m.notes,
   m.created_by,
+  m.invited_opponent_id,
   s.name as sport_name,
   s.slug as sport_slug,
   array_agg(jsonb_build_object(
@@ -929,6 +930,37 @@ begin
   end if;
 end;
 $$ language plpgsql security definer;
+
+-- RPC: delete a match as any participant — security definer bypasses RLS so both creator and
+-- invited opponent can delete regardless of the live DB's delete policy state.
+create or replace function public.delete_match_as_participant(p_match_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (
+    select 1 from public.matches
+    where id = p_match_id
+      and (
+        created_by = auth.uid()
+        or exists (
+          select 1 from public.match_participants
+          where match_id = p_match_id and user_id = auth.uid()
+        )
+      )
+  ) then
+    return jsonb_build_object('ok', false, 'error', 'Not authorized to delete this match');
+  end if;
+
+  delete from public.matches where id = p_match_id;
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+grant execute on function public.delete_match_as_participant(uuid) to authenticated;
 
 -- RPC: delete the calling user's own account (requires security definer to touch auth.users) --
 create or replace function public.delete_own_account()

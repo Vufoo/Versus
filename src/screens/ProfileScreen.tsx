@@ -681,7 +681,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const GENDER_OPTIONS = ['Male', 'Female', 'Other', 'Prefer not to say'];
+  const GENDER_OPTIONS = ['Male', 'Female', 'Other'];
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -767,7 +767,7 @@ export default function ProfileScreen() {
         {tab === 'overview' && (
           <>
             <View style={styles.ranksSection}>
-              <Text style={styles.ranksSectionTitle}>Top 3 Ranks</Text>
+              <Text style={styles.ranksSectionTitle}>Sport Ranks</Text>
               <View style={styles.ranksGrid}>
                 {top3Rankings.map((item) => (
                   <View key={item.sport} style={styles.rankCard}>
@@ -957,7 +957,7 @@ export default function ProfileScreen() {
                   ))}
                 </View>
 
-                <Text style={styles.editLabel}>City <Text style={{ fontWeight: '400', color: colors.textSecondary }}>(optional)</Text></Text>
+                <Text style={styles.editLabel}>City <Text style={{ fontWeight: '400', color: colors.textSecondary }}></Text></Text>
                 <TextInput
                   style={styles.editInput}
                   value={editCity}
@@ -967,7 +967,7 @@ export default function ProfileScreen() {
                   autoCapitalize="words"
                 />
 
-                <Text style={styles.editLabel}>State <Text style={{ fontWeight: '400', color: colors.textSecondary }}>(optional)</Text></Text>
+                <Text style={styles.editLabel}>State <Text style={{ fontWeight: '400', color: colors.textSecondary }}></Text></Text>
                 <TextInput
                   style={styles.editInput}
                   value={editState}

@@ -162,17 +162,26 @@ export default function SettingsScreen() {
     await supabase.from('profiles').update({ profile_visibility: value }).eq('user_id', user.id);
   };
 
-  const handleSignOut = async () => {
-    try {
-      const { GoogleSignin } = require('@react-native-google-signin/google-signin');
-      await GoogleSignin.revokeAccess();
-      await GoogleSignin.signOut();
-    } catch {
-      // native module not available or user didn't sign in with Google — skip
-    }
-    await supabase.auth.signOut();
-    setSignedIn(false);
-    navigation.goBack();
+  const handleSignOut = () => {
+    Alert.alert('Sign out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign out',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+            await GoogleSignin.revokeAccess();
+            await GoogleSignin.signOut();
+          } catch {
+            // native module not available or user didn't sign in with Google — skip
+          }
+          await supabase.auth.signOut();
+          setSignedIn(false);
+          navigation.goBack();
+        },
+      },
+    ]);
   };
 
   return (
@@ -330,13 +339,13 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             </View>
           </View>
-          <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Coming soon', 'Blocked users will be available in a future update.')} activeOpacity={0.7}>
+          {/* <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Coming soon', 'Blocked users will be available in a future update.')} activeOpacity={0.7}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="ban-outline" size={20} color={colors.textSecondary} />
               <Text style={styles.settingLabel}>Blocked users</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-          </TouchableOpacity>
+          </TouchableOpacity> */}
           <View style={styles.settingRow}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="eye-outline" size={20} color={colors.textSecondary} />
@@ -368,7 +377,7 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        <View style={styles.settingSection}>
+        {/* <View style={styles.settingSection}>
           <Text style={styles.settingSectionTitle}>Data & Storage</Text>
           <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Cache cleared', 'App cache has been cleared.')} activeOpacity={0.7}>
             <View style={styles.settingRowLeft}>
@@ -377,7 +386,7 @@ export default function SettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
-        </View>
+        </View> */}
 
         <View style={styles.settingSection}>
           <Text style={styles.settingSectionTitle}>Support</Text>

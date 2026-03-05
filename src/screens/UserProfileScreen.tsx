@@ -430,7 +430,7 @@ export default function UserProfileScreen() {
         {tab === 'overview' && (
           <>
             <View style={styles.ranksSection}>
-              <Text style={styles.ranksSectionTitle}>Top 3 Ranks</Text>
+              <Text style={styles.ranksSectionTitle}>Sport Ranks</Text>
               <View style={styles.ranksGrid}>
                 {top3Rankings.map((item) => (
                   <View key={item.sport} style={styles.rankCard}>

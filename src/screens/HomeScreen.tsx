@@ -33,6 +33,8 @@ import * as ImagePicker from 'expo-image-picker';
 import UserSearch from '../components/UserSearch';
 import type { SearchedUser } from '../components/UserSearch';
 import EditMatchModal from '../components/EditMatchModal';
+import LocationPickerModal from '../components/LocationPickerModal';
+import type { PickedLocation } from '../components/LocationPickerModal';
 
 type FeedMode = 'public' | 'my';
 
@@ -67,6 +69,7 @@ type FeedMatch = {
   location_lng: number | null;
   notes: string | null;
   created_by: string;
+  invited_opponent_id: string | null;
   sport_name: string;
   sport_slug: string;
   participants: Participant[];
@@ -228,6 +231,14 @@ function formatDurationDigital(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+function formatPracticeDuration(ms: number): string {
+  const totalMin = Math.round(ms / 60000);
+  if (totalMin < 60) return `${totalMin}min`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m > 0 ? `${h}h ${m}min` : `${h}h`;
+}
+
 type MatchComment = {
   id: string;
   match_id: string;
@@ -303,6 +314,7 @@ function FeedCard({
 
   const [likersModalVisible, setLikersModalVisible] = useState(false);
   const [likers, setLikers] = useState<Liker[]>([]);
+  const [locationPickerVisible, setLocationPickerVisible] = useState(false);
   const [likersLoading, setLikersLoading] = useState(false);
 
   useEffect(() => {
@@ -415,7 +427,11 @@ function FeedCard({
 
   const isInProgress = item.status === 'in_progress';
   const isPaused = item.status === 'paused';
-  const isParticipant = currentUserId && (p1?.user_id === currentUserId || p2?.user_id === currentUserId);
+  const isParticipant = currentUserId && (
+    p1?.user_id === currentUserId ||
+    p2?.user_id === currentUserId ||
+    item.invited_opponent_id === currentUserId
+  );
   const canControl = isParticipant;
 
   useEffect(() => {
@@ -437,6 +453,8 @@ function FeedCard({
     : 0;
 
   const isRanked = String(item.match_type || '').toLowerCase() === 'ranked';
+  const isLocal = String(item.match_type || '').toLowerCase() === 'local';
+  const isPractice = String(item.match_type || '').toLowerCase() === 'practice';
   const participantsRaw = item.participants ?? [];
   const participants = (Array.isArray(participantsRaw) ? participantsRaw : (typeof participantsRaw === 'string' ? (() => { try { return JSON.parse(participantsRaw); } catch { return []; } })() : [])) as Participant[];
   const myParticipant = participants.find((p) => p?.user_id && String(p.user_id) === String(currentUserId));
@@ -474,17 +492,17 @@ function FeedCard({
   };
 
   const statusConfirmed = String(item.status || '').toLowerCase() === 'confirmed';
-  const isLocal = String(item.match_type || '').toLowerCase() === 'local';
   const canStartRanked = isRanked && participants.length >= requiredParticipants && (statusConfirmed || readyCount >= requiredParticipants);
-  const canStartCasual = !isRanked && !isLocal && participants.length >= requiredParticipants;
+  const canStartCasual = !isRanked && !isLocal && !isPractice && participants.length >= requiredParticipants;
   const canStartLocal = isLocal && participants.length >= 1;
+  const canStartPractice = isPractice && participants.length >= 1;
   const isScheduledFuture = !!(
     item.scheduled_at &&
     new Date(item.scheduled_at) > new Date() &&
     !item.started_at &&
     (item.status === 'pending' || item.status === 'confirmed')
   );
-  const canStartMeetsCriteria = canStartRanked || canStartCasual || canStartLocal;
+  const canStartMeetsCriteria = canStartRanked || canStartCasual || canStartLocal || canStartPractice;
   const canStart = canStartMeetsCriteria && !isScheduledFuture;
 
   const handleStart = async () => {
@@ -627,6 +645,10 @@ function FeedCard({
 
   const handleFinish = () => {
     if (!currentUserId || startStopLoading) return;
+    if (isPractice) {
+      finishWithWinner(null);
+      return;
+    }
     setWinnerSelection(detectWinnerFromScores());
     setWinnerPickerVisible(true);
   };
@@ -814,6 +836,23 @@ function FeedCard({
     } catch { /* user cancelled */ }
   };
 
+  const handlePickLocation = async (loc: PickedLocation) => {
+    setLocationPickerVisible(false);
+    try {
+      await supabase.from('matches').update({
+        location_name: loc.name,
+        location_lat: loc.latitude,
+        location_lng: loc.longitude,
+      }).eq('id', item.id);
+      updateFeedItem(item.id, (prev) => ({
+        ...prev,
+        location_name: loc.name,
+        location_lat: loc.latitude,
+        location_lng: loc.longitude,
+      }));
+    } catch { /* swallow */ }
+  };
+
   const handleAddImage = async () => {
     if (!currentUserId || !isParticipant) return;
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -883,45 +922,93 @@ function FeedCard({
         }
       }
     }
-    await supabase.from('matches').delete().eq('id', item.id);
+    // Clean up invite notifications
+    await supabase.from('notifications').delete().eq('type', 'match_invite').filter('data->>match_id', 'eq', item.id);
+    const { data: delResult, error: delError } = await supabase.rpc('delete_match_as_participant', { p_match_id: item.id });
+    if (delError) throw delError;
+    if (!delResult?.ok) throw new Error(delResult?.error ?? 'Could not delete match.');
     onRefresh();
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!currentUserId || deleteLoading) return;
-    setDeleteLoading(true);
-    try {
-      if (isRanked) {
-        // Ranked: mutual confirmation — set delete_requested on this participant
-        const alreadyRequested = myParticipant?.delete_requested === true;
-        if (alreadyRequested) return; // already voted
 
-        await supabase.from('match_participants').update({ delete_requested: true }).eq('match_id', item.id).eq('user_id', currentUserId);
-        // Optimistic update
-        updateFeedItem(item.id, (m) => ({
-          ...m,
-          participants: m.participants.map((p) =>
-            p.user_id === currentUserId ? { ...p, delete_requested: true } : p
-          ),
-        }));
+    const isPendingState = item.status === 'pending' || item.status === 'confirmed';
 
-        // Query the DB for the real state to avoid race conditions
-        // (both users may click at the same time — local state won't have the other's update)
-        const { data: dbParticipants } = await supabase
-          .from('match_participants')
-          .select('user_id, delete_requested')
-          .eq('match_id', item.id);
-        const allConfirmed = dbParticipants && dbParticipants.length > 0 &&
-          dbParticipants.every((p) => p.delete_requested === true);
-        if (allConfirmed) {
-          await performFullDelete();
-        }
-      } else {
-        // Casual/local: instant delete by any participant
-        await performFullDelete();
-      }
-    } catch { /* swallow */ }
-    finally { setDeleteLoading(false); }
+    if (isRanked && !isPendingState) {
+      // Completed ranked matches require mutual consent to reverse ratings
+      const alreadyRequested = myParticipant?.delete_requested === true;
+      if (alreadyRequested) return;
+      Alert.alert(
+        'Delete match?',
+        'Both players must confirm to permanently delete this ranked match and reverse any rating changes.',
+        [
+          { text: 'Keep', style: 'cancel' },
+          {
+            text: 'Yes, request delete',
+            style: 'destructive',
+            onPress: async () => {
+              setDeleteLoading(true);
+              try {
+                await supabase.from('match_participants').update({ delete_requested: true }).eq('match_id', item.id).eq('user_id', currentUserId);
+                updateFeedItem(item.id, (m) => ({
+                  ...m,
+                  participants: m.participants.map((p) =>
+                    p.user_id === currentUserId ? { ...p, delete_requested: true } : p
+                  ),
+                }));
+                // Query DB for real state to avoid race conditions
+                const { data: dbParticipants } = await supabase
+                  .from('match_participants')
+                  .select('user_id, delete_requested')
+                  .eq('match_id', item.id);
+                const allConfirmed = dbParticipants && dbParticipants.length > 0 &&
+                  dbParticipants.every((p) => p.delete_requested === true);
+                if (allConfirmed) {
+                  await performFullDelete();
+                }
+              } catch (e: any) {
+                Alert.alert('Error', e?.message ?? 'Could not process delete request.');
+              } finally { setDeleteLoading(false); }
+            },
+          },
+        ],
+      );
+    } else if (isPendingState) {
+      // Cancel = delete for any match that hasn't started yet
+      Alert.alert('Cancel match', 'Are you sure you want to cancel this match? It will be permanently deleted.', [
+        { text: 'Keep', style: 'cancel' },
+        {
+          text: 'Cancel match',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleteLoading(true);
+            try {
+              await performFullDelete();
+            } catch (e: any) {
+              Alert.alert('Error', e?.message ?? 'Could not cancel match.');
+            } finally { setDeleteLoading(false); }
+          },
+        },
+      ]);
+    } else {
+      // Hard delete for completed casual matches
+      Alert.alert('Delete match', 'Are you sure you want to permanently delete this match?', [
+        { text: 'Keep', style: 'cancel' },
+        {
+          text: 'Delete match',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleteLoading(true);
+            try {
+              await performFullDelete();
+            } catch (e: any) {
+              Alert.alert('Delete failed', e?.message ?? 'Could not delete match. You may need to ask the match creator to delete it.');
+            } finally { setDeleteLoading(false); }
+          },
+        },
+      ]);
+    }
   };
 
   const handleCancelDelete = async () => {
@@ -1043,6 +1130,51 @@ function FeedCard({
         </Text>
       </View>
 
+      {isPractice ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.md }}>
+          <View style={{ alignItems: 'center', gap: spacing.xs }}>
+            <TouchableOpacity
+              onPress={() => p1 && navigation.navigate('UserProfile', { userId: p1.user_id })}
+              activeOpacity={0.7}
+              style={{ alignItems: 'center', gap: spacing.xs }}
+              disabled={!p1}
+            >
+              <Avatar
+                initials={p1 ? getInitials(p1) : '?'}
+                avatarUrl={p1AvatarUrl ?? p1?.avatar_url}
+                size={44}
+                colors={colors}
+              />
+              <Text style={styles.playerName} numberOfLines={1}>{p1 ? getName(p1) : 'Unknown'}</Text>
+            </TouchableOpacity>
+            {p1 && String(p1.user_id) === String(currentUserId) && (
+              <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>You</Text>
+            )}
+          </View>
+          <View style={{ marginLeft: spacing.xl, alignItems: 'center' }}>
+            {isCompleted && durationMs > 0 ? (
+              <View style={{
+                backgroundColor: colors.primary + '18',
+                borderRadius: borderRadius.md,
+                paddingHorizontal: spacing.md,
+                paddingVertical: spacing.sm,
+                borderWidth: 1,
+                borderColor: colors.primary + '40',
+              }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: colors.primary }}>
+                  Practiced for {formatPracticeDuration(durationMs)}
+                </Text>
+              </View>
+            ) : (isInProgress || isPaused) ? (
+              <Text style={{ fontSize: 20, fontWeight: '700', color: colors.primary, letterSpacing: 1 }}>
+                {formatDurationDigital(durationMs)}
+              </Text>
+            ) : (
+              <Text style={[typography.caption, { fontSize: 12, color: colors.textSecondary }]}>Solo practice</Text>
+            )}
+          </View>
+        </View>
+      ) : (
       <View style={styles.playersRow}>
         <View style={styles.playerCol}>
           <TouchableOpacity
@@ -1234,6 +1366,7 @@ function FeedCard({
           )}
         </View>
       </View>
+      )}
 
       <View style={styles.detailsRow}>
         <View style={styles.detailsLeft}>
@@ -1275,15 +1408,28 @@ function FeedCard({
               </TouchableOpacity>
             )}
             {item.status === 'in_progress' && (
-              <TouchableOpacity
-                style={[styles.pauseButton, startStopLoading && { opacity: 0.6 }]}
-                onPress={handlePause}
-                disabled={startStopLoading}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="pause" size={14} color="#FFF" />
-                <Text style={styles.pauseButtonText}>Pause</Text>
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity
+                  style={[styles.pauseButton, startStopLoading && { opacity: 0.6 }]}
+                  onPress={handlePause}
+                  disabled={startStopLoading}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="pause" size={14} color="#FFF" />
+                  <Text style={styles.pauseButtonText}>Pause</Text>
+                </TouchableOpacity>
+                {isPractice && (
+                  <TouchableOpacity
+                    style={[styles.startButton, startStopLoading && { opacity: 0.6 }]}
+                    onPress={handleFinish}
+                    disabled={startStopLoading}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="flag" size={14} color={colors.textOnPrimary} />
+                    <Text style={styles.startButtonText}>Finish</Text>
+                  </TouchableOpacity>
+                )}
+              </>
             )}
             {item.status === 'paused' && (
               <>
@@ -1307,7 +1453,7 @@ function FeedCard({
                 </TouchableOpacity>
               </>
             )}
-            {isParticipant && item.status !== 'in_progress' && item.status !== 'paused' && (() => {
+            {isParticipant && (item.status === 'pending' || item.status === 'confirmed' || item.status === 'completed') && (() => {
               const myDeleteRequested = myParticipant?.delete_requested === true;
               const deleteCount = participants.filter((p) => p.delete_requested === true).length;
               const totalParticipants = participants.length;
@@ -1353,7 +1499,7 @@ function FeedCard({
               );
             })()}
           </View>
-          {(item.status === 'in_progress' || item.status === 'paused') && (
+          {(item.status === 'in_progress' || item.status === 'paused') && !isPractice && (
             <View style={styles.gamesEditSection}>
                 {/* Player name header — aligns above each input column */}
                 <View style={styles.scoreHeaderRow}>
@@ -1406,17 +1552,6 @@ function FeedCard({
                     <Ionicons name="add" size={14} color={colors.primary} />
                     <Text style={styles.addGameBtnText}>Add game</Text>
                   </TouchableOpacity>
-                  {isParticipant && (
-                    <TouchableOpacity
-                      style={[styles.deleteButton, deleteLoading && { opacity: 0.6 }]}
-                      onPress={handleDelete}
-                      disabled={deleteLoading}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="trash-outline" size={14} color={colors.textOnPrimary} />
-                      <Text style={styles.deleteButtonText}>Delete</Text>
-                    </TouchableOpacity>
-                  )}
                   {saving && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
                       <ActivityIndicator size="small" color={colors.textSecondary} />
@@ -1431,47 +1566,57 @@ function FeedCard({
 
       {/* Horizontal scrollable media row: location → photos → add photo */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm, marginHorizontal: -spacing.md }} contentContainerStyle={{ gap: spacing.sm, paddingHorizontal: spacing.md }}>
-        <TouchableOpacity
-          style={[styles.mapTile, { width: halfWidth }]}
-          activeOpacity={item.location_lat != null ? 0.7 : 1}
-          onPress={() => {
-            if (item.location_lat != null && item.location_lng != null) {
-              const label = encodeURIComponent(item.location_name || 'Match Location');
-              const url = Platform.select({
-                ios: `maps:0,0?q=${label}&ll=${item.location_lat},${item.location_lng}`,
-                android: `geo:${item.location_lat},${item.location_lng}?q=${item.location_lat},${item.location_lng}(${label})`,
-                default: `https://www.google.com/maps/dir/?api=1&destination=${item.location_lat},${item.location_lng}`,
-              });
-              Linking.openURL(url!);
-            }
-          }}
-        >
-          <View style={[styles.mapPlaceholder, { width: halfWidth, height: halfWidth * 0.75 }]}>
-            {item.location_lat != null && item.location_lng != null && MapPreview != null ? (
-              <MapPreview latitude={item.location_lat} longitude={item.location_lng} />
-            ) : (
-              <>
-                <View style={styles.mapGridLines}>
-                  <View style={[styles.mapGridH, { top: '25%' }]} />
-                  <View style={[styles.mapGridH, { top: '50%' }]} />
-                  <View style={[styles.mapGridH, { top: '75%' }]} />
-                  <View style={[styles.mapGridV, { left: '25%' }]} />
-                  <View style={[styles.mapGridV, { left: '50%' }]} />
-                  <View style={[styles.mapGridV, { left: '75%' }]} />
+        {(item.location_lat != null || item.location_name != null || !!isParticipant) && (
+          <TouchableOpacity
+            style={[styles.mapTile, { width: halfWidth }]}
+            activeOpacity={item.location_lat != null ? 0.7 : (isParticipant ? 0.8 : 1)}
+            onPress={() => {
+              if (item.location_lat != null && item.location_lng != null) {
+                const label = encodeURIComponent(item.location_name || 'Match Location');
+                const url = Platform.select({
+                  ios: `maps:0,0?q=${label}&ll=${item.location_lat},${item.location_lng}`,
+                  android: `geo:${item.location_lat},${item.location_lng}?q=${item.location_lat},${item.location_lng}(${label})`,
+                  default: `https://www.google.com/maps/dir/?api=1&destination=${item.location_lat},${item.location_lng}`,
+                });
+                Linking.openURL(url!);
+              } else if (isParticipant) {
+                setLocationPickerVisible(true);
+              }
+            }}
+          >
+            <View style={[styles.mapPlaceholder, { width: halfWidth, height: halfWidth * 0.75 }]}>
+              {item.location_lat != null && item.location_lng != null && MapPreview != null ? (
+                <MapPreview latitude={item.location_lat} longitude={item.location_lng} />
+              ) : (
+                <>
+                  <View style={styles.mapGridLines}>
+                    <View style={[styles.mapGridH, { top: '25%' }]} />
+                    <View style={[styles.mapGridH, { top: '50%' }]} />
+                    <View style={[styles.mapGridH, { top: '75%' }]} />
+                    <View style={[styles.mapGridV, { left: '25%' }]} />
+                    <View style={[styles.mapGridV, { left: '50%' }]} />
+                    <View style={[styles.mapGridV, { left: '75%' }]} />
+                  </View>
+                  <View style={styles.mapPinContainer}>
+                    <Ionicons name="location" size={24} color={colors.primary} />
+                  </View>
+                </>
+              )}
+              <View style={styles.mapLabelContainer}>
+                <View style={styles.mapLabelPill}>
+                  <Ionicons
+                    name={item.location_lat != null ? 'navigate-outline' : (isParticipant ? 'add-outline' : 'location-outline')}
+                    size={10}
+                    color={colors.textOnPrimary}
+                  />
+                  <Text style={styles.mapLabelText} numberOfLines={1}>
+                    {item.location_name || (isParticipant ? 'Add location' : 'Location')}
+                  </Text>
                 </View>
-                <View style={styles.mapPinContainer}>
-                  <Ionicons name="location" size={24} color={colors.primary} />
-                </View>
-              </>
-            )}
-            <View style={styles.mapLabelContainer}>
-              <View style={styles.mapLabelPill}>
-                <Ionicons name={item.location_lat != null ? 'navigate-outline' : 'location-outline'} size={10} color={colors.textOnPrimary} />
-                <Text style={styles.mapLabelText} numberOfLines={1}>{item.location_name || 'Location'}</Text>
               </View>
             </View>
-          </View>
-        </TouchableOpacity>
+          </TouchableOpacity>
+        )}
         {imagesList.map((img) => (
           <TouchableOpacity
             key={img.id}
@@ -1698,6 +1843,12 @@ function FeedCard({
         </View>
       </Pressable>
     </Modal>
+    <LocationPickerModal
+      visible={locationPickerVisible}
+      onClose={() => setLocationPickerVisible(false)}
+      onConfirm={handlePickLocation}
+      colors={colors}
+    />
     </>
   );
 }
@@ -1710,7 +1861,7 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: spacing.lg,
-      paddingTop: spacing.md,
+      paddingTop: spacing.xs,
       paddingBottom: spacing.sm,
     },
     topBarIcon: {
@@ -2669,7 +2820,10 @@ export default function HomeScreen() {
   }, [feedItems, currentUserId, loadFeed]);
 
   const myFeed = useMemo(
-    () => feedItems.filter((m) => (m.participants ?? []).some((p) => p.user_id === currentUserId)),
+    () => feedItems.filter((m) =>
+      (m.participants ?? []).some((p) => p.user_id === currentUserId) ||
+      m.invited_opponent_id === currentUserId
+    ),
     [feedItems, currentUserId],
   );
   const publicFeed = useMemo(
@@ -2860,7 +3014,7 @@ export default function HomeScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* ---- Top bar ---- */}
       <View style={styles.topBar}>
-        <Text style={styles.topBarTitle}>Home</Text>
+        <Image source={require('../../assets/icon_blue_small.png')} style={{ height: 72, width: 148, marginLeft: -10 }} resizeMode="contain" />
         <View style={styles.topBarRight}>
           <TouchableOpacity
             style={styles.topBarIcon}

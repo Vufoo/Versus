@@ -254,6 +254,14 @@ export default function LocationPickerModal({ visible, onClose, onConfirm, color
     }
   };
 
+  useEffect(() => {
+    if (!visible) return;
+    if (initial) return; // respect an explicit initial location (e.g., editing)
+    if (!userCoords) return;
+    if (pin) return; // don't override a pin the user already set
+    centerOnUser();
+  }, [visible, initial, userCoords, pin, centerOnUser]);
+
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
