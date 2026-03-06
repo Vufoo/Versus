@@ -130,7 +130,7 @@ export default function SearchScreen() {
           onSelect={(user) => navigation.navigate('UserProfile', { userId: user.user_id })}
           renderAction={(user) => {
             const state = followStates[user.user_id] ?? 'none';
-            const label = state === 'accepted' ? 'Following' : state === 'pending' ? 'Requested' : 'Follow';
+            const label = state === 'accepted' ? 'Following' : state === 'pending' ? 'Pending' : 'Follow';
             const isMuted = state !== 'none';
             return (
               <TouchableOpacity

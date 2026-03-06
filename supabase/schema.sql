@@ -572,6 +572,10 @@ create policy "Users can send messages in own conversations" on public.dm_messag
     )
   );
 
+drop policy if exists "Users can delete own messages" on public.dm_messages;
+create policy "Users can delete own messages" on public.dm_messages for delete
+  using (auth.uid() = sender_id);
+
 -- Track when user last read each conversation (for unread badge)
 create table if not exists public.dm_conversation_read (
   user_id         uuid not null references auth.users (id) on delete cascade,

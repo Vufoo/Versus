@@ -271,7 +271,7 @@ export default function FollowListScreen() {
 
   const renderUser = ({ item }: { item: FollowUser }) => {
     const state = followStates[item.user_id] ?? 'none';
-    const label = state === 'accepted' ? 'Following' : state === 'pending' ? 'Requested' : 'Follow';
+    const label = state === 'accepted' ? 'Following' : state === 'pending' ? 'Pending' : 'Follow';
     const isMuted = state !== 'none';
     const showFollowBtn = (isOwnProfile && tab === 'following') || (!isOwnProfile && currentUserId && item.user_id !== currentUserId);
 

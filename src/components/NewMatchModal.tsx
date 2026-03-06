@@ -119,11 +119,14 @@ function makeStyles(c: ThemeColors) {
     summaryRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start', marginTop: spacing.sm },
     summaryText: { ...typography.caption, color: c.textSecondary, flex: 1 },
     cta: {
-      marginTop: spacing.lg, backgroundColor: c.primary,
-      paddingVertical: spacing.md, borderRadius: borderRadius.md, alignItems: 'center',
+      marginTop: spacing.md,
+      backgroundColor: c.primary,
+      paddingVertical: spacing.sm,
+      borderRadius: borderRadius.full,
+      alignItems: 'center',
     },
     ctaDisabled: { opacity: 0.5 },
-    ctaText: { ...typography.heading, color: c.textOnPrimary },
+    ctaText: { ...typography.label, fontSize: 15, fontWeight: '600', color: c.textOnPrimary },
     tpOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.lg },
     tpCard: { width: '100%', backgroundColor: c.surface, borderRadius: borderRadius.lg, padding: spacing.lg, borderWidth: 1, borderColor: c.border },
     tpHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
@@ -165,21 +168,19 @@ function makeStyles(c: ThemeColors) {
       color: c.text,
       flex: 1,
     },
+    inviteChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, borderWidth: 1, borderColor: c.border, backgroundColor: c.background },
+    inviteChipName: { ...typography.caption, color: c.text },
   });
 }
 
 export default function NewMatchModal({ visible, onClose, onCreated, colors, initialSport, initialMatchType, initialDate, initialLocation, preferredSports = [] }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const [opponent, setOpponent] = useState<SearchedUser | null>(null);
-  const [practicePartner1, setPracticePartner1] = useState<SearchedUser | null>(null);
-  const [practicePartner2, setPracticePartner2] = useState<SearchedUser | null>(null);
-  const [practicePartner3, setPracticePartner3] = useState<SearchedUser | null>(null);
+  const [invitedUsers, setInvitedUsers] = useState<SearchedUser[]>([]);
   const [sport, setSport] = useState(initialSport ?? SPORTS[0]);
   const [matchType, setMatchType] = useState<'casual' | 'ranked' | 'practice'>(initialMatchType ?? 'casual');
   const [matchFormat, setMatchFormat] = useState<'1v1' | '2v2'>('1v1');
-  const [teammate, setTeammate] = useState<SearchedUser | null>(null);
-  const [opponent2, setOpponent2] = useState<SearchedUser | null>(null);
+  const maxInvites = matchType === 'practice' ? 3 : matchFormat === '2v2' ? 3 : 1;
   const [isPublic, setIsPublic] = useState(true);
   const [location, setLocation] = useState('');
   const [locationLat, setLocationLat] = useState<number | null>(null);
@@ -206,6 +207,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUsername, setCurrentUsername] = useState<string | null>(null);
   const [friends, setFriends] = useState<SearchedUser[]>([]);
+  const [allowedInviteUserIds, setAllowedInviteUserIds] = useState<string[] | null>(null);
 
   type LocationSuggestion = { name: string; lat: number; lng: number };
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
@@ -231,12 +233,17 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   }, [initialLocation?.latitude, initialLocation?.longitude]);
   const supports2v2 = SPORTS_2V2.includes(sport);
   useEffect(() => {
-    if (!supports2v2) {
-      setMatchFormat('1v1');
-      setTeammate(null);
-      setOpponent2(null);
-    }
+    if (!supports2v2) setMatchFormat('1v1');
   }, [supports2v2]);
+
+  useEffect(() => {
+    setInvitedUsers([]);
+    if (matchType === 'practice') setMatchFormat('1v1');
+  }, [matchType]);
+
+  useEffect(() => {
+    if (matchFormat === '1v1') setInvitedUsers(prev => prev.slice(0, 1));
+  }, [matchFormat]);
 
   useEffect(() => {
     if (initialDate) {
@@ -258,23 +265,38 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
       const { data: p } = await supabase.from('profiles').select('username').eq('user_id', user.id).maybeSingle();
       if (p?.username) setCurrentUsername(p.username);
 
-      const { data: fRows } = await supabase
+      // Users you follow (accepted)
+      const { data: outRows } = await supabase
         .from('follows')
         .select('followed_id')
         .eq('follower_id', user.id)
-        .eq('status', 'accepted')
-        .limit(4);
-      if (fRows && fRows.length > 0) {
-        const ids = fRows.map((r: any) => r.followed_id);
+        .eq('status', 'accepted');
+
+      // Users who follow you (accepted)
+      const { data: inRows } = await supabase
+        .from('follows')
+        .select('follower_id')
+        .eq('followed_id', user.id)
+        .eq('status', 'accepted');
+
+      const followingIds = (outRows ?? []).map((r: any) => r.followed_id as string);
+      const followerIds = (inRows ?? []).map((r: any) => r.follower_id as string);
+      const allAllowedIds = Array.from(new Set([...followingIds, ...followerIds].filter(Boolean)));
+      setAllowedInviteUserIds(allAllowedIds);
+
+      // For suggestions, show up to 3 people you follow (nice UX, but full search
+      // is still allowed across allAllowedIds).
+      if (followingIds.length > 0) {
+        const topIds = followingIds.slice(0, 3);
         const { data: profiles } = await supabase
           .from('profiles')
           .select('user_id, username, full_name, avatar_url')
-          .in('user_id', ids);
+          .in('user_id', topIds);
         if (profiles) {
           const resolved = await Promise.all(
             (profiles as SearchedUser[]).map(async (u) => ({
               ...u,
-              avatar_url: await resolveAvatarUrl(u.avatar_url) ?? u.avatar_url,
+              avatar_url: (await resolveAvatarUrl(u.avatar_url)) ?? u.avatar_url,
             })),
           );
           setFriends(resolved);
@@ -332,7 +354,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   };
 
   const handleSave = async () => {
-    if (matchType === 'ranked' && !opponent) {
+    if (matchType === 'ranked' && invitedUsers.length === 0) {
       Alert.alert('Ranked match requires opponent', 'Please invite at least one opponent to create a ranked match.');
       return;
     }
@@ -373,9 +395,9 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
           notes: notes.trim() || null,
           is_public: isPublic,
           match_format: matchType === 'practice' ? '1v1' : matchFormat,
-          invited_opponent_id: matchType === 'practice' ? (practicePartner1?.user_id ?? null) : (opponent?.user_id ?? null),
-          invited_teammate_id: matchType === 'practice' ? (practicePartner2?.user_id ?? null) : (matchFormat === '2v2' ? (teammate?.user_id ?? null) : null),
-          invited_opponent_2_id: matchType === 'practice' ? (practicePartner3?.user_id ?? null) : (matchFormat === '2v2' ? (opponent2?.user_id ?? null) : null),
+          invited_opponent_id: invitedUsers[0]?.user_id ?? null,
+          invited_teammate_id: invitedUsers[1]?.user_id ?? null,
+          invited_opponent_2_id: invitedUsers[2]?.user_id ?? null,
         })
         .select('id')
         .single();
@@ -388,48 +410,19 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
         ? `${sportLabel(sport)} ${matchType} match starting now!`
         : `${sportLabel(sport)} ${matchType} match on ${formatScheduleDate()} at ${formatTime()}`;
       const matchTypeLabel = matchType.charAt(0).toUpperCase() + matchType.slice(1);
-      if (matchType === 'practice') {
-        const practiceTitle = `${currentUsername ?? 'Someone'} invited you to practice ${sportLabel(sport)}!`;
-        for (const partner of [practicePartner1, practicePartner2, practicePartner3]) {
-          if (partner) {
-            await supabase.from('notifications').insert({
-              user_id: partner.user_id,
-              type: 'match_invite',
-              title: practiceTitle,
-              body: notifBody,
-              data: { match_id: match.id, from_user_id: user.id, slot: 'opponent' },
-            });
-          }
-        }
-      } else if (opponent) {
-        const formatTag = matchFormat === '2v2' ? ' 2v2' : '';
+      const slots = ['opponent', 'teammate', 'opponent_2'] as const;
+      const formatTag = matchFormat === '2v2' ? ' 2v2' : '';
+      for (let i = 0; i < invitedUsers.length; i++) {
+        const inviteTitle = matchType === 'practice'
+          ? `${currentUsername ?? 'Someone'} invited you to practice ${sportLabel(sport)}!`
+          : `${currentUsername ?? 'Someone'} invited you to a ${matchTypeLabel}${formatTag} match!`;
         await supabase.from('notifications').insert({
-          user_id: opponent.user_id,
+          user_id: invitedUsers[i].user_id,
           type: 'match_invite',
-          title: `${currentUsername ?? 'Someone'} challenged you to a ${matchTypeLabel}${formatTag} match!`,
+          title: inviteTitle,
           body: notifBody,
-          data: { match_id: match.id, from_user_id: user.id, slot: 'opponent' },
+          data: { match_id: match.id, from_user_id: user.id, slot: slots[i] },
         });
-        if (matchFormat === '2v2') {
-          if (teammate) {
-            await supabase.from('notifications').insert({
-              user_id: teammate.user_id,
-              type: 'match_invite',
-              title: `${currentUsername ?? 'Someone'} invited you as their teammate in a ${matchTypeLabel} 2v2 match!`,
-              body: notifBody,
-              data: { match_id: match.id, from_user_id: user.id, slot: 'teammate' },
-            });
-          }
-          if (opponent2) {
-            await supabase.from('notifications').insert({
-              user_id: opponent2.user_id,
-              type: 'match_invite',
-              title: `${currentUsername ?? 'Someone'} challenged you to a ${matchTypeLabel} 2v2 match!`,
-              body: notifBody,
-              data: { match_id: match.id, from_user_id: user.id, slot: 'opponent_2' },
-            });
-          }
-        }
       }
       await supabase.from('match_participants').insert(participants);
 
@@ -442,12 +435,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   };
 
   const reset = () => {
-    setOpponent(null);
-    setTeammate(null);
-    setOpponent2(null);
-    setPracticePartner1(null);
-    setPracticePartner2(null);
-    setPracticePartner3(null);
+    setInvitedUsers([]);
     setLocation('');
     setLocationLat(null);
     setLocationLng(null);
@@ -487,154 +475,41 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
               keyboardShouldPersistTaps="handled"
               bounces={true}
             >
-              {matchType === 'practice' ? (
-                <>
-                  <Text style={styles.label}>Invite practice partners (optional, up to 3)</Text>
-                  {(() => {
-                    const renderPartnerSlot = (
-                      partner: SearchedUser | null,
-                      setPartner: (u: SearchedUser | null) => void,
-                      label: string,
-                      excludeIds: (string | undefined)[],
-                    ) => (
-                      <View key={label} style={{ marginBottom: spacing.sm }}>
-                        <Text style={[styles.label, { marginBottom: spacing.xs }]}>{label}</Text>
-                        {partner ? (
-                          <View style={styles.selectedOpp}>
-                            {partner.avatar_url ? (
-                              <Image source={{ uri: partner.avatar_url }} style={styles.oppAvatarImg} />
-                            ) : (
-                              <View style={styles.oppAvatar}><Text style={styles.oppInitials}>{getInitials(partner)}</Text></View>
-                            )}
-                            <Text style={styles.oppName}>{partner.full_name ?? partner.username}{partner.username ? ` (@${partner.username})` : ''}</Text>
-                            <TouchableOpacity style={styles.oppRemove} onPress={() => setPartner(null)} hitSlop={8}>
-                              <Ionicons name="close-circle" size={22} color={colors.textSecondary} />
-                            </TouchableOpacity>
-                          </View>
-                        ) : (
-                          <UserSearch
-                            colors={colors}
-                            excludeUserId={currentUserId ?? undefined}
-                            onSelect={setPartner}
-                            placeholder="Search by username or name..."
-                            suggestions={friends.filter((f) => !excludeIds.includes(f.user_id))}
-                            suggestionsTitle={friends.length > 0 ? 'Friends' : undefined}
-                          />
-                        )}
+              <View key={`${matchType}-${matchFormat}`}>
+                <Text style={styles.label}>
+                  {matchType === 'practice'
+                    ? 'Invite practice partners (optional, up to 3)'
+                    : matchFormat === '2v2'
+                      ? 'Invite players (up to 3) — teams chosen when they accept'
+                      : 'Invite opponent (optional)'}
+                </Text>
+
+                {invitedUsers.length > 0 && (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                    {invitedUsers.map(u => (
+                      <View key={u.user_id} style={styles.inviteChip}>
+                        <Text style={styles.inviteChipName}>{u.full_name ?? u.username}</Text>
+                        <TouchableOpacity onPress={() => setInvitedUsers(p => p.filter(x => x.user_id !== u.user_id))}>
+                          <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
+                        </TouchableOpacity>
                       </View>
-                    );
-                    return (
-                      <>
-                        {renderPartnerSlot(practicePartner1, setPracticePartner1, 'Player 1', [practicePartner2?.user_id, practicePartner3?.user_id])}
-                        {practicePartner1 && renderPartnerSlot(practicePartner2, setPracticePartner2, 'Player 2', [practicePartner1.user_id, practicePartner3?.user_id])}
-                        {practicePartner2 && renderPartnerSlot(practicePartner3, setPracticePartner3, 'Player 3', [practicePartner1?.user_id, practicePartner2.user_id])}
-                      </>
-                    );
-                  })()}
-                </>
-              ) : (
-                <>
-                  {matchFormat === '2v2' ? (
-                    <>
-                      <Text style={styles.label}>Teammate (optional for casual, required for ranked)</Text>
-                      {teammate ? (
-                        <View style={styles.selectedOpp}>
-                          {teammate.avatar_url ? (
-                            <Image source={{ uri: teammate.avatar_url }} style={styles.oppAvatarImg} />
-                          ) : (
-                            <View style={styles.oppAvatar}><Text style={styles.oppInitials}>{getInitials(teammate)}</Text></View>
-                          )}
-                          <Text style={styles.oppName}>{teammate.full_name ?? teammate.username}{teammate.username ? ` (@${teammate.username})` : ''}</Text>
-                          <TouchableOpacity style={styles.oppRemove} onPress={() => setTeammate(null)} hitSlop={8}>
-                            <Ionicons name="close-circle" size={22} color={colors.textSecondary} />
-                          </TouchableOpacity>
-                        </View>
-                      ) : (
-                        <UserSearch
-                          colors={colors}
-                          excludeUserId={currentUserId ?? undefined}
-                          excludeUserIds={[opponent?.user_id, opponent2?.user_id].filter((id): id is string => !!id)}
-                          onSelect={setTeammate}
-                          placeholder="Search by username or name..."
-                          suggestions={friends.filter((f) => f.user_id !== opponent?.user_id && f.user_id !== opponent2?.user_id)}
-                          suggestionsTitle={friends.length > 0 ? 'Friends' : undefined}
-                        />
-                      )}
-                      <Text style={[styles.label, { marginTop: spacing.sm }]}>Opponent 1 (optional for casual, required for ranked)</Text>
-                      {opponent ? (
-                        <View style={styles.selectedOpp}>
-                          {opponent.avatar_url ? (
-                            <Image source={{ uri: opponent.avatar_url }} style={styles.oppAvatarImg} />
-                          ) : (
-                            <View style={styles.oppAvatar}><Text style={styles.oppInitials}>{getInitials(opponent)}</Text></View>
-                          )}
-                          <Text style={styles.oppName}>{opponent.full_name ?? opponent.username}{opponent.username ? ` (@${opponent.username})` : ''}</Text>
-                          <TouchableOpacity style={styles.oppRemove} onPress={() => setOpponent(null)} hitSlop={8}>
-                            <Ionicons name="close-circle" size={22} color={colors.textSecondary} />
-                          </TouchableOpacity>
-                        </View>
-                      ) : (
-                        <UserSearch
-                          colors={colors}
-                          excludeUserId={currentUserId ?? undefined}
-                          excludeUserIds={[teammate?.user_id, opponent2?.user_id].filter((id): id is string => !!id)}
-                          onSelect={setOpponent}
-                          placeholder="Search by username or name..."
-                          suggestions={friends.filter((f) => f.user_id !== teammate?.user_id && f.user_id !== opponent2?.user_id)}
-                          suggestionsTitle={friends.length > 0 ? 'Friends' : undefined}
-                        />
-                      )}
-                      {opponent && (
-                        <>
-                          <Text style={[styles.label, { marginTop: spacing.sm }]}>Opponent 2</Text>
-                          {opponent2 ? (
-                            <View style={styles.selectedOpp}>
-                              {opponent2.avatar_url ? (
-                                <Image source={{ uri: opponent2.avatar_url }} style={styles.oppAvatarImg} />
-                              ) : (
-                                <View style={styles.oppAvatar}><Text style={styles.oppInitials}>{getInitials(opponent2)}</Text></View>
-                              )}
-                              <Text style={styles.oppName}>{opponent2.full_name ?? opponent2.username}{opponent2.username ? ` (@${opponent2.username})` : ''}</Text>
-                              <TouchableOpacity style={styles.oppRemove} onPress={() => setOpponent2(null)} hitSlop={8}>
-                                <Ionicons name="close-circle" size={22} color={colors.textSecondary} />
-                              </TouchableOpacity>
-                            </View>
-                          ) : (
-                            <UserSearch
-                              colors={colors}
-                              excludeUserId={currentUserId ?? undefined}
-                              excludeUserIds={[teammate?.user_id, opponent?.user_id].filter((id): id is string => !!id)}
-                              onSelect={setOpponent2}
-                              placeholder="Search by username or name..."
-                              suggestions={friends.filter((f) => f.user_id !== teammate?.user_id && f.user_id !== opponent?.user_id)}
-                              suggestionsTitle={friends.length > 0 ? 'Friends' : undefined}
-                            />
-                          )}
-                        </>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <Text style={styles.label}>Invite opponent (optional for casual, required for ranked)</Text>
-                      {opponent ? (
-                        <View style={styles.selectedOpp}>
-                          {opponent.avatar_url ? (
-                            <Image source={{ uri: opponent.avatar_url }} style={styles.oppAvatarImg} />
-                          ) : (
-                            <View style={styles.oppAvatar}><Text style={styles.oppInitials}>{getInitials(opponent)}</Text></View>
-                          )}
-                          <Text style={styles.oppName}>{opponent.full_name ?? opponent.username}{opponent.username ? ` (@${opponent.username})` : ''}</Text>
-                          <TouchableOpacity style={styles.oppRemove} onPress={() => setOpponent(null)} hitSlop={8}>
-                            <Ionicons name="close-circle" size={22} color={colors.textSecondary} />
-                          </TouchableOpacity>
-                        </View>
-                      ) : (
-                        <UserSearch colors={colors} excludeUserId={currentUserId ?? undefined} onSelect={setOpponent} placeholder="Search by username or name..." suggestions={friends} suggestionsTitle={friends.length > 0 ? 'Friends' : undefined} />
-                      )}
-                    </>
-                  )}
-                </>
-              )}
+                    ))}
+                  </View>
+                )}
+
+                {invitedUsers.length < maxInvites && (
+                  <UserSearch
+                    colors={colors}
+                    excludeUserId={currentUserId ?? undefined}
+                    excludeUserIds={invitedUsers.map(u => u.user_id)}
+                    allowedUserIds={allowedInviteUserIds ?? undefined}
+                    onSelect={u => setInvitedUsers(prev => [...prev, u])}
+                    placeholder="Search by username or name..."
+                    suggestions={friends.filter(f => !invitedUsers.some(u => u.user_id === f.user_id))}
+                    suggestionsTitle={friends.length > 0 ? 'Friends' : undefined}
+                  />
+                )}
+              </View>
 
               <Text style={[styles.label, { marginTop: spacing.md }]}>Match type</Text>
               <View style={styles.matchTypeRow}>
@@ -644,11 +519,11 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                   </TouchableOpacity>
                 ))}
               </View>
-              {matchType === 'practice' && (
+              {/* {matchType === 'practice' && (
                 <Text style={[styles.label, { marginBottom: spacing.md, fontStyle: 'italic' }]}>
                   Practice: track how long you train. No score or opponent required.
                 </Text>
-              )}
+              )} */}
 
               <Text style={styles.label}>Visibility</Text>
               <View style={styles.matchTypeRow}>
@@ -768,14 +643,14 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                   {startNow
                     ? 'Match starts immediately.'
                     : `Scheduled for ${formatScheduleDate()} at ${formatTime()}.`}
-                  {matchFormat === '2v2' && (teammate || opponent || opponent2)
-                    ? ` ${[teammate, opponent, opponent2].filter(Boolean).map((u) => u!.username ?? u!.full_name).join(', ')} will be notified.`
-                    : opponent ? ` ${opponent.full_name ?? opponent.username} will be notified.` : ''}
+                  {invitedUsers.length > 0
+                    ? ` ${invitedUsers.map(u => u.username ?? u.full_name).join(', ')} will be notified.`
+                    : ''}
                 </Text>
               </View>
 
               <TouchableOpacity style={[styles.cta, saving && styles.ctaDisabled]} onPress={handleSave} disabled={saving}>
-                {saving ? <ActivityIndicator color={colors.textOnPrimary} /> : <Text style={styles.ctaText}>{startNow ? 'Start match' : (opponent || teammate || opponent2) ? 'Send invite' : 'Create match'}</Text>}
+                {saving ? <ActivityIndicator color={colors.textOnPrimary} /> : <Text style={styles.ctaText}>{startNow ? 'Start match' : invitedUsers.length > 0 ? 'Send invite' : 'Create match'}</Text>}
               </TouchableOpacity>
             </ScrollView>
           </View>

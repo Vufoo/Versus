@@ -26,6 +26,7 @@ type Props = {
   onSelect: (user: SearchedUser) => void;
   excludeUserId?: string;
   excludeUserIds?: string[];
+  allowedUserIds?: string[];
   placeholder?: string;
   renderAction?: (user: SearchedUser) => ReactNode;
   suggestions?: SearchedUser[];
@@ -73,7 +74,17 @@ function makeStyles(c: ThemeColors) {
   });
 }
 
-export default function UserSearch({ colors, onSelect, excludeUserId, excludeUserIds, placeholder, renderAction, suggestions, suggestionsTitle }: Props) {
+export default function UserSearch({
+  colors,
+  onSelect,
+  excludeUserId,
+  excludeUserIds,
+  allowedUserIds,
+  placeholder,
+  renderAction,
+  suggestions,
+  suggestionsTitle,
+}: Props) {
   const styles = makeStyles(colors);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchedUser[]>([]);
@@ -99,9 +110,12 @@ export default function UserSearch({ colors, onSelect, excludeUserId, excludeUse
           .limit(10);
 
         const exclude = new Set([excludeUserId, ...(excludeUserIds ?? [])].filter(Boolean));
-        const filtered = (data ?? []).filter(
-          (u) => !exclude.has(u.user_id),
-        ) as SearchedUser[];
+        const allowed = allowedUserIds ? new Set(allowedUserIds) : null;
+        const filtered = (data ?? []).filter((u) => {
+          if (exclude.has(u.user_id)) return false;
+          if (allowed && !allowed.has(u.user_id)) return false;
+          return true;
+        }) as SearchedUser[];
         const resolved = await Promise.all(
           filtered.map(async (u) => ({
             ...u,
@@ -116,7 +130,7 @@ export default function UserSearch({ colors, onSelect, excludeUserId, excludeUse
         setLoading(false);
       }
     },
-    [excludeUserId, excludeUserIds],
+    [excludeUserId, excludeUserIds, allowedUserIds],
   );
 
   useEffect(() => {

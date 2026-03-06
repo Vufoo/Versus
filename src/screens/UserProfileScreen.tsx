@@ -8,6 +8,7 @@ import {
   Dimensions,
   ActivityIndicator,
   Image,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -307,32 +308,46 @@ export default function UserProfileScreen() {
 
   const sendFollowRequest = async () => {
     if (!currentUserId || togglingFollow || currentUserId === targetUserId) return;
-    setTogglingFollow(true);
-    try {
-      if (followState === 'pending' || followState === 'accepted') {
-        await supabase.from('follows').delete().eq('follower_id', currentUserId).eq('followed_id', targetUserId);
-        setFollowState('none');
-        setFollowerCount((c) => Math.max(0, c - 1));
-      } else {
-        await supabase.from('follows').insert({ follower_id: currentUserId, followed_id: targetUserId, status: 'pending' });
-        setFollowState('pending');
-        const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
-        const displayName = (myProfile as { full_name?: string; username?: string })?.full_name ?? (myProfile as { full_name?: string; username?: string })?.username ?? 'Someone';
-        await supabase
-          .from('notifications')
-          .delete()
-          .match({ user_id: targetUserId, type: 'follow_request' })
-          .eq('data->>from_user_id', String(currentUserId));
-        await supabase.from('notifications').insert({
-          user_id: targetUserId,
-          type: 'follow_request',
-          title: `${displayName} wants to follow you`,
-          body: 'Accept or ignore this follow request.',
-          data: { from_user_id: currentUserId },
-        });
-      }
-    } catch { /* swallow */ }
-    finally { setTogglingFollow(false); }
+    const performToggle = async () => {
+      setTogglingFollow(true);
+      try {
+        if (followState === 'pending' || followState === 'accepted') {
+          await supabase.from('follows').delete().eq('follower_id', currentUserId).eq('followed_id', targetUserId);
+          setFollowState('none');
+        } else {
+          await supabase.from('follows').insert({ follower_id: currentUserId, followed_id: targetUserId, status: 'pending' });
+          setFollowState('pending');
+          const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
+          const displayName = (myProfile as { full_name?: string; username?: string })?.full_name ?? (myProfile as { full_name?: string; username?: string })?.username ?? 'Someone';
+          await supabase
+            .from('notifications')
+            .delete()
+            .match({ user_id: targetUserId, type: 'follow_request' })
+            .eq('data->>from_user_id', String(currentUserId));
+          await supabase.from('notifications').insert({
+            user_id: targetUserId,
+            type: 'follow_request',
+            title: `${displayName} wants to follow you`,
+            body: 'Accept or ignore this follow request.',
+            data: { from_user_id: currentUserId },
+          });
+        }
+      } catch { /* swallow */ }
+      finally { setTogglingFollow(false); }
+    };
+
+    if (followState === 'accepted') {
+      Alert.alert(
+        'Unfollow user',
+        'Are you sure you want to unfollow this user?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Unfollow', style: 'destructive', onPress: performToggle },
+        ],
+      );
+    } else {
+      performToggle();
+    }
   };
 
   const initials = (profile?.full_name ?? profile?.username ?? '?').split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2);
@@ -398,7 +413,7 @@ export default function UserProfileScreen() {
                       <ActivityIndicator size="small" color={followState !== 'none' ? colors.text : colors.textOnPrimary} />
                     ) : (
                       <Text style={[styles.followBtnText, (followState === 'pending' || followState === 'accepted') && styles.followBtnTextMuted]}>
-                        {followState === 'accepted' ? 'Following' : followState === 'pending' ? 'Requested' : 'Follow'}
+                        {followState === 'accepted' ? 'Following' : followState === 'pending' ? 'Pending' : 'Follow'}
                       </Text>
                     )}
                   </TouchableOpacity>

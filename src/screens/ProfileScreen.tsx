@@ -505,8 +505,8 @@ export default function ProfileScreen() {
         .eq('user_id', user.id)
         .maybeSingle();
 
-      const { count: fing } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', user.id);
-      const { count: fers } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('followed_id', user.id);
+      const { count: fing } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', user.id).eq('status', 'accepted');
+      const { count: fers } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('followed_id', user.id).eq('status', 'accepted');
 
       const { data: ratings } = await supabase
         .from('user_sport_ratings')
@@ -561,8 +561,8 @@ export default function ProfileScreen() {
   useEffect(() => {
     if (!currentUserId) return;
     const refreshCounts = async () => {
-      const { count: fing } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', currentUserId);
-      const { count: fers } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('followed_id', currentUserId);
+      const { count: fing } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', currentUserId).eq('status', 'accepted');
+      const { count: fers } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('followed_id', currentUserId).eq('status', 'accepted');
       setFollowingCount(fing ?? 0);
       setFollowerCount(fers ?? 0);
     };
@@ -604,7 +604,10 @@ export default function ProfileScreen() {
     if (result.length < 3) {
       const usedSports = new Set(result.map((r) => r.sport));
       const preferred = profile?.preferred_sports ?? [];
-      const fillers = [...preferred, ...SPORTS].filter((s) => !usedSports.has(s));
+      const preferredSet = new Set(preferred);
+      const fillers = [...SPORTS]
+        .sort((a, b) => (preferredSet.has(a) ? 0 : 1) - (preferredSet.has(b) ? 0 : 1))
+        .filter((s) => !usedSports.has(s));
       for (const s of fillers) {
         if (result.length >= 3) break;
         const r = rankingsData.find((rd) => rd.sport === s);

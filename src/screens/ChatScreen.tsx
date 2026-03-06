@@ -28,6 +28,35 @@ type DMMessage = {
   created_at: string;
 };
 
+type DateHeader = { type: 'date-header'; id: string; label: string };
+type ListItem = DMMessage | DateHeader;
+
+function formatDateHeader(date: Date): string {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const msgDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((today.getTime() - msgDay.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return date.toLocaleDateString('en-US', { weekday: 'long' });
+  return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', ...(diffDays > 364 ? { year: 'numeric' } : {}) });
+}
+
+function buildMessageList(messages: DMMessage[]): ListItem[] {
+  const result: ListItem[] = [];
+  let lastDateStr = '';
+  for (const msg of messages) {
+    const d = new Date(msg.created_at);
+    const dateStr = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    if (dateStr !== lastDateStr) {
+      result.push({ type: 'date-header', id: `dh-${msg.id}`, label: formatDateHeader(d) });
+      lastDateStr = dateStr;
+    }
+    result.push(msg);
+  }
+  return result;
+}
+
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
@@ -100,6 +129,8 @@ function createStyles(colors: ThemeColors) {
       marginLeft: spacing.sm,
     },
     empty: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xl },
+    dateHeaderContainer: { alignItems: 'center', marginVertical: spacing.md },
+    dateHeaderText: { ...typography.caption, fontSize: 12, color: colors.textSecondary, backgroundColor: colors.cardBg, paddingHorizontal: spacing.md, paddingVertical: 4, borderRadius: 999 },
   });
 }
 
@@ -153,8 +184,9 @@ export default function ChatScreen() {
       .from('dm_messages')
       .select('id, conversation_id, sender_id, body, created_at')
       .eq('conversation_id', cid)
-      .order('created_at', { ascending: true });
-    setMessages((data ?? []) as DMMessage[]);
+      .order('created_at', { ascending: false })
+      .limit(50);
+    setMessages(((data ?? []) as DMMessage[]).reverse());
     setLoading(false);
   }, [getOrCreateConversation]);
 
@@ -223,11 +255,29 @@ export default function ChatScreen() {
         sender_id: currentUserId,
         body: text,
       });
+      // Trim: delete the user's oldest messages if conversation exceeds 50
+      const { count } = await supabase
+        .from('dm_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversationId);
+      if (count && count > 50) {
+        const { data: toDelete } = await supabase
+          .from('dm_messages')
+          .select('id')
+          .eq('conversation_id', conversationId)
+          .eq('sender_id', currentUserId)
+          .order('created_at', { ascending: true })
+          .limit(count - 50);
+        if (toDelete && toDelete.length > 0) {
+          await supabase.from('dm_messages').delete().in('id', toDelete.map((m: any) => m.id));
+        }
+      }
       await loadMessages();
     } catch { /* swallow */ }
     finally { setSending(false); }
   };
 
+  const listData = useMemo(() => buildMessageList(messages), [messages]);
   const displayName = otherUser?.full_name || otherUser?.username || 'User';
   const otherInitials = otherUser?.full_name?.trim()
     ? otherUser.full_name.trim().split(/\s+/).map((w) => w[0]).join('').toUpperCase().slice(0, 2)
@@ -267,12 +317,20 @@ export default function ChatScreen() {
         ) : (
           <FlatList
             style={styles.list}
-            data={messages}
+            data={listData}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
             ListEmptyComponent={<Text style={styles.empty}>No messages yet. Say hi!</Text>}
             renderItem={({ item }) => {
-              const isSent = item.sender_id === currentUserId;
+              if ('type' in item && item.type === 'date-header') {
+                return (
+                  <View style={styles.dateHeaderContainer}>
+                    <Text style={styles.dateHeaderText}>{item.label}</Text>
+                  </View>
+                );
+              }
+              const msg = item as DMMessage;
+              const isSent = msg.sender_id === currentUserId;
               const avatarUrl = isSent ? currentUserAvatarUrl : otherUserAvatarUrl;
               const initials = isSent ? currentUserInitials : otherInitials;
               return (
@@ -285,9 +343,9 @@ export default function ChatScreen() {
                     )}
                   </View>
                   <View style={[styles.messageBubble, isSent ? styles.messageBubbleSent : styles.messageBubbleReceived]}>
-                    <Text style={[styles.messageText, isSent ? styles.messageTextSent : styles.messageTextReceived]}>{item.body}</Text>
+                    <Text style={[styles.messageText, isSent ? styles.messageTextSent : styles.messageTextReceived]}>{msg.body}</Text>
                     <Text style={[styles.messageTime, isSent && { color: colors.textOnPrimary }]}>
-                      {new Date(item.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                     </Text>
                   </View>
                 </View>

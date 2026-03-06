@@ -5,6 +5,8 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  FlatList,
+  Modal,
   ActivityIndicator,
   Image,
   RefreshControl,
@@ -89,6 +91,11 @@ function createStyles(colors: ThemeColors) {
     avatarImage: { width: 44, height: 44, borderRadius: 22 },
     avatarInitials: { fontSize: 16, fontWeight: '700', color: colors.text },
     loading: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
+    composeBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+    composeSheet: { backgroundColor: colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: spacing.xl, maxHeight: '70%' },
+    composeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
+    composeTitle: { ...typography.heading, color: colors.text },
+    composeEmpty: { ...typography.body, color: colors.textSecondary, textAlign: 'center', padding: spacing.xl },
   });
 }
 
@@ -127,6 +134,10 @@ export default function MessagesScreen() {
   const [conversationByUser, setConversationByUser] = useState<Record<string, ConversationMeta>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeFollowing, setComposeFollowing] = useState<FollowerEntry[]>([]);
+  const [composeAvatarUrls, setComposeAvatarUrls] = useState<Record<string, string>>({});
+  const [composeLoading, setComposeLoading] = useState(false);
 
   const loadFollowers = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -137,6 +148,7 @@ export default function MessagesScreen() {
     const uid = user.id;
     setCurrentUserId(uid);
 
+    // Accepted followers (people who follow you)
     const { data: followRows } = await supabase
       .from('follows')
       .select('follower_id')
@@ -144,20 +156,7 @@ export default function MessagesScreen() {
       .eq('status', 'accepted');
     const followerIds = (followRows ?? []).map((r: { follower_id: string }) => r.follower_id);
 
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('user_id, username, full_name, avatar_url')
-      .in('user_id', followerIds.length ? followerIds : ['00000000-0000-0000-0000-000000000000']);
-    const list = (profiles ?? []).filter((p: FollowerEntry) => p.user_id !== uid) as FollowerEntry[];
-    setFollowers(list);
-    list.forEach((p) => {
-      if (p.avatar_url) {
-        resolveAvatarUrl(p.avatar_url).then((url) => {
-          if (url) setAvatarUrls((prev) => ({ ...prev, [p.user_id]: url }));
-        });
-      }
-    });
-
+    // All conversations you are part of
     const { data: convos } = await supabase
       .from('dm_conversations')
       .select('id, user1_id, user2_id')
@@ -169,6 +168,30 @@ export default function MessagesScreen() {
       const other = c.user1_id === uid ? c.user2_id : c.user1_id;
       otherByConv[c.id] = other;
     });
+
+    // Build unified list of people we have a DM with OR who follow us.
+    const conversationUserIds = Array.from(new Set(Object.values(otherByConv)));
+    const profileIds = Array.from(new Set([...followerIds, ...conversationUserIds])).filter(
+      (id) => id && id !== uid,
+    );
+
+    if (profileIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('user_id, username, full_name, avatar_url')
+        .in('user_id', profileIds);
+      const list = (profiles ?? []) as FollowerEntry[];
+      setFollowers(list);
+      list.forEach((p) => {
+        if (p.avatar_url) {
+          resolveAvatarUrl(p.avatar_url).then((url) => {
+            if (url) setAvatarUrls((prev) => ({ ...prev, [p.user_id]: url }));
+          });
+        }
+      });
+    } else {
+      setFollowers([]);
+    }
 
     const readMap: Record<string, string> = {};
     if (convIds.length > 0) {
@@ -237,6 +260,36 @@ export default function MessagesScreen() {
     setRefreshing(false);
   }, [loadFollowers]);
 
+  const openCompose = async () => {
+    if (!currentUserId) return;
+    setComposeOpen(true);
+    setComposeLoading(true);
+    const { data: followRows } = await supabase
+      .from('follows')
+      .select('followed_id')
+      .eq('follower_id', currentUserId)
+      .eq('status', 'accepted');
+    const ids = (followRows ?? []).map((r: any) => r.followed_id);
+    if (ids.length > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('user_id, username, full_name, avatar_url')
+        .in('user_id', ids);
+      const list = (profiles ?? []) as FollowerEntry[];
+      setComposeFollowing(list);
+      list.forEach((p) => {
+        if (p.avatar_url) {
+          resolveAvatarUrl(p.avatar_url).then((url) => {
+            if (url) setComposeAvatarUrls((prev) => ({ ...prev, [p.user_id]: url }));
+          });
+        }
+      });
+    } else {
+      setComposeFollowing([]);
+    }
+    setComposeLoading(false);
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -244,7 +297,9 @@ export default function MessagesScreen() {
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.title}>Messages</Text>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity onPress={openCompose} hitSlop={12}>
+          <Ionicons name="create-outline" size={24} color={colors.primary} />
+        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -255,7 +310,7 @@ export default function MessagesScreen() {
         <ScrollView showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
           {followers.length === 0 ? (
             <Text style={styles.emptyText}>
-              Your followers will appear here. When someone follows you and you're both connected, you can message them.
+              Your conversations will appear here. Start a chat from a profile or from your followers.
             </Text>
           ) : (
             followers.map((f) => {
@@ -267,23 +322,27 @@ export default function MessagesScreen() {
                 (!meta?.lastReadAt || new Date(meta.latestCreatedAt) > new Date(meta.lastReadAt))
               );
               return (
-                <TouchableOpacity
-                  key={f.user_id}
-                  style={styles.chatRow}
-                  activeOpacity={0.7}
-                  onPress={() => navigation.navigate('Chat', { userId: f.user_id })}
-                >
-                  <View style={styles.avatarWrapper}>
-                    <View style={styles.avatar}>
-                      {avatarUrls[f.user_id] ? (
-                        <Image source={{ uri: avatarUrls[f.user_id] }} style={styles.avatarImage} />
-                      ) : (
-                        <Text style={styles.avatarInitials}>{getInitials(f.full_name, f.username)}</Text>
-                      )}
+                <View key={f.user_id} style={styles.chatRow}>
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => navigation.navigate('UserProfile', { userId: f.user_id })}
+                  >
+                    <View style={styles.avatarWrapper}>
+                      <View style={styles.avatar}>
+                        {avatarUrls[f.user_id] ? (
+                          <Image source={{ uri: avatarUrls[f.user_id] }} style={styles.avatarImage} />
+                        ) : (
+                          <Text style={styles.avatarInitials}>{getInitials(f.full_name, f.username)}</Text>
+                        )}
+                      </View>
+                      {unread && <View style={styles.unreadDot} />}
                     </View>
-                    {unread && <View style={styles.unreadDot} />}
-                  </View>
-                  <View style={styles.chatInfo}>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.chatInfo}
+                    activeOpacity={0.7}
+                    onPress={() => navigation.navigate('Chat', { userId: f.user_id })}
+                  >
                     <View style={styles.chatTopRow}>
                       <Text style={styles.chatName}>{f.full_name || f.username || 'User'}</Text>
                       {meta?.latestCreatedAt ? (
@@ -293,14 +352,58 @@ export default function MessagesScreen() {
                     <Text style={styles.chatPreview} numberOfLines={1}>
                       {preview}
                     </Text>
-                  </View>
+                  </TouchableOpacity>
                   <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
-                </TouchableOpacity>
+                </View>
               );
             })
           )}
         </ScrollView>
       )}
+
+      <Modal visible={composeOpen} transparent animationType="slide" onRequestClose={() => setComposeOpen(false)}>
+        <View style={styles.composeBackdrop}>
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setComposeOpen(false)} />
+          <View style={styles.composeSheet}>
+            <View style={styles.composeHeader}>
+              <Text style={styles.composeTitle}>New Message</Text>
+              <TouchableOpacity onPress={() => setComposeOpen(false)} hitSlop={12}>
+                <Ionicons name="close" size={24} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            {composeLoading ? (
+              <ActivityIndicator size="large" color={colors.primary} style={{ padding: spacing.xl }} />
+            ) : composeFollowing.length === 0 ? (
+              <Text style={styles.composeEmpty}>Follow someone to start a conversation.</Text>
+            ) : (
+              <FlatList
+                data={composeFollowing}
+                keyExtractor={(item) => item.user_id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.chatRow}
+                    activeOpacity={0.7}
+                    onPress={() => { setComposeOpen(false); navigation.navigate('Chat', { userId: item.user_id }); }}
+                  >
+                    <View style={styles.avatar}>
+                      {composeAvatarUrls[item.user_id] ? (
+                        <Image source={{ uri: composeAvatarUrls[item.user_id] }} style={styles.avatarImage} />
+                      ) : (
+                        <Text style={styles.avatarInitials}>{getInitials(item.full_name, item.username)}</Text>
+                      )}
+                    </View>
+                    <View style={styles.chatInfo}>
+                      <Text style={styles.chatName}>{item.full_name || item.username || 'User'}</Text>
+                      {item.username ? <Text style={styles.chatPreview}>@{item.username}</Text> : null}
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

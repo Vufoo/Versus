@@ -28,6 +28,7 @@ type Props = {
   onClose: () => void;
   onSaved?: () => void;
   colors: ThemeColors;
+  currentUserId?: string | null;
   match: {
     id: string;
     sport_name: string;
@@ -40,6 +41,8 @@ type Props = {
     is_public?: boolean;
     match_format?: string;
     scheduled_at: string | null;
+    created_by?: string | null;
+    participants?: Array<{ user_id: string; role: string; username: string | null; full_name: string | null }>;
   } | null;
 };
 
@@ -99,11 +102,28 @@ function makeStyles(c: ThemeColors) {
       backgroundColor: c.background,
     },
     timeText: { ...typography.body, fontSize: 14, color: c.text },
-    cta: { marginTop: spacing.lg, backgroundColor: c.primary, paddingVertical: spacing.md, borderRadius: borderRadius.md, alignItems: 'center' },
+    cta: {
+      marginTop: spacing.lg,
+      backgroundColor: c.primary,
+      paddingVertical: spacing.sm,
+      borderRadius: borderRadius.full,
+      alignItems: 'center',
+    },
     ctaDisabled: { opacity: 0.5 },
-    ctaText: { ...typography.heading, color: c.textOnPrimary },
-    deleteCta: { marginTop: spacing.sm, paddingVertical: spacing.md, borderRadius: borderRadius.md, alignItems: 'center', borderWidth: 1, borderColor: '#E53935' },
-    deleteCtaText: { ...typography.heading, color: '#E53935' },
+    ctaText: { ...typography.label, fontSize: 15, fontWeight: '600', color: c.textOnPrimary },
+    deleteCta: {
+      marginTop: spacing.sm,
+      paddingVertical: spacing.xs,
+      borderRadius: borderRadius.full,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: '#E53935',
+    },
+    deleteCtaText: { ...typography.label, fontSize: 14, color: '#E53935' },
+    chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.background },
+    chipSel: { backgroundColor: c.primary, borderColor: c.primaryDark },
+    chipText: { ...typography.caption, color: c.text },
+    chipTextSel: { color: c.textOnPrimary },
     tpOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.lg },
     tpCard: { width: '100%', backgroundColor: c.surface, borderRadius: borderRadius.lg, padding: spacing.lg, borderWidth: 1, borderColor: c.border },
     tpHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
@@ -122,7 +142,7 @@ function makeStyles(c: ThemeColors) {
   });
 }
 
-export default function EditMatchModal({ visible, onClose, onSaved, colors, match }: Props) {
+export default function EditMatchModal({ visible, onClose, onSaved, colors, match, currentUserId }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [location, setLocation] = useState('');
@@ -144,6 +164,12 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
   const [timeAmPm, setTimeAmPm] = useState<'AM' | 'PM'>('PM');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [editTeams, setEditTeams] = useState(false);
+  const [teamRoles, setTeamRoles] = useState<Record<string, 'challenger' | 'opponent'>>({});
+
+  const isCreator = !!(currentUserId && match?.created_by === currentUserId);
+  const isParticipant = !!(currentUserId && match?.participants?.some(p => p.user_id === currentUserId));
+  const is2v2 = match?.match_format === '2v2';
 
   const supports2v2 = match ? SPORTS_2V2.includes(match.sport_name) : false;
   const canEditFormat = match && match.status !== 'in_progress' && match.status !== 'completed';
@@ -157,6 +183,12 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
       setIsPublic(match.is_public !== false);
       setMatchFormat((match.match_format as '1v1' | '2v2') || '1v1');
       setScheduledAt(match.scheduled_at);
+      setEditTeams(false);
+      const roles: Record<string, 'challenger' | 'opponent'> = {};
+      for (const p of match.participants ?? []) {
+        if (p.role === 'challenger' || p.role === 'opponent') roles[p.user_id] = p.role;
+      }
+      setTeamRoles(roles);
       if (match.scheduled_at) {
         const d = new Date(match.scheduled_at);
         let h = d.getHours();
@@ -245,6 +277,35 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
     }
   };
 
+  const handleLeave = async () => {
+    if (!match || !currentUserId) return;
+    Alert.alert('Leave match', 'Are you sure you want to leave this match?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Leave', style: 'destructive', onPress: async () => {
+        setDeleting(true);
+        try {
+          await supabase.from('match_participants').delete()
+            .eq('match_id', match.id).eq('user_id', currentUserId);
+          if (match.status === 'confirmed') {
+            await supabase.from('matches').update({ status: 'pending' }).eq('id', match.id);
+          }
+          onSaved?.(); onClose();
+        } catch { /* swallow */ } finally { setDeleting(false); }
+      }},
+    ]);
+  };
+
+  const saveTeams = async () => {
+    if (!match) return;
+    setSaving(true);
+    try {
+      await Promise.all(Object.entries(teamRoles).map(([uid, role]) =>
+        supabase.from('match_participants').update({ role }).eq('match_id', match.id).eq('user_id', uid)
+      ));
+      setEditTeams(false); onSaved?.();
+    } catch { /* swallow */ } finally { setSaving(false); }
+  };
+
   if (!match) return null;
 
   return (
@@ -317,12 +378,110 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
               <Text style={styles.label}>Notes</Text>
               <TextInput style={[styles.input, styles.notesInput]} placeholder="Format, rules, anything else..." placeholderTextColor={colors.textSecondary} value={notes} onChangeText={setNotes} multiline />
 
-              <TouchableOpacity style={[styles.cta, saving && styles.ctaDisabled]} onPress={handleSave} disabled={saving}>
-                {saving ? <ActivityIndicator color={colors.textOnPrimary} /> : <Text style={styles.ctaText}>Save changes</Text>}
+              <TouchableOpacity
+                style={[styles.cta, saving && styles.ctaDisabled]}
+                onPress={handleSave}
+                disabled={saving}
+              >
+                {saving ? (
+                  <ActivityIndicator color={colors.textOnPrimary} />
+                ) : (
+                  <Text style={styles.ctaText}>Save changes</Text>
+                )}
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.deleteCta, deleting && styles.ctaDisabled]} onPress={handleDelete} disabled={deleting}>
-                {deleting ? <ActivityIndicator color="#E53935" /> : <Text style={styles.deleteCtaText}>Delete match</Text>}
-              </TouchableOpacity>
+
+              {is2v2 && (isCreator || isParticipant) && (
+                <>
+                  <TouchableOpacity
+                    style={[
+                      styles.cta,
+                      {
+                        marginTop: spacing.sm,
+                        backgroundColor: colors.surface,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                    onPress={() => setEditTeams((e) => !e)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.ctaText, { color: colors.text }]}>
+                      {editTeams ? 'Cancel editing teams' : 'Edit teams'}
+                    </Text>
+                  </TouchableOpacity>
+                  {editTeams && (
+                    <View style={{ marginTop: spacing.md }}>
+                      {(match?.participants ?? []).map(p => (
+                        <View key={p.user_id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <Text style={{ color: colors.text }}>{p.full_name ?? p.username}</Text>
+                          <View style={{ flexDirection: 'row', gap: 8 }}>
+                            <TouchableOpacity style={[styles.chip, teamRoles[p.user_id] === 'challenger' && styles.chipSel]} onPress={() => setTeamRoles(r => ({ ...r, [p.user_id]: 'challenger' }))}>
+                              <Text style={[styles.chipText, teamRoles[p.user_id] === 'challenger' && styles.chipTextSel]}>Team A</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.chip, teamRoles[p.user_id] === 'opponent' && styles.chipSel]} onPress={() => setTeamRoles(r => ({ ...r, [p.user_id]: 'opponent' }))}>
+                              <Text style={[styles.chipText, teamRoles[p.user_id] === 'opponent' && styles.chipTextSel]}>Team B</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ))}
+                      <TouchableOpacity
+                        style={[styles.cta, { marginTop: spacing.md }, saving && styles.ctaDisabled]}
+                        onPress={saveTeams}
+                        disabled={saving}
+                      >
+                        {saving ? (
+                          <ActivityIndicator color={colors.textOnPrimary} />
+                        ) : (
+                          <Text style={styles.ctaText}>Save teams</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </>
+              )}
+
+              <View style={{ marginTop: spacing.lg, gap: spacing.xs }}>
+                <TouchableOpacity
+                  style={[styles.deleteCta, deleting && styles.ctaDisabled]}
+                  onPress={handleDelete}
+                  disabled={deleting}
+                >
+                  {deleting ? (
+                    <ActivityIndicator color="#E53935" />
+                  ) : (
+                    <Text style={styles.deleteCtaText}>Delete match</Text>
+                  )}
+                </TouchableOpacity>
+
+                {!isCreator && isParticipant && (
+                  <TouchableOpacity
+                    style={[styles.deleteCta, deleting && styles.ctaDisabled]}
+                    onPress={handleLeave}
+                    disabled={deleting}
+                  >
+                    {deleting ? (
+                      <ActivityIndicator color="#E53935" />
+                    ) : (
+                      <Text style={styles.deleteCtaText}>Leave match</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  style={{ paddingVertical: spacing.xs, alignItems: 'center' }}
+                  onPress={() =>
+                    Alert.alert(
+                      'Match Reported',
+                      'Thank you for your report. Our team will review it shortly.',
+                    )
+                  }
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ ...typography.caption, color: colors.textSecondary }}>
+                    Report match
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </ScrollView>
           </View>
         </View>

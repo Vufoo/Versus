@@ -283,16 +283,34 @@ function FeedCard({
     return [];
   })();
   const is2v2 = (item.match_format || '1v1') === '2v2';
-  const challenger = participantsParsed.find((p) => p.role === 'challenger');
-  const opponent = participantsParsed.find((p) => p.role === 'opponent');
-  const p1 = challenger ?? participantsParsed[0];
-  const p2 = opponent ?? participantsParsed[1];
-  const creator = p1;
-  // 2v2 extras
   const team1 = participantsParsed.filter((p) => p.role === 'challenger');
   const team2 = participantsParsed.filter((p) => p.role === 'opponent');
-  const teammate = is2v2 ? (team1.find((p) => p.user_id !== item.created_by) ?? null) : null;
-  const opponent2 = is2v2 ? (team2[1] ?? null) : null;
+
+  let p1: Participant | null = null;
+  let p2: Participant | null = null;
+  let teammate: Participant | null = null;
+  let opponent2: Participant | null = null;
+
+  if (is2v2) {
+    // 2v2: strictly derive from roles so a user can never appear on both sides.
+    p1 = team1[0] ?? null;
+    teammate = team1[1] ?? null;
+    p2 = team2[0] ?? null;
+    opponent2 = team2[1] ?? null;
+  } else {
+    // 1v1 / other formats: keep simple challenger vs opponent view.
+    const challenger = team1[0] ?? null;
+    const opponent = team2[0] ?? null;
+    p1 = challenger ?? participantsParsed[0] ?? null;
+    p2 =
+      opponent ??
+      participantsParsed.find((p) => !p1 || p.user_id !== p1.user_id) ??
+      null;
+    teammate = null;
+    opponent2 = null;
+  }
+
+  const creator = participantsParsed.find((p) => p.user_id === item.created_by) ?? p1;
 
   const [creatorAvatarUrl, setCreatorAvatarUrl] = useState<string | null>(null);
   const [p1AvatarUrl, setP1AvatarUrl] = useState<string | null>(null);
@@ -1092,7 +1110,7 @@ function FeedCard({
                 .from('notifications')
                 .delete()
                 .eq('type', 'match_invite')
-                .eq('data->>match_id', item.id);
+                .filter('data->>match_id', 'eq', item.id);
               updateFeedItem(item.id, (m) => ({ ...m, status: 'canceled' }));
             } catch { /* swallow */ }
             finally { setDeleteLoading(false); }
@@ -1221,9 +1239,19 @@ function FeedCard({
                   )}
                 </View>
               </View>
-              {(p1?.user_id === currentUserId || teammate?.user_id === currentUserId) && (
-                <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>You</Text>
-              )}
+              {(() => {
+                if (!currentUserId) return null;
+                const onTeam1 = team1.some((p) => p.user_id === currentUserId);
+                const onTeam2 = team2.some((p) => p.user_id === currentUserId);
+                if (onTeam1 && !onTeam2) {
+                  return (
+                    <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>
+                      Your team
+                    </Text>
+                  );
+                }
+                return null;
+              })()}
             </View>
           ) : (
             // 1v1 left side
@@ -1510,9 +1538,19 @@ function FeedCard({
                   )}
                 </View>
               </View>
-              {(p2?.user_id === currentUserId || opponent2?.user_id === currentUserId) && (
-                <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>You</Text>
-              )}
+              {(() => {
+                if (!currentUserId) return null;
+                const onTeam1 = team1.some((p) => p.user_id === currentUserId);
+                const onTeam2 = team2.some((p) => p.user_id === currentUserId);
+                if (onTeam2 && !onTeam1) {
+                  return (
+                    <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>
+                      Your team
+                    </Text>
+                  );
+                }
+                return null;
+              })()}
             </View>
           ) : p2 ? (
             // 1v1 with opponent
@@ -1945,8 +1983,12 @@ function FeedCard({
       )}
 
       <Modal visible={likersModalVisible} transparent animationType="fade">
-        <Pressable style={styles.modalBackdrop} onPress={() => setLikersModalVisible(false)}>
-          <View style={styles.likersCard} onStartShouldSetResponder={() => true}>
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={() => setLikersModalVisible(false)}
+          />
+          <View style={styles.likersCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Likes</Text>
               <TouchableOpacity onPress={() => setLikersModalVisible(false)} hitSlop={12}>
@@ -1976,13 +2018,17 @@ function FeedCard({
               </ScrollView>
             )}
           </View>
-        </Pressable>
+        </View>
       </Modal>
     </View>
 
     <Modal visible={winnerPickerVisible} transparent animationType="fade">
-      <Pressable style={styles.winnerPickerBackdrop} onPress={() => setWinnerPickerVisible(false)}>
-        <View style={styles.winnerPickerCard} onStartShouldSetResponder={() => true}>
+      <View style={styles.winnerPickerBackdrop}>
+        <Pressable
+          style={StyleSheet.absoluteFillObject}
+          onPress={() => setWinnerPickerVisible(false)}
+        />
+        <View style={styles.winnerPickerCard}>
           <Text style={styles.winnerPickerTitle}>Choose winner</Text>
           <Text style={styles.winnerPickerSubtitle}>Who won this match?</Text>
           <View style={styles.winnerPickerOptions}>
@@ -1999,7 +2045,9 @@ function FeedCard({
                       <Avatar initials={p1 ? getInitials(p1) : '?'} avatarUrl={p1AvatarUrl ?? p1?.avatar_url} size={32} colors={colors} isWinner={winnerSelection === p1.user_id} />
                       {teammate && <Avatar initials={getInitials(teammate)} avatarUrl={partner2AvatarUrl ?? teammate.avatar_url} size={32} colors={colors} isWinner={winnerSelection === p1.user_id} />}
                     </View>
-                    <Text style={[styles.winnerPickerName, winnerSelection === p1.user_id && { color: colors.primary }]}>Team 1</Text>
+                    <Text style={[styles.winnerPickerName, winnerSelection === p1.user_id && { color: colors.primary }]}>
+                      {currentUserId && team1.some((p) => p.user_id === currentUserId) ? 'Your team' : 'Team 1'}
+                    </Text>
                     <Text style={styles.winnerPickerRole}>Challengers</Text>
                   </TouchableOpacity>
                 )}
@@ -2013,7 +2061,9 @@ function FeedCard({
                       <Avatar initials={getInitials(p2)} avatarUrl={p2AvatarUrl ?? p2.avatar_url} size={32} colors={colors} isWinner={winnerSelection === p2.user_id} />
                       {opponent2 && <Avatar initials={getInitials(opponent2)} avatarUrl={partner3AvatarUrl ?? opponent2.avatar_url} size={32} colors={colors} isWinner={winnerSelection === p2.user_id} />}
                     </View>
-                    <Text style={[styles.winnerPickerName, winnerSelection === p2.user_id && { color: colors.primary }]}>Team 2</Text>
+                    <Text style={[styles.winnerPickerName, winnerSelection === p2.user_id && { color: colors.primary }]}>
+                      {currentUserId && team2.some((p) => p.user_id === currentUserId) ? 'Your team' : 'Other team'}
+                    </Text>
                     <Text style={styles.winnerPickerRole}>Opponents</Text>
                   </TouchableOpacity>
                 )}
@@ -2080,7 +2130,7 @@ function FeedCard({
             <Text style={[styles.winnerPickerCancelText, { color: colors.textSecondary }]}>Cancel</Text>
           </TouchableOpacity>
         </View>
-      </Pressable>
+      </View>
     </Modal>
     <LocationPickerModal
       visible={locationPickerVisible}
@@ -2806,6 +2856,7 @@ export default function HomeScreen() {
   const [inviteSlot, setInviteSlot] = useState<'opponent' | 'teammate' | 'opponent_2'>('opponent');
   const [editMatch, setEditMatch] = useState<FeedMatch | null>(null);
   const [followStates, setFollowStates] = useState<Record<string, 'none' | 'pending' | 'accepted'>>({});
+  const [teamPickInvite, setTeamPickInvite] = useState<{ notif: NotificationItem; matchId: string } | null>(null);
 
   const refreshFollowStates = useCallback(async (userId?: string) => {
     const uid = userId || currentUserId;
@@ -2866,9 +2917,14 @@ export default function HomeScreen() {
     if (!fromUserId || !currentUserId) return;
     try {
       // Check if already following this user
-      const { data: existing } = await supabase.from('follows').select('id').eq('follower_id', currentUserId).eq('followed_id', fromUserId).maybeSingle();
-      if (existing) {
-        setFollowStates((prev) => ({ ...prev, [fromUserId]: 'accepted' }));
+      const { data: existing } = await supabase
+        .from('follows')
+        .select('status')
+        .eq('follower_id', currentUserId)
+        .eq('followed_id', fromUserId)
+        .maybeSingle();
+      if (existing?.status) {
+        setFollowStates((prev) => ({ ...prev, [fromUserId]: existing.status as any }));
         return;
       }
       await supabase.from('follows').insert({ follower_id: currentUserId, followed_id: fromUserId, status: 'pending' });
@@ -2918,7 +2974,47 @@ export default function HomeScreen() {
         .select('*')
         .order('created_at', { ascending: false })
         .limit(50);
-      const items = (data ?? []) as NotificationItem[];
+      let items = (data ?? []) as NotificationItem[];
+
+      // Clean up stale match invites.
+      // The match creator cannot delete other users' notifications due to RLS, so invites
+      // for deleted/canceled matches can linger unless we remove them client-side.
+      if (currentUserId) {
+        const inviteNotifs = items.filter((n) => n.type === 'match_invite' && n.data?.match_id);
+        if (inviteNotifs.length > 0) {
+          const matchIds = Array.from(
+            new Set(inviteNotifs.map((n) => String(n.data?.match_id)).filter(Boolean)),
+          );
+          if (matchIds.length > 0) {
+            const { data: matches } = await supabase
+              .from('matches')
+              .select('id, status')
+              .in('id', matchIds);
+            const existing = new Set(
+              ((matches ?? []) as { id: string; status: string }[])
+                .filter((m) => m?.id && m.status !== 'canceled')
+                .map((m) => m.id),
+            );
+            const staleIds = matchIds.filter((id) => !existing.has(id));
+            if (staleIds.length > 0) {
+              await Promise.all(
+                staleIds.map((id) =>
+                  supabase
+                    .from('notifications')
+                    .delete()
+                    .eq('user_id', currentUserId)
+                    .eq('type', 'match_invite')
+                    .filter('data->>match_id', 'eq', id),
+                ),
+              );
+              items = items.filter(
+                (n) => !(n.type === 'match_invite' && staleIds.includes(String(n.data?.match_id))),
+              );
+            }
+          }
+        }
+      }
+
       setNotifications(items);
       setUnreadCount(items.filter((n) => !n.read).length);
       // Refresh feed when we have match_accepted so ranked ready-up/start updates immediately
@@ -2927,7 +3023,7 @@ export default function HomeScreen() {
       // Refresh follow states so "Follow back" button is accurate
       refreshFollowStates();
     } catch { /* swallow */ }
-  }, [loadFeed, refreshFollowStates]);
+  }, [currentUserId, loadFeed, refreshFollowStates]);
 
   const loadUnreadDmCount = useCallback(async () => {
     try {
@@ -2987,6 +3083,9 @@ export default function HomeScreen() {
         loadFeed(false);
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${currentUserId}` }, () => {
+        loadNotifications();
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'notifications', filter: `user_id=eq.${currentUserId}` }, () => {
         loadNotifications();
       })
       .subscribe();
@@ -3109,52 +3208,93 @@ export default function HomeScreen() {
     return (inviteOpponentMatch.participants ?? []).map((p: Participant) => p?.user_id).filter(Boolean) as string[];
   }, [inviteOpponentMatch]);
 
-  const handleAcceptInvite = async (notif: NotificationItem) => {
+  const handleAcceptInvite = async (
+    notif: NotificationItem,
+    forceRole?: 'challenger' | 'opponent',
+  ) => {
     const matchId = notif.data?.match_id;
     if (!matchId || !currentUserId) return;
-    const slot = notif.data?.slot as string | undefined;
-    const role = slot === 'teammate' ? 'challenger' : 'opponent';
     try {
-      await supabase.from('match_participants').insert({
-        match_id: matchId,
-        user_id: currentUserId,
-        role,
-      });
-      const { data: match } = await supabase.from('matches').select('invited_opponent_id, invited_teammate_id, invited_opponent_2_id, match_type').eq('id', matchId).single();
-      const m = match as { invited_opponent_id?: string; invited_teammate_id?: string; invited_opponent_2_id?: string; match_type?: string } | null;
-      const updatePayload: Record<string, unknown> = {};
-      if (slot === 'opponent') updatePayload.invited_opponent_id = null;
-      else if (slot === 'teammate') updatePayload.invited_teammate_id = null;
-      else if (slot === 'opponent_2') updatePayload.invited_opponent_2_id = null;
-      else updatePayload.invited_opponent_id = null;
-      const others = [
-        slot !== 'opponent' && m?.invited_opponent_id,
-        slot !== 'teammate' && m?.invited_teammate_id,
-        slot !== 'opponent_2' && m?.invited_opponent_2_id,
-      ].filter(Boolean);
-      if (others.length === 0) updatePayload.status = 'confirmed';
-      await supabase.from('matches').update(updatePayload).eq('id', matchId);
-      await supabase.from('notifications').update({ read: true }).eq('id', notif.id);
+      const { data: match, error: matchErr } = await supabase
+        .from('matches')
+        .select('invited_opponent_id, invited_teammate_id, invited_opponent_2_id, match_type, match_format, created_by, status')
+        .eq('id', matchId)
+        .maybeSingle();
+      const m = match as {
+        invited_opponent_id?: string | null;
+        invited_teammate_id?: string | null;
+        invited_opponent_2_id?: string | null;
+        match_type?: string | null;
+        match_format?: string | null;
+        created_by?: string | null;
+        status?: string | null;
+      } | null;
 
-      const fromUserId = notif.data?.from_user_id;
-      if (fromUserId) {
-        const { data: myProfile } = await supabase
-          .from('profiles')
-          .select('username')
-          .eq('user_id', currentUserId)
-          .maybeSingle();
-        const matchTypeLabel = m?.match_type ? String(m.match_type).charAt(0).toUpperCase() + String(m.match_type).slice(1) : 'Match';
-        await supabase.from('notifications').insert({
-          user_id: fromUserId,
-          type: 'match_accepted',
-          title: `${myProfile?.username ?? 'Your opponent'} accepted your ${matchTypeLabel} match!`,
-          body: 'Your match is confirmed. Game on!',
-          data: { match_id: matchId, from_user_id: currentUserId },
-        });
+      // If the match was canceled/deleted, silently remove the stale invite.
+      if (matchErr || !m || m.status === 'canceled') {
+        await supabase.from('notifications').delete().eq('id', notif.id);
+        loadNotifications();
+        Alert.alert('Invite expired', 'This match was canceled.');
+        return;
       }
 
-      loadNotifications();
-      loadFeed();
+      const doAccept = async (role: 'challenger' | 'opponent') => {
+        await supabase.from('match_participants').insert({ match_id: matchId, user_id: currentUserId, role });
+
+        const updatePayload: Record<string, unknown> = {};
+        if (m?.invited_opponent_id === currentUserId) updatePayload.invited_opponent_id = null;
+        else if (m?.invited_teammate_id === currentUserId) updatePayload.invited_teammate_id = null;
+        else if (m?.invited_opponent_2_id === currentUserId) updatePayload.invited_opponent_2_id = null;
+        else updatePayload.invited_opponent_id = null; // fallback
+
+        const remaining = [
+          m?.invited_opponent_id   !== currentUserId && m?.invited_opponent_id,
+          m?.invited_teammate_id   !== currentUserId && m?.invited_teammate_id,
+          m?.invited_opponent_2_id !== currentUserId && m?.invited_opponent_2_id,
+        ].filter(Boolean);
+        if (remaining.length === 0) updatePayload.status = 'confirmed';
+
+        await supabase.from('matches').update(updatePayload).eq('id', matchId);
+        await supabase.from('notifications').update({ read: true }).eq('id', notif.id);
+
+        const fromUserId = m?.created_by ?? notif.data?.from_user_id;
+        if (fromUserId) {
+          const { data: myProfile } = await supabase
+            .from('profiles')
+            .select('username')
+            .eq('user_id', currentUserId)
+            .maybeSingle();
+          const matchTypeLabel = m?.match_type ? String(m.match_type).charAt(0).toUpperCase() + String(m.match_type).slice(1) : 'Match';
+          await supabase.from('notifications').insert({
+            user_id: fromUserId,
+            type: 'match_accepted',
+            title: `${myProfile?.username ?? 'Your opponent'} accepted your ${matchTypeLabel} match!`,
+            body: 'Your match is confirmed. Game on!',
+            data: { match_id: matchId, from_user_id: currentUserId },
+          });
+        }
+
+        loadNotifications();
+        loadFeed();
+      };
+
+      if (m?.match_format === '2v2' && !forceRole) {
+        if (Platform.OS === 'web') {
+          // Web: show a custom team picker modal instead of using Alert with buttons,
+          // which is unreliable on web.
+          setTeamPickInvite({ notif, matchId });
+          return;
+        }
+        const creatorTeamLabel = "Creator's team";
+        const otherTeamLabel = 'Other team';
+        Alert.alert('Choose your team', 'Which team would you like to join?', [
+          { text: creatorTeamLabel, onPress: () => doAccept('challenger') },
+          { text: otherTeamLabel, onPress: () => doAccept('opponent') },
+          { text: 'Cancel', style: 'cancel' },
+        ]);
+      } else {
+        await doAccept(forceRole ?? 'opponent');
+      }
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Could not accept invite.');
     }
@@ -3165,22 +3305,50 @@ export default function HomeScreen() {
     if (!matchId || !currentUserId) return;
     const slot = notif.data?.slot as string | undefined;
     try {
+      const { data: match, error: matchErr } = await supabase
+        .from('matches')
+        .select('id, status, match_type, created_by, invited_opponent_id, invited_teammate_id, invited_opponent_2_id')
+        .eq('id', matchId)
+        .maybeSingle();
+      const m = match as {
+        id: string;
+        status: string | null;
+        match_type: string | null;
+        created_by: string | null;
+        invited_opponent_id: string | null;
+        invited_teammate_id: string | null;
+        invited_opponent_2_id: string | null;
+      } | null;
+
+      // If the match no longer exists (or was canceled), don't notify the creator of a "decline".
+      if (matchErr || !m || m.status === 'canceled') {
+        await supabase.from('notifications').delete().eq('id', notif.id);
+        loadNotifications();
+        return;
+      }
+
+      // Clear the correct invite slot (prefer truth from the match row over stale notif.data.slot).
       const updatePayload: Record<string, unknown> = {};
-      if (slot === 'teammate') updatePayload.invited_teammate_id = null;
+      if (m.invited_teammate_id === currentUserId) updatePayload.invited_teammate_id = null;
+      else if (m.invited_opponent_2_id === currentUserId) updatePayload.invited_opponent_2_id = null;
+      else if (m.invited_opponent_id === currentUserId) updatePayload.invited_opponent_id = null;
+      else if (slot === 'teammate') updatePayload.invited_teammate_id = null;
       else if (slot === 'opponent_2') updatePayload.invited_opponent_2_id = null;
       else updatePayload.invited_opponent_id = null;
+
       await supabase.from('matches').update(updatePayload).eq('id', matchId);
       await supabase.from('notifications').update({ read: true }).eq('id', notif.id);
 
-      const fromUserId = notif.data?.from_user_id;
+      const fromUserId = m.created_by ?? notif.data?.from_user_id;
       if (fromUserId) {
         const { data: myProfile } = await supabase
           .from('profiles')
           .select('username')
           .eq('user_id', currentUserId)
           .maybeSingle();
-        const { data: matchRow } = await supabase.from('matches').select('match_type').eq('id', matchId).single();
-        const matchTypeLabel = (matchRow as { match_type?: string })?.match_type ? String((matchRow as { match_type?: string }).match_type).charAt(0).toUpperCase() + String((matchRow as { match_type?: string }).match_type).slice(1) : 'Match';
+        const matchTypeLabel = m.match_type
+          ? String(m.match_type).charAt(0).toUpperCase() + String(m.match_type).slice(1)
+          : 'Match';
         await supabase.from('notifications').insert({
           user_id: fromUserId,
           type: 'match_declined',
@@ -3386,6 +3554,7 @@ export default function HomeScreen() {
         onClose={() => setEditMatch(null)}
         onSaved={() => { loadFeed(); setEditMatch(null); }}
         colors={colors}
+        currentUserId={currentUserId}
         match={editMatch ? {
           id: editMatch.id,
           sport_name: editMatch.sport_name,
@@ -3398,6 +3567,8 @@ export default function HomeScreen() {
           is_public: editMatch.is_public,
           match_format: editMatch.match_format ?? '1v1',
           scheduled_at: editMatch.scheduled_at ?? null,
+          created_by: editMatch.created_by,
+          participants: editMatch.participants?.map(p => ({ user_id: p.user_id, role: p.role, username: p.username, full_name: p.full_name })),
         } : null}
       />
 
@@ -3424,12 +3595,60 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
+      {/* ---- 2v2 team pick modal (web + native fallback) ---- */}
+      <Modal visible={!!teamPickInvite} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={() => setTeamPickInvite(null)}
+          />
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Choose your team</Text>
+              <TouchableOpacity onPress={() => setTeamPickInvite(null)} hitSlop={12}>
+                <Ionicons name="close" size={24} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <Text style={[typography.caption, { color: colors.textSecondary, marginBottom: spacing.md }]}>
+              Which team would you like to join for this 2v2 match?
+            </Text>
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
+              <TouchableOpacity
+                style={[styles.notifAccept, { flex: 1 }]}
+                activeOpacity={0.8}
+                onPress={() => {
+                  if (!teamPickInvite) return;
+                  const notif = teamPickInvite.notif;
+                  setTeamPickInvite(null);
+                  handleAcceptInvite(notif, 'challenger');
+                }}
+              >
+                <Text style={styles.notifAcceptText}>Creator's team</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.notifDecline, { flex: 1, borderWidth: 0 }]}
+                activeOpacity={0.8}
+                onPress={() => {
+                  if (!teamPickInvite) return;
+                  const notif = teamPickInvite.notif;
+                  setTeamPickInvite(null);
+                  handleAcceptInvite(notif, 'opponent');
+                }}
+              >
+                <Text style={[styles.notifDeclineText, { color: colors.text }]}>Other team</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* ---- Notifications modal ---- */}
       <Modal visible={notifsVisible} transparent animationType="fade">
-        <Pressable
-          style={[styles.modalBackdrop, { justifyContent: 'flex-start' }]}
-          onPress={closeNotifications}
-        >
+        <View style={[styles.modalBackdrop, { justifyContent: 'flex-start' }]}>
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={closeNotifications}
+          />
           <Animated.View
             style={[
               styles.notifModalCard,
@@ -3535,7 +3754,7 @@ export default function HomeScreen() {
               })}
             </ScrollView>
           </Animated.View>
-        </Pressable>
+        </View>
       </Modal>
 
     </View>
