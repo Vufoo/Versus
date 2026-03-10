@@ -122,7 +122,7 @@ export default function SignupScreen({ onBackToLogin, onContinue }: Props) {
 
       const identities = data?.user?.identities ?? [];
       if (identities.length === 0) {
-        setError('That email is already registered. Go back and log in.');
+        setError('This email is already registered. If you signed up with Google, go back and use "Continue with Google".');
         return;
       }
 

@@ -217,9 +217,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   const orderedSports = useMemo(() => {
     if (preferredSports.length === 0) return SPORTS;
     const prefSet = new Set(preferredSports);
-    const preferred = SPORTS.filter((s) => prefSet.has(s));
-    const rest = SPORTS.filter((s) => !prefSet.has(s));
-    return [...preferred, ...rest] as readonly string[];
+    return SPORTS.filter((s) => prefSet.has(s)) as readonly string[];
   }, [preferredSports]);
 
   useEffect(() => { if (initialSport) setSport(initialSport); }, [initialSport]);

@@ -61,6 +61,9 @@ create table if not exists public.profiles (
   location_visibility text not null default 'private',
   profile_visibility text not null default 'public',
 
+  push_token     text,
+  push_notifications_enabled boolean not null default true,
+
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now()
 );
@@ -75,7 +78,9 @@ alter table public.profiles
   add column if not exists profile_visibility text not null default 'public',
   add column if not exists date_of_birth date,
   add column if not exists gender text,
-  add column if not exists location text;
+  add column if not exists location text,
+  add column if not exists push_token text,
+  add column if not exists push_notifications_enabled boolean not null default true;
 
 -- RLS for profiles -----------------------------------------------------------
 alter table public.profiles enable row level security;
@@ -329,22 +334,6 @@ create policy "Auth users can create matches"
   on public.matches for insert
   with check (auth.uid() = created_by);
 
-drop policy if exists "Creators can update their matches" on public.matches;
-drop policy if exists "Creators and participants can update matches" on public.matches;
-create policy "Creators and participants can update matches"
-  on public.matches for update
-  using (
-    auth.uid() = created_by
-    or exists (select 1 from public.match_participants where match_id = id and user_id = auth.uid())
-  );
-
-drop policy if exists "Creators and participants can delete matches" on public.matches;
-create policy "Creators and participants can delete matches"
-  on public.matches for delete
-  using (
-    auth.uid() = created_by
-    or exists (select 1 from public.match_participants where match_id = id and user_id = auth.uid())
-  );
 
 -- RLS for match_participants -------------------------------------------------
 alter table public.match_participants enable row level security;
@@ -623,6 +612,14 @@ begin
   end if;
 end $$;
 
+-- Migration: add finish_requested to match_participants for ranked mutual finish confirmation
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'match_participants' and column_name = 'finish_requested') then
+    alter table public.match_participants add column finish_requested boolean not null default false;
+  end if;
+end $$;
+
 -- RLS: allow invited opponent to update match (for accept flow)
 drop policy if exists "Creators and participants can update matches" on public.matches;
 create policy "Creators and participants can update matches"
@@ -635,14 +632,6 @@ create policy "Creators and participants can update matches"
     or exists (select 1 from public.match_participants where match_id = id and user_id = auth.uid())
   );
 
--- RLS: allow invited user to add themselves as participant (for accept flow)
-drop policy if exists "Auth users can add participants" on public.match_participants;
-create policy "Auth users can add participants"
-  on public.match_participants for insert
-  with check (
-    auth.uid() = user_id
-    or exists (select 1 from public.matches where id = match_id and created_by = auth.uid())
-  );
 
 -- Migration: add in_progress to match_status, add started_at/ended_at/games_played to matches
 -- Must run before match_feed view which references these columns
@@ -705,6 +694,7 @@ select
     'vp_delta', mp.vp_delta,
     'ready', coalesce(mp.ready, false),
     'delete_requested', coalesce(mp.delete_requested, false),
+    'finish_requested', coalesce(mp.finish_requested, false),
     'username', p.username,
     'full_name', p.full_name,
     'avatar_url', p.avatar_url
@@ -937,37 +927,6 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- RPC: delete a match as any participant — security definer bypasses RLS so both creator and
--- invited opponent can delete regardless of the live DB's delete policy state.
-create or replace function public.delete_match_as_participant(p_match_id uuid)
-returns jsonb
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  if not exists (
-    select 1 from public.matches
-    where id = p_match_id
-      and (
-        created_by = auth.uid()
-        or exists (
-          select 1 from public.match_participants
-          where match_id = p_match_id and user_id = auth.uid()
-        )
-      )
-  ) then
-    return jsonb_build_object('ok', false, 'error', 'Not authorized to delete this match');
-  end if;
-
-  delete from public.matches where id = p_match_id;
-
-  return jsonb_build_object('ok', true);
-end;
-$$;
-
-grant execute on function public.delete_match_as_participant(uuid) to authenticated;
-
 -- RPC: delete the calling user's own account (requires security definer to touch auth.users) --
 create or replace function public.delete_own_account()
 returns void
@@ -1084,6 +1043,11 @@ security definer
 set search_path = public
 as $$
 begin
+  -- If match no longer exists it was already deleted (race condition) — treat as success
+  if not exists (select 1 from public.matches where id = p_match_id) then
+    return jsonb_build_object('ok', true);
+  end if;
+
   -- Authorization: must be creator, confirmed participant, or invited user
   if not exists (
     select 1 from public.matches

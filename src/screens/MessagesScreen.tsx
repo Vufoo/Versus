@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
@@ -250,9 +250,11 @@ export default function MessagesScreen() {
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    loadFollowers();
-  }, [loadFollowers]);
+  useFocusEffect(
+    useCallback(() => {
+      loadFollowers();
+    }, [loadFollowers]),
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

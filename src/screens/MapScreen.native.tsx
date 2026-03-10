@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker, Callout, CalloutSubview, Circle } from 'react-native-maps';
+import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
@@ -301,6 +302,7 @@ function createStyles(colors: ThemeColors) {
 export default function MapScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<any>();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const location = useLocation({ watch: true });
   const { status, coords, error } = location;
@@ -511,8 +513,8 @@ export default function MapScreen() {
       return;
     }
 
-    const sportMap = new Map(((sportsRes as any).data ?? []).map((s: any) => [s.id, s.name]));
-    const creatorMap = new Map(((creatorsRes as any).data ?? []).map((p: any) => [p.user_id, p.username]));
+    const sportMap = new Map<string, string>(((sportsRes as any).data ?? []).map((s: any) => [s.id, s.name as string]));
+    const creatorMap = new Map<string, string>(((creatorsRes as any).data ?? []).map((p: any) => [p.user_id, p.username as string]));
 
     const participantsByMatch = new Map<string, string[]>();
     for (const p of ((participantsRes as any).data ?? [])) {
@@ -781,6 +783,17 @@ export default function MapScreen() {
                   </View>
                 )}
               </View>
+              <Callout tooltip={false}>
+                <View style={styles.calloutContainer}>
+                  <Text style={styles.calloutTitle}>{currentUserProfile?.full_name ?? currentUserProfile?.username ?? 'You'}</Text>
+                  {currentUserProfile?.username ? <Text style={styles.calloutSport}>@{currentUserProfile.username}</Text> : null}
+                  <CalloutSubview onPress={() => currentUserId && navigation.navigate('UserProfile', { userId: currentUserId })}>
+                    <View style={styles.calloutJoin}>
+                      <Text style={styles.calloutJoinText}>View profile</Text>
+                    </View>
+                  </CalloutSubview>
+                </View>
+              </Callout>
             </Marker>
           )}
 
@@ -817,18 +830,35 @@ export default function MapScreen() {
                     <View style={styles.calloutContainer}>
                       <Text style={styles.calloutTitle}>{u.full_name ?? u.username ?? 'Friend'}</Text>
                       {u.username ? <Text style={styles.calloutSport}>@{u.username}</Text> : null}
+                      <CalloutSubview onPress={() => navigation.navigate('UserProfile', { userId: u.user_id })}>
+                        <View style={styles.calloutJoin}>
+                          <Text style={styles.calloutJoinText}>View profile</Text>
+                        </View>
+                      </CalloutSubview>
                     </View>
                   </Callout>
                 </Marker>
               );
             }
-            // Non-friend nearby user: simple grey dot pin, no callout
+            // Non-friend nearby user: grey dot pin with profile callout
             return (
               <Marker
                 key={`user-${u.user_id}`}
                 coordinate={{ latitude: u.last_lat, longitude: u.last_lng }}
                 pinColor={colors.textSecondary}
-              />
+              >
+                <Callout tooltip={false}>
+                  <View style={styles.calloutContainer}>
+                    <Text style={styles.calloutTitle}>{u.full_name ?? u.username ?? 'Player'}</Text>
+                    {u.username ? <Text style={styles.calloutSport}>@{u.username}</Text> : null}
+                    <CalloutSubview onPress={() => navigation.navigate('UserProfile', { userId: u.user_id })}>
+                      <View style={styles.calloutJoin}>
+                        <Text style={styles.calloutJoinText}>View profile</Text>
+                      </View>
+                    </CalloutSubview>
+                  </View>
+                </Callout>
+              </Marker>
             );
           })}
 

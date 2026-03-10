@@ -9,6 +9,7 @@ import LoginScreen from './src/screens/LoginScreen';
 import SignupScreen from './src/screens/SignupScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
 import { supabase } from './src/lib/supabase';
+import { registerPushToken } from './src/lib/pushNotifications';
 import { lightColors } from './src/constants/theme';
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -101,6 +102,11 @@ function AppShell() {
     return () => {
       cancelled = true;
     };
+  }, [isSignedIn]);
+
+  // Register for iOS push notifications whenever the user is signed in
+  useEffect(() => {
+    if (isSignedIn) registerPushToken();
   }, [isSignedIn]);
 
   if (!authChecked) {

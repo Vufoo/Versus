@@ -199,7 +199,7 @@ export default function UserProfileScreen() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [tab, setTab] = useState<ProfileTab>('overview');
   const [rankIdx, setRankIdx] = useState(0);
-  const [profile, setProfile] = useState<{ username: string | null; full_name: string | null; vp_total: number; preferred_sports: string[]; avatar_url: string | null } | null>(null);
+  const [profile, setProfile] = useState<{ username: string | null; full_name: string | null; vp_total: number; preferred_sports: string[]; avatar_url: string | null; location: string | null } | null>(null);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [followingCount, setFollowingCount] = useState(0);
   const [followerCount, setFollowerCount] = useState(0);
@@ -214,7 +214,7 @@ export default function UserProfileScreen() {
     if (!targetUserId) return;
     setLoadingProfile(true);
     try {
-      const { data: p } = await supabase.from('profiles').select('username, full_name, vp_total, preferred_sports, avatar_url, profile_visibility').eq('user_id', targetUserId).maybeSingle();
+      const { data: p } = await supabase.from('profiles').select('username, full_name, vp_total, preferred_sports, avatar_url, profile_visibility, location').eq('user_id', targetUserId).maybeSingle();
       setTargetProfileVisibility((p as any)?.profile_visibility === 'private' ? 'private' : 'public');
       const { count: fing } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', targetUserId).eq('status', 'accepted');
       const { count: fers } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('followed_id', targetUserId).eq('status', 'accepted');
@@ -226,6 +226,7 @@ export default function UserProfileScreen() {
         vp_total: p?.vp_total ?? 0,
         preferred_sports: p?.preferred_sports ?? [],
         avatar_url: p?.avatar_url ?? null,
+        location: (p as any)?.location ?? null,
       });
       setFollowingCount(fing ?? 0);
       setFollowerCount(fers ?? 0);
@@ -387,7 +388,10 @@ export default function UserProfileScreen() {
                 )}
               </View>
               <Text style={styles.userName}>{profile?.full_name || profile?.username || 'Unknown'}</Text>
-              <Text style={styles.userHandle}>@{profile?.username || 'username'}</Text>
+              <Text style={[styles.userHandle, profile?.location ? { marginBottom: 2 } : null]}>@{profile?.username || 'username'}</Text>
+              {profile?.location ? (
+                <Text style={styles.userHandle}>{profile.location}</Text>
+              ) : null}
               <View style={styles.socialRow}>
                 <View style={styles.socialItem}>
                   <Text style={styles.socialValue}>{profile?.vp_total ?? 0}</Text>

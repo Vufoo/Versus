@@ -126,6 +126,7 @@ export default function SettingsScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [emailNotifs, setEmailNotifs] = useState(true);
   const [pushNotifs, setPushNotifs] = useState(true);
+  const [pushLoading, setPushLoading] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [profile, setProfile] = useState<{ username: string | null } | null>(null);
   const [locationVisibility, setLocationVisibility] = useState<'public' | 'private'>('private');
@@ -136,10 +137,11 @@ export default function SettingsScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setUserEmail(user.email ?? null);
-      const { data: p } = await supabase.from('profiles').select('username, location_visibility, profile_visibility').eq('user_id', user.id).maybeSingle();
+      const { data: p } = await supabase.from('profiles').select('username, location_visibility, profile_visibility, push_notifications_enabled').eq('user_id', user.id).maybeSingle();
       setProfile(p ? { username: p.username } : null);
       setLocationVisibility((p as any)?.location_visibility === 'public' ? 'public' : 'private');
       setProfileVisibility((p as any)?.profile_visibility === 'private' ? 'private' : 'public');
+      setPushNotifs((p as any)?.push_notifications_enabled !== false);
     })();
   }, []);
 
@@ -153,6 +155,17 @@ export default function SettingsScreen() {
       update.last_lng = null;
     }
     await supabase.from('profiles').update(update).eq('user_id', user.id);
+  };
+
+  const updatePushNotifs = async (enabled: boolean) => {
+    setPushNotifs(enabled);
+    setPushLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await supabase.from('profiles').update({ push_notifications_enabled: enabled }).eq('user_id', user.id);
+    } catch { /* non-critical */ }
+    finally { setPushLoading(false); }
   };
 
   const updateProfileVisibility = async (value: 'public' | 'private') => {
@@ -309,7 +322,7 @@ export default function SettingsScreen() {
               <Ionicons name="notifications-outline" size={20} color={colors.textSecondary} />
               <Text style={styles.settingLabel}>Push notifications</Text>
             </View>
-            <Switch value={pushNotifs} onValueChange={setPushNotifs} trackColor={{ false: colors.border, true: colors.primary }} thumbColor="#FFF" />
+            <Switch value={pushNotifs} onValueChange={updatePushNotifs} disabled={pushLoading} trackColor={{ false: colors.border, true: colors.primary }} thumbColor="#FFF" />
           </View>
         </View>
 

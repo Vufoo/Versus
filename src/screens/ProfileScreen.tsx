@@ -729,7 +729,10 @@ export default function ProfileScreen() {
                 )}
               </TouchableOpacity>
               <Text style={styles.userName}>{profile?.full_name || profile?.username || 'Your name'}</Text>
-              <Text style={styles.userHandle}>@{profile?.username || 'username'}</Text>
+              <Text style={[styles.userHandle, profile?.location ? { marginBottom: 2 } : null]}>@{profile?.username || 'username'}</Text>
+              {profile?.location ? (
+                <Text style={styles.userHandle}>{profile.location}</Text>
+              ) : null}
               <View style={styles.socialRow}>
                 <View style={styles.socialItem}>
                   <Text style={styles.socialValue}>{profile?.vp_total ?? 0}</Text>

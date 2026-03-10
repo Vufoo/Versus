@@ -28,6 +28,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import type { ThemeColors } from '../constants/theme';
 import { sportLabel, SPORT_EMOJI, SPORT_SCORING, validateGameScore } from '../constants/sports';
 import { supabase } from '../lib/supabase';
+import { sendMatchInvitePush } from '../lib/pushNotifications';
 import { resolveAvatarUrl, resolveMatchImageUrl } from '../lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
 import UserSearch from '../components/UserSearch';
@@ -46,6 +47,7 @@ type Participant = {
   vp_delta: number;
   ready?: boolean;
   delete_requested?: boolean;
+  finish_requested?: boolean;
   username: string | null;
   full_name: string | null;
   avatar_url: string | null;
@@ -403,8 +405,8 @@ function FeedCard({
     setCommentsCount(item.comments_count);
   }, [item.comments_count]);
 
-  const loadComments = useCallback(async () => {
-    setCommentsLoading(true);
+  const loadComments = useCallback(async (silent = false) => {
+    if (!silent) setCommentsLoading(true);
     try {
       const { data: rows } = await supabase
         .from('match_comments')
@@ -467,23 +469,29 @@ function FeedCard({
     const body = commentBody.trim();
     if (!currentUserId || !body || commentPosting) return;
     setCommentPosting(true);
+    const tempComment: MatchComment = {
+      id: `temp-${Date.now()}`,
+      match_id: item.id,
+      user_id: currentUserId,
+      body,
+      created_at: new Date().toISOString(),
+      username: null,
+      full_name: null,
+    };
+    setComments((prev) => [...prev, tempComment]);
+    setCommentsCount((c) => c + 1);
+    setCommentBody('');
     try {
       await supabase.from('match_comments').insert({ match_id: item.id, user_id: currentUserId, body });
-      setCommentBody('');
-      setCommentsCount((c) => c + 1);
-      onRefresh();
-      await loadComments();
+      await loadComments(true);
     } catch { /* swallow */ }
     finally { setCommentPosting(false); }
   };
 
   const isInProgress = item.status === 'in_progress';
   const isPaused = item.status === 'paused';
-  const isParticipant = currentUserId && (
-    p1?.user_id === currentUserId ||
-    p2?.user_id === currentUserId ||
-    item.invited_opponent_id === currentUserId
-  );
+  const isParticipant = currentUserId != null &&
+    participantsParsed.some((p) => p?.user_id === currentUserId);
   const canControl = isParticipant;
 
   useEffect(() => {
@@ -698,6 +706,126 @@ function FeedCard({
     return null; // draw / tied
   };
 
+  const handleRankedFinishRequest = async () => {
+    if (!currentUserId || startStopLoading) return;
+    setStartStopLoading(true);
+    try {
+      // Mark current user as requesting finish
+      await supabase.from('match_participants')
+        .update({ finish_requested: true })
+        .eq('match_id', item.id)
+        .eq('user_id', currentUserId);
+
+      updateFeedItem(item.id, (m) => ({
+        ...m,
+        participants: m.participants.map((p) =>
+          p.user_id === currentUserId ? { ...p, finish_requested: true } : p
+        ),
+      }));
+
+      // Query DB for fresh state
+      const { data: dbParticipants } = await supabase
+        .from('match_participants')
+        .select('user_id, role, finish_requested')
+        .eq('match_id', item.id);
+
+      // Check if required confirmations are met
+      // 2v2: 1 from each team; 1v1: both players
+      let canFinish = false;
+      if (is2v2) {
+        const challConfirmed = (dbParticipants ?? []).some((p: any) => p.role === 'challenger' && p.finish_requested);
+        const oppConfirmed = (dbParticipants ?? []).some((p: any) => p.role === 'opponent' && p.finish_requested);
+        canFinish = challConfirmed && oppConfirmed;
+      } else {
+        canFinish = (dbParticipants ?? []).length >= 2 &&
+          (dbParticipants ?? []).every((p: any) => p.finish_requested);
+      }
+
+      if (canFinish) {
+        // Determine winner from scores — ranked uses score-based winner, not user choice
+        const winner = detectWinnerFromScores();
+        const { data: rpcResult, error: rpcError } = await supabase.rpc('finish_match', {
+          p_match_id: item.id,
+          p_winner_user_id: winner,
+          p_finished_by: currentUserId,
+        });
+        if (rpcError) throw rpcError;
+        const result = rpcResult as { ok: boolean; error?: string };
+        if (!result.ok) {
+          Alert.alert('Cannot finish match', result.error ?? 'This match was already finished.');
+          onRefresh();
+          return;
+        }
+        // Local optimistic update
+        const allParticipants = (item.participants ?? []) as Participant[];
+        const winnerParticipant = winner ? allParticipants.find((p) => p.user_id === winner) : null;
+        const winningRole = winnerParticipant?.role;
+        const getRes = (p: Participant): string => {
+          if (winner === null) return 'draw';
+          if (is2v2 && winningRole) return p.role === winningRole ? 'win' : 'loss';
+          return winner === p.user_id ? 'win' : 'loss';
+        };
+        updateFeedItem(item.id, (m) => ({
+          ...m,
+          status: 'completed',
+          ended_at: new Date().toISOString(),
+          participants: m.participants.map((p) => {
+            const res = getRes(p);
+            return { ...p, result: res, vp_delta: res === 'win' ? 1 : res === 'loss' ? -1 : 0 };
+          }),
+        }));
+        // Notify other participants
+        const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
+        const finisherName = myProfile?.full_name ?? myProfile?.username ?? 'Someone';
+        const matchTypeLabel = 'Ranked';
+        const winnerName = winnerParticipant ? (winnerParticipant.full_name ?? winnerParticipant.username ?? 'Someone') : null;
+        for (const p of allParticipants) {
+          if (p.user_id !== currentUserId) {
+            let notifBody: string;
+            if (winner === null) {
+              notifBody = `${finisherName} marked the match as a draw.`;
+            } else if (p.user_id === winner) {
+              notifBody = `You won! ${finisherName} finished the match.`;
+            } else {
+              notifBody = `${winnerName} won the match!`;
+            }
+            await supabase.from('notifications').insert({
+              user_id: p.user_id,
+              type: 'match_finished',
+              title: `${matchTypeLabel} match finished`,
+              body: notifBody,
+              data: { match_id: item.id, from_user_id: currentUserId },
+            });
+          }
+        }
+      } else {
+        Alert.alert('Finish requested', 'Waiting for the other player(s) to confirm. The match will finish automatically once all required players confirm.');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Could not request finish.');
+    } finally {
+      setStartStopLoading(false);
+    }
+  };
+
+  const handleCancelFinishRequest = async () => {
+    if (!currentUserId || startStopLoading) return;
+    setStartStopLoading(true);
+    try {
+      await supabase.from('match_participants')
+        .update({ finish_requested: false })
+        .eq('match_id', item.id)
+        .eq('user_id', currentUserId);
+      updateFeedItem(item.id, (m) => ({
+        ...m,
+        participants: m.participants.map((p) =>
+          p.user_id === currentUserId ? { ...p, finish_requested: false } : p
+        ),
+      }));
+    } catch { /* swallow */ }
+    finally { setStartStopLoading(false); }
+  };
+
   const handleFinish = () => {
     if (!currentUserId || startStopLoading) return;
     const doFinish = () => {
@@ -705,6 +833,12 @@ function FeedCard({
         finishWithWinner(null);
         return;
       }
+      if (isRanked) {
+        // Ranked: mutual confirmation required; winner decided by score
+        handleRankedFinishRequest();
+        return;
+      }
+      // Casual/local: show winner picker
       setWinnerSelection(detectWinnerFromScores());
       setWinnerPickerVisible(true);
     };
@@ -1015,7 +1149,8 @@ function FeedCard({
           .from('match_participants')
           .select('user_id, delete_requested')
           .eq('match_id', item.id);
-        const allConfirmed = dbParticipants && dbParticipants.length > 0 &&
+        const allConfirmed = dbParticipants != null &&
+          dbParticipants.length >= 2 &&
           dbParticipants.every((p) => p.delete_requested === true);
         if (allConfirmed) {
           await performFullDelete();
@@ -1169,13 +1304,13 @@ function FeedCard({
           <Text style={styles.sportEmoji}>{SPORT_EMOJI[item.sport_name] ?? '🏆'}</Text>
           <Text style={styles.sportName}>{item.sport_name}</Text>
         </View>
-        {onEditMatch && (
+        {onEditMatch && isParticipant && (
           <TouchableOpacity
             style={{ padding: spacing.xs }}
             onPress={() => onEditMatch(item)}
             hitSlop={8}
           >
-            <Ionicons name="pencil" size={18} color={colors.textSecondary} />
+            <Ionicons name="ellipsis-horizontal" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
         )}
       </View>
@@ -1658,7 +1793,7 @@ function FeedCard({
                   <Ionicons name="pause" size={14} color="#FFF" />
                   <Text style={styles.pauseButtonText}>Pause</Text>
                 </TouchableOpacity>
-                {isPractice && (
+                {isPractice ? (
                   <TouchableOpacity
                     style={[styles.startButton, startStopLoading && { opacity: 0.6 }]}
                     onPress={handleFinish}
@@ -1668,7 +1803,44 @@ function FeedCard({
                     <Ionicons name="flag" size={14} color={colors.textOnPrimary} />
                     <Text style={styles.startButtonText}>Finish</Text>
                   </TouchableOpacity>
-                )}
+                ) : isRanked && (() => {
+                  const myFinishRequested = myParticipant?.finish_requested === true;
+                  const finishCount = is2v2
+                    ? (participants.some((p) => p.role === 'challenger' && p.finish_requested) ? 1 : 0) +
+                      (participants.some((p) => p.role === 'opponent' && p.finish_requested) ? 1 : 0)
+                    : participants.filter((p) => p.finish_requested).length;
+                  if (myFinishRequested) {
+                    return (
+                      <View style={{ alignItems: 'center', gap: 2 }}>
+                        <Text style={[typography.caption, { fontSize: 10, color: colors.textSecondary }]}>
+                          Finish {finishCount}/2 confirmed
+                        </Text>
+                        <TouchableOpacity
+                          style={[styles.deleteButton, startStopLoading && { opacity: 0.6 }]}
+                          onPress={handleCancelFinishRequest}
+                          disabled={startStopLoading}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="close-circle" size={14} color={colors.textOnPrimary} />
+                          <Text style={styles.deleteButtonText}>Cancel finish</Text>
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  }
+                  return (
+                    <TouchableOpacity
+                      style={[styles.startButton, startStopLoading && { opacity: 0.6 }]}
+                      onPress={handleFinish}
+                      disabled={startStopLoading}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="flag" size={14} color={colors.textOnPrimary} />
+                      <Text style={styles.startButtonText}>
+                        {finishCount > 0 ? `Finish (${finishCount}/2)` : 'Finish'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })()}
               </>
             )}
             {item.status === 'paused' && (
@@ -1682,15 +1854,54 @@ function FeedCard({
                   <Ionicons name="play" size={14} color="#FFF" />
                   <Text style={styles.resumeButtonText}>Resume</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.startButton, startStopLoading && { opacity: 0.6 }]}
-                  onPress={handleFinish}
-                  disabled={startStopLoading}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="flag" size={14} color={colors.textOnPrimary} />
-                  <Text style={styles.startButtonText}>Finish</Text>
-                </TouchableOpacity>
+                {isRanked && !isPractice ? (() => {
+                  const myFinishRequested = myParticipant?.finish_requested === true;
+                  const finishCount = is2v2
+                    ? (participants.some((p) => p.role === 'challenger' && p.finish_requested) ? 1 : 0) +
+                      (participants.some((p) => p.role === 'opponent' && p.finish_requested) ? 1 : 0)
+                    : participants.filter((p) => p.finish_requested).length;
+                  if (myFinishRequested) {
+                    return (
+                      <View style={{ alignItems: 'center', gap: 2 }}>
+                        <Text style={[typography.caption, { fontSize: 10, color: colors.textSecondary }]}>
+                          Finish {finishCount}/2 confirmed
+                        </Text>
+                        <TouchableOpacity
+                          style={[styles.deleteButton, startStopLoading && { opacity: 0.6 }]}
+                          onPress={handleCancelFinishRequest}
+                          disabled={startStopLoading}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="close-circle" size={14} color={colors.textOnPrimary} />
+                          <Text style={styles.deleteButtonText}>Cancel finish</Text>
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  }
+                  return (
+                    <TouchableOpacity
+                      style={[styles.startButton, startStopLoading && { opacity: 0.6 }]}
+                      onPress={handleFinish}
+                      disabled={startStopLoading}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="flag" size={14} color={colors.textOnPrimary} />
+                      <Text style={styles.startButtonText}>
+                        {finishCount > 0 ? `Finish (${finishCount}/2)` : 'Finish'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })() : (
+                  <TouchableOpacity
+                    style={[styles.startButton, startStopLoading && { opacity: 0.6 }]}
+                    onPress={handleFinish}
+                    disabled={startStopLoading}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="flag" size={14} color={colors.textOnPrimary} />
+                    <Text style={styles.startButtonText}>Finish</Text>
+                  </TouchableOpacity>
+                )}
               </>
             )}
             {(isRanked ? isParticipant : item.created_by === currentUserId) && (item.status === 'pending' || item.status === 'confirmed' || item.status === 'completed') && (() => {
@@ -2573,6 +2784,8 @@ function createHomeStyles(colors: ThemeColors) {
     commentsSection: {
       marginTop: spacing.sm,
       paddingTop: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.md,
       borderTopWidth: 1,
       borderTopColor: colors.divider,
     },
@@ -2810,7 +3023,7 @@ function timeAgo(dateStr: string): string {
 }
 
 export default function HomeScreen() {
-  const { colors } = useTheme();
+  const { colors, mode: themeMode } = useTheme();
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const route = useRoute<RouteProp<TabParamList, 'Home'>>();
@@ -3056,7 +3269,7 @@ export default function HomeScreen() {
   useEffect(() => { loadFeed(); loadNotifications(); loadUnreadDmCount(); }, [loadFeed, loadNotifications, loadUnreadDmCount]);
 
   useEffect(() => {
-    if (isFocused) { loadFeed(); loadNotifications(); loadUnreadDmCount(); }
+    if (isFocused) { loadFeed(false); loadNotifications(); loadUnreadDmCount(); }
   }, [isFocused, loadFeed, loadNotifications, loadUnreadDmCount]);
 
   const loadFeedDebounced = useMemo(() => {
@@ -3164,9 +3377,13 @@ export default function HomeScreen() {
   }, [feedItems, currentUserId, loadFeed]);
 
   const myFeed = useMemo(
-    () => feedItems.filter((m) =>
-      (m.participants ?? []).some((p) => p.user_id === currentUserId)
-    ),
+    () => feedItems.filter((m) => {
+      // Always show matches the current user created (even if participant row hasn't loaded)
+      if (m.created_by === currentUserId) return true;
+      // Show if the user is an accepted participant (not just invited — invitees aren't in
+      // match_participants until they accept, so pending invites are automatically excluded)
+      return (m.participants ?? []).some((p) => p.user_id === currentUserId);
+    }),
     [feedItems, currentUserId],
   );
   const publicFeed = useMemo(
@@ -3275,13 +3492,14 @@ export default function HomeScreen() {
         }
 
         loadNotifications();
-        loadFeed();
+        loadFeed(false);
       };
 
       if (m?.match_format === '2v2' && !forceRole) {
         if (Platform.OS === 'web') {
           // Web: show a custom team picker modal instead of using Alert with buttons,
-          // which is unreliable on web.
+          // which is unreliable on web. Close notifications first so it renders on top.
+          closeNotifications();
           setTeamPickInvite({ notif, matchId });
           return;
         }
@@ -3359,7 +3577,7 @@ export default function HomeScreen() {
       }
 
       loadNotifications();
-      loadFeed();
+      loadFeed(false);
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Could not decline invite.');
     }
@@ -3375,6 +3593,17 @@ export default function HomeScreen() {
       else if (slot === 'opponent_2') updatePayload.invited_opponent_2_id = user.user_id;
       else updatePayload.invited_opponent_id = user.user_id;
       await supabase.from('matches').update(updatePayload).eq('id', match.id);
+
+      // Optimistic update — reflect invited user immediately without reloading feed
+      updateFeedItem(match.id, (m) => ({
+        ...m,
+        ...(slot === 'teammate'
+          ? { invited_teammate_id: user.user_id }
+          : slot === 'opponent_2'
+          ? { invited_opponent_2_id: user.user_id }
+          : { invited_opponent_id: user.user_id }),
+      }));
+
       const { data: myProfile } = await supabase.from('profiles').select('username').eq('user_id', currentUserId).maybeSingle();
       const sportLabelStr = match.sport_name ?? 'Match';
       const matchType = match.match_type ?? 'casual';
@@ -3390,7 +3619,7 @@ export default function HomeScreen() {
         body: notifBody,
         data: { match_id: match.id, from_user_id: currentUserId, slot },
       });
-      loadFeed();
+      sendMatchInvitePush(user.user_id, inviteTitle, notifBody, match.id);
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Could not send invite.');
     }
@@ -3434,7 +3663,11 @@ export default function HomeScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* ---- Top bar ---- */}
       <View style={styles.topBar}>
-        <Image source={require('../../assets/icon_blue_small.png')} style={{ height: 72, width: 148, marginLeft: -10 }} resizeMode="contain" />
+        <Image
+          source={themeMode === 'dark' ? require('../../assets/icon_dark.png') : require('../../assets/icon_blue_small.png')}
+          style={{ height: 72, width: 148, marginLeft: -10 }}
+          resizeMode="contain"
+        />
         <View style={styles.topBarRight}>
           <TouchableOpacity
             style={styles.topBarIcon}
@@ -3552,7 +3785,7 @@ export default function HomeScreen() {
       <EditMatchModal
         visible={!!editMatch}
         onClose={() => setEditMatch(null)}
-        onSaved={() => { loadFeed(); setEditMatch(null); }}
+        onSaved={() => { loadFeed(false); setEditMatch(null); }}
         colors={colors}
         currentUserId={currentUserId}
         match={editMatch ? {
@@ -3591,53 +3824,6 @@ export default function HomeScreen() {
               placeholder="Search by username or name..."
               onSelect={(user) => inviteOpponentMatch && handleInviteOpponent(inviteOpponentMatch, user)}
             />
-          </View>
-        </View>
-      </Modal>
-
-      {/* ---- 2v2 team pick modal (web + native fallback) ---- */}
-      <Modal visible={!!teamPickInvite} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <Pressable
-            style={StyleSheet.absoluteFillObject}
-            onPress={() => setTeamPickInvite(null)}
-          />
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Choose your team</Text>
-              <TouchableOpacity onPress={() => setTeamPickInvite(null)} hitSlop={12}>
-                <Ionicons name="close" size={24} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-            <Text style={[typography.caption, { color: colors.textSecondary, marginBottom: spacing.md }]}>
-              Which team would you like to join for this 2v2 match?
-            </Text>
-            <View style={{ flexDirection: 'row', gap: spacing.md }}>
-              <TouchableOpacity
-                style={[styles.notifAccept, { flex: 1 }]}
-                activeOpacity={0.8}
-                onPress={() => {
-                  if (!teamPickInvite) return;
-                  const notif = teamPickInvite.notif;
-                  setTeamPickInvite(null);
-                  handleAcceptInvite(notif, 'challenger');
-                }}
-              >
-                <Text style={styles.notifAcceptText}>Creator's team</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.notifDecline, { flex: 1, borderWidth: 0 }]}
-                activeOpacity={0.8}
-                onPress={() => {
-                  if (!teamPickInvite) return;
-                  const notif = teamPickInvite.notif;
-                  setTeamPickInvite(null);
-                  handleAcceptInvite(notif, 'opponent');
-                }}
-              >
-                <Text style={[styles.notifDeclineText, { color: colors.text }]}>Other team</Text>
-              </TouchableOpacity>
-            </View>
           </View>
         </View>
       </Modal>
@@ -3754,6 +3940,53 @@ export default function HomeScreen() {
               })}
             </ScrollView>
           </Animated.View>
+        </View>
+      </Modal>
+
+      {/* ---- 2v2 team pick modal (web + native fallback) — rendered last so it appears on top ---- */}
+      <Modal visible={!!teamPickInvite} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={() => setTeamPickInvite(null)}
+          />
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Choose your team</Text>
+              <TouchableOpacity onPress={() => setTeamPickInvite(null)} hitSlop={12}>
+                <Ionicons name="close" size={24} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <Text style={[typography.caption, { color: colors.textSecondary, marginBottom: spacing.md }]}>
+              Which team would you like to join for this 2v2 match?
+            </Text>
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
+              <TouchableOpacity
+                style={[styles.notifAccept, { flex: 1 }]}
+                activeOpacity={0.8}
+                onPress={() => {
+                  if (!teamPickInvite) return;
+                  const notif = teamPickInvite.notif;
+                  setTeamPickInvite(null);
+                  handleAcceptInvite(notif, 'challenger');
+                }}
+              >
+                <Text style={styles.notifAcceptText}>Creator's team</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.notifDecline, { flex: 1, borderWidth: 0 }]}
+                activeOpacity={0.8}
+                onPress={() => {
+                  if (!teamPickInvite) return;
+                  const notif = teamPickInvite.notif;
+                  setTeamPickInvite(null);
+                  handleAcceptInvite(notif, 'opponent');
+                }}
+              >
+                <Text style={[styles.notifDeclineText, { color: colors.text }]}>Other team</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
 

@@ -31,6 +31,16 @@
     "web": {
       "favicon": "./assets/versus_blue.png"
     },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon_blue.png",
+          "color": "#1e3a8a",
+          "sounds": []
+        }
+      ]
+    ],
     "extra": {
       "eas": {
         "projectId": "b30a31d9-2ac1-4919-93b0-2433d66f6f20"

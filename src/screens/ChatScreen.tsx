@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -38,8 +38,10 @@ function formatDateHeader(date: Date): string {
   const diffDays = Math.round((today.getTime() - msgDay.getTime()) / (1000 * 60 * 60 * 24));
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return date.toLocaleDateString('en-US', { weekday: 'long' });
-  return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', ...(diffDays > 364 ? { year: 'numeric' } : {}) });
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  const yyyy = date.getFullYear();
+  return `${mm}/${dd}/${yyyy}`;
 }
 
 function buildMessageList(messages: DMMessage[]): ListItem[] {
@@ -57,7 +59,7 @@ function buildMessageList(messages: DMMessage[]): ListItem[] {
   return result;
 }
 
-function createStyles(colors: ThemeColors) {
+function createStyles(colors: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
@@ -91,7 +93,12 @@ function createStyles(colors: ThemeColors) {
       borderRadius: borderRadius.lg,
     },
     messageBubbleSent: { backgroundColor: colors.primary },
-    messageBubbleReceived: { backgroundColor: colors.cardBg, borderWidth: 1, borderColor: colors.border },
+    messageBubbleReceived: {
+      backgroundColor: isDark ? '#3A3530' : colors.cardBg,
+      borderWidth: 1,
+      borderColor: isDark ? '#5A5248' : colors.border,
+    },
+    messageBubblePending: { opacity: 0.6 },
     messageText: { ...typography.body, fontSize: 15, textAlignVertical: 'center' as any },
     messageTextSent: { color: colors.textOnPrimary },
     messageTextReceived: { color: colors.text },
@@ -135,12 +142,13 @@ function createStyles(colors: ThemeColors) {
 }
 
 export default function ChatScreen() {
-  const { colors } = useTheme();
+  const { colors, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<RootStackParamList, 'Chat'>>();
   const otherUserId = route.params?.userId ?? '';
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const styles = useMemo(() => createStyles(colors, mode === 'dark'), [colors, mode]);
+  const flatListRef = useRef<FlatList>(null);
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -153,50 +161,55 @@ export default function ChatScreen() {
   const [currentUserAvatarUrl, setCurrentUserAvatarUrl] = useState<string | null>(null);
   const [currentUserInitials, setCurrentUserInitials] = useState<string>('?');
 
-  const getOrCreateConversation = useCallback(async (): Promise<string | null> => {
-    if (!currentUserId || !otherUserId) return null;
-    const u1 = currentUserId < otherUserId ? currentUserId : otherUserId;
-    const u2 = currentUserId < otherUserId ? otherUserId : currentUserId;
-    const { data: existing } = await supabase
-      .from('dm_conversations')
-      .select('id')
-      .eq('user1_id', u1)
-      .eq('user2_id', u2)
-      .maybeSingle();
-    if (existing?.id) return existing.id;
-    const { data: created, error } = await supabase
-      .from('dm_conversations')
-      .insert({ user1_id: u1, user2_id: u2 })
-      .select('id')
-      .single();
-    if (error || !created?.id) return null;
-    return created.id;
-  }, [currentUserId, otherUserId]);
-
-  const loadMessages = useCallback(async () => {
-    const cid = await getOrCreateConversation();
-    if (!cid) {
-      setLoading(false);
-      return;
-    }
-    setConversationId(cid);
-    const { data } = await supabase
-      .from('dm_messages')
-      .select('id, conversation_id, sender_id, body, created_at')
-      .eq('conversation_id', cid)
-      .order('created_at', { ascending: false })
-      .limit(50);
-    setMessages(((data ?? []) as DMMessage[]).reverse());
-    setLoading(false);
-  }, [getOrCreateConversation]);
-
+  // One-time init: resolve user, find/create conversation, load messages
   useEffect(() => {
+    if (!otherUserId) { setLoading(false); return; }
+    let cancelled = false;
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) setCurrentUserId(user.id);
-    })();
-  }, []);
+      if (!user || cancelled) return;
+      const uid = user.id;
+      if (!cancelled) setCurrentUserId(uid);
 
+      // Find or create conversation
+      const u1 = uid < otherUserId ? uid : otherUserId;
+      const u2 = uid < otherUserId ? otherUserId : uid;
+      let cid: string | null = null;
+      const { data: existing } = await supabase
+        .from('dm_conversations')
+        .select('id')
+        .eq('user1_id', u1)
+        .eq('user2_id', u2)
+        .maybeSingle();
+      if (existing?.id) {
+        cid = existing.id;
+      } else {
+        const { data: created } = await supabase
+          .from('dm_conversations')
+          .insert({ user1_id: u1, user2_id: u2 })
+          .select('id')
+          .single();
+        cid = created?.id ?? null;
+      }
+      if (!cid || cancelled) { if (!cancelled) setLoading(false); return; }
+      if (!cancelled) setConversationId(cid);
+
+      // Load initial messages
+      const { data } = await supabase
+        .from('dm_messages')
+        .select('id, conversation_id, sender_id, body, created_at')
+        .eq('conversation_id', cid)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (!cancelled) {
+        setMessages(((data ?? []) as DMMessage[]).reverse());
+        setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [otherUserId]);
+
+  // Load other user's profile
   useEffect(() => {
     if (!otherUserId) return;
     supabase.from('profiles').select('full_name, username, avatar_url').eq('user_id', otherUserId).maybeSingle().then(({ data }) => {
@@ -206,6 +219,7 @@ export default function ChatScreen() {
     });
   }, [otherUserId]);
 
+  // Load current user's profile for avatar/initials
   useEffect(() => {
     if (!currentUserId) return;
     supabase.from('profiles').select('full_name, username, avatar_url').eq('user_id', currentUserId).maybeSingle().then(({ data }) => {
@@ -216,10 +230,7 @@ export default function ChatScreen() {
     });
   }, [currentUserId]);
 
-  useEffect(() => {
-    loadMessages();
-  }, [loadMessages]);
-
+  // Realtime: append new messages directly — no full refetch
   useEffect(() => {
     if (!conversationId) return;
     const channel = supabase
@@ -227,12 +238,33 @@ export default function ChatScreen() {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'dm_messages', filter: `conversation_id=eq.${conversationId}` },
-        () => loadMessages()
+        (payload) => {
+          const incoming = payload.new as DMMessage;
+          setMessages((prev) => {
+            // Already in list (real ID matched — deduplicate)
+            if (prev.some((m) => m.id === incoming.id)) return prev;
+            // Remove any matching temp message from our own optimistic update
+            const filtered = prev.filter(
+              (m) => !(m.id.startsWith('temp-') && m.sender_id === incoming.sender_id && m.body === incoming.body)
+            );
+            return [...filtered, incoming];
+          });
+        }
       )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [conversationId, loadMessages]);
+  }, [conversationId]);
 
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (messages.length > 0 && !loading) {
+      // Small delay to let layout settle before scrolling
+      const t = setTimeout(() => flatListRef.current?.scrollToEnd({ animated: messages.length === 1 }), 60);
+      return () => clearTimeout(t);
+    }
+  }, [messages.length, loading]);
+
+  // Mark conversation as read whenever the screen is focused
   useFocusEffect(
     useCallback(() => {
       if (currentUserId && conversationId) {
@@ -244,37 +276,65 @@ export default function ChatScreen() {
     }, [currentUserId, conversationId])
   );
 
-  const sendMessage = async () => {
-    const text = body.trim();
-    if (!text || !currentUserId || !conversationId || sending) return;
-    setSending(true);
-    setBody('');
+  // Trim old messages in background (fire-and-forget, does not block send)
+  const trimOldMessages = useCallback(async (cid: string) => {
     try {
-      await supabase.from('dm_messages').insert({
-        conversation_id: conversationId,
-        sender_id: currentUserId,
-        body: text,
-      });
-      // Trim: delete the user's oldest messages if conversation exceeds 50
       const { count } = await supabase
         .from('dm_messages')
         .select('id', { count: 'exact', head: true })
-        .eq('conversation_id', conversationId);
+        .eq('conversation_id', cid);
       if (count && count > 50) {
         const { data: toDelete } = await supabase
           .from('dm_messages')
           .select('id')
-          .eq('conversation_id', conversationId)
-          .eq('sender_id', currentUserId)
+          .eq('conversation_id', cid)
           .order('created_at', { ascending: true })
           .limit(count - 50);
         if (toDelete && toDelete.length > 0) {
           await supabase.from('dm_messages').delete().in('id', toDelete.map((m: any) => m.id));
         }
       }
-      await loadMessages();
-    } catch { /* swallow */ }
-    finally { setSending(false); }
+    } catch { /* swallow — trim is best-effort */ }
+  }, []);
+
+  const sendMessage = async () => {
+    const text = body.trim();
+    if (!text || !currentUserId || !conversationId || sending) return;
+    setSending(true);
+    setBody('');
+
+    // Optimistic: show message immediately with a temp ID
+    const tempId = `temp-${Date.now()}`;
+    const tempMsg: DMMessage = {
+      id: tempId,
+      conversation_id: conversationId,
+      sender_id: currentUserId,
+      body: text,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, tempMsg]);
+
+    try {
+      const { data: inserted } = await supabase
+        .from('dm_messages')
+        .insert({ conversation_id: conversationId, sender_id: currentUserId, body: text })
+        .select('id, conversation_id, sender_id, body, created_at')
+        .single();
+
+      if (inserted) {
+        // Replace temp with confirmed message (real ID)
+        setMessages((prev) => prev.map((m) => m.id === tempId ? (inserted as DMMessage) : m));
+      }
+
+      // Trim in background — does not block the UI
+      trimOldMessages(conversationId);
+    } catch {
+      // Revert optimistic message on failure
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setBody(text); // restore body so user can retry
+    } finally {
+      setSending(false);
+    }
   };
 
   const listData = useMemo(() => buildMessageList(messages), [messages]);
@@ -316,6 +376,7 @@ export default function ChatScreen() {
           </View>
         ) : (
           <FlatList
+            ref={flatListRef}
             style={styles.list}
             data={listData}
             keyExtractor={(item) => item.id}
@@ -331,6 +392,7 @@ export default function ChatScreen() {
               }
               const msg = item as DMMessage;
               const isSent = msg.sender_id === currentUserId;
+              const isPending = msg.id.startsWith('temp-');
               const avatarUrl = isSent ? currentUserAvatarUrl : otherUserAvatarUrl;
               const initials = isSent ? currentUserInitials : otherInitials;
               return (
@@ -342,7 +404,7 @@ export default function ChatScreen() {
                       <Text style={{ fontSize: 11, fontWeight: '600', color: colors.textSecondary }}>{initials}</Text>
                     )}
                   </View>
-                  <View style={[styles.messageBubble, isSent ? styles.messageBubbleSent : styles.messageBubbleReceived]}>
+                  <View style={[styles.messageBubble, isSent ? styles.messageBubbleSent : styles.messageBubbleReceived, isPending && styles.messageBubblePending]}>
                     <Text style={[styles.messageText, isSent ? styles.messageTextSent : styles.messageTextReceived]}>{msg.body}</Text>
                     <Text style={[styles.messageTime, isSent && { color: colors.textOnPrimary }]}>
                       {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
