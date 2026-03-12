@@ -14,7 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker, Callout, CalloutSubview, Circle } from 'react-native-maps';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
@@ -25,7 +25,6 @@ import { sportLabel } from '../constants/sports';
 import NewMatchModal from '../components/NewMatchModal';
 
 const versusPin = require('../../assets/versus_blue.png');
-const versusDarkPin = require('../../assets/versus_dark.png');
 
 function formatNearbyPlace(addr: Location.LocationGeocodedAddress | null): string {
   if (!addr) return '';
@@ -191,10 +190,10 @@ function createStyles(colors: ThemeColors) {
     calloutSport: { ...typography.caption, color: '#555', fontSize: 12, marginBottom: 4 },
     calloutDetail: { ...typography.caption, color: '#777', fontSize: 11, marginBottom: 2 },
     profilePin: {
-      width: 42,
-      height: 42,
-      borderRadius: 21,
-      borderWidth: 2.5,
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      borderWidth: 2,
       borderColor: colors.primary,
       overflow: 'hidden',
       backgroundColor: colors.cardBg,
@@ -205,18 +204,18 @@ function createStyles(colors: ThemeColors) {
       elevation: 4,
     },
     myPin: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
+      width: 30,
+      height: 30,
+      borderRadius: 15,
       borderWidth: 2,
       borderColor: '#22C55E',
       overflow: 'hidden',
       backgroundColor: colors.cardBg,
       shadowColor: '#000',
-      shadowOpacity: 0.3,
+      shadowOpacity: 0.25,
       shadowOffset: { width: 0, height: 2 },
-      shadowRadius: 5,
-      elevation: 5,
+      shadowRadius: 4,
+      elevation: 4,
     },
     profilePinImage: {
       width: '100%',
@@ -231,7 +230,7 @@ function createStyles(colors: ThemeColors) {
     },
     profilePinInitial: {
       color: '#FFF',
-      fontSize: 16,
+      fontSize: 12,
       fontWeight: '700' as const,
     },
     calloutFriendBadge: {
@@ -303,6 +302,7 @@ export default function MapScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
+  const isFocused = useIsFocused();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const location = useLocation({ watch: true });
   const { status, coords, error } = location;
@@ -319,6 +319,7 @@ export default function MapScreen() {
   const [joiningMatchId, setJoiningMatchId] = useState<string | null>(null);
   const [radiusMiles, setRadiusMiles] = useState(5);
   const radiusRef = useRef(5);
+  const [preferredSports, setPreferredSports] = useState<string[]>([]);
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -328,6 +329,10 @@ export default function MapScreen() {
   // Stable ref for coords so loadNearby doesn't need to be recreated on every GPS update
   const coordsRef = useRef(coords);
   useEffect(() => { coordsRef.current = coords; }, [coords]);
+
+  // Track last position written to DB so we only update on meaningful movement (~100m)
+  const lastWrittenCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+  const MIN_LOCATION_DELTA = 0.001; // ~100m in degrees
 
   // Dropped pin for creating a match
   const [droppedPin, setDroppedPin] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -354,31 +359,38 @@ export default function MapScreen() {
       setCurrentUserId(user.id);
       const { data: profile } = await supabase
         .from('profiles')
-        .select('avatar_url, username, full_name')
+        .select('avatar_url, username, full_name, preferred_sports')
         .eq('user_id', user.id)
         .maybeSingle();
       if (profile) {
-        const p = profile as { avatar_url: string | null; username: string | null; full_name: string | null };
+        const p = profile as { avatar_url: string | null; username: string | null; full_name: string | null; preferred_sports?: string[] };
         setCurrentUserProfile(p);
         const resolved = await resolveAvatarUrl(p.avatar_url);
         setMyAvatarUrl(resolved);
+        if (p.preferred_sports) setPreferredSports(p.preferred_sports);
       }
     })();
   }, []);
 
   useEffect(() => {
-    if (!coords) return;
+    if (!coords || !currentUserId) return;
+    // Only write to DB if position has moved more than ~100m since last write
+    const last = lastWrittenCoordsRef.current;
+    if (last) {
+      const dlat = Math.abs(coords.latitude - last.lat);
+      const dlng = Math.abs(coords.longitude - last.lng);
+      if (dlat < MIN_LOCATION_DELTA && dlng < MIN_LOCATION_DELTA) return;
+    }
+    lastWrittenCoordsRef.current = { lat: coords.latitude, lng: coords.longitude };
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data: p } = await supabase.from('profiles').select('location_visibility').eq('user_id', user.id).maybeSingle();
+      const { data: p } = await supabase.from('profiles').select('location_visibility').eq('user_id', currentUserId).maybeSingle();
       if ((p as { location_visibility?: string })?.location_visibility !== 'public') return;
       await supabase
         .from('profiles')
         .update({ last_lat: coords.latitude, last_lng: coords.longitude })
-        .eq('user_id', user.id);
+        .eq('user_id', currentUserId);
     })();
-  }, [coords?.latitude, coords?.longitude]);
+  }, [coords?.latitude, coords?.longitude, currentUserId]);
 
   const loadNearby = useCallback(async () => {
     const c = coordsRef.current;
@@ -587,11 +599,12 @@ export default function MapScreen() {
     }
   }, [loadNearby]);
 
+  // Auto-refresh every 30s — only while the screen is focused to avoid background polling
   useEffect(() => {
-    loadNearby();
+    if (!isFocused) return;
     const interval = setInterval(loadNearby, 30000);
     return () => clearInterval(interval);
-  }, [loadNearby]);
+  }, [isFocused, loadNearby]);
 
 
   useEffect(() => {
@@ -787,7 +800,7 @@ export default function MapScreen() {
                 <View style={styles.calloutContainer}>
                   <Text style={styles.calloutTitle}>{currentUserProfile?.full_name ?? currentUserProfile?.username ?? 'You'}</Text>
                   {currentUserProfile?.username ? <Text style={styles.calloutSport}>@{currentUserProfile.username}</Text> : null}
-                  <CalloutSubview onPress={() => currentUserId && navigation.navigate('UserProfile', { userId: currentUserId })}>
+                  <CalloutSubview onPress={() => navigation.navigate('Profile')}>
                     <View style={styles.calloutJoin}>
                       <Text style={styles.calloutJoinText}>View profile</Text>
                     </View>
@@ -1037,6 +1050,7 @@ export default function MapScreen() {
         onCreated={() => { setShowNewMatch(false); clearDroppedPin(); loadNearby(); }}
         colors={colors}
         initialLocation={droppedPin ? { latitude: droppedPin.latitude, longitude: droppedPin.longitude, name: droppedPinName } : null}
+        preferredSports={preferredSports}
       />
     </ScrollView>
   );

@@ -31,6 +31,7 @@ type Props = {
   renderAction?: (user: SearchedUser) => ReactNode;
   suggestions?: SearchedUser[];
   suggestionsTitle?: string;
+  onQueryChange?: (query: string) => void;
 };
 
 function makeStyles(c: ThemeColors) {
@@ -84,6 +85,7 @@ export default function UserSearch({
   renderAction,
   suggestions,
   suggestionsTitle,
+  onQueryChange,
 }: Props) {
   const styles = makeStyles(colors);
   const [query, setQuery] = useState('');
@@ -183,7 +185,7 @@ export default function UserSearch({
         placeholder={placeholder ?? 'Search by username or name...'}
         placeholderTextColor={colors.textSecondary}
         value={query}
-        onChangeText={setQuery}
+        onChangeText={(t) => { setQuery(t); onQueryChange?.(t); }}
         autoCapitalize="none"
         autoCorrect={false}
       />

@@ -14,6 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.versus.app",
       "icon": {
         "light": "./assets/versus_blue.png",
         "dark": "./assets/versus_dark.png",

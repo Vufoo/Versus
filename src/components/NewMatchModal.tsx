@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { supabase, resolveAvatarUrl } from '../lib/supabase';
-import { SPORTS, SPORTS_2V2, sportLabel } from '../constants/sports';
+import { SPORTS, SPORTS_2V2, SPORTS_2V2_ONLY, SPORTS_3V3, sportLabel, SPORT_EMOJI } from '../constants/sports';
 import UserSearch from './UserSearch';
 import type { SearchedUser } from './UserSearch';
 import LocationPickerModal from './LocationPickerModal';
@@ -103,6 +103,21 @@ function makeStyles(c: ThemeColors) {
     sportChipSel: { backgroundColor: c.primary, borderColor: c.primaryDark },
     sportChipLbl: { ...typography.label, color: c.textSecondary },
     sportChipLblSel: { color: c.textOnPrimary },
+    sportCard: {
+      flex: 1,
+      paddingVertical: 10,
+      borderRadius: borderRadius.md,
+      borderWidth: 1.5,
+      borderColor: c.border,
+      backgroundColor: c.background,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      gap: 3,
+    },
+    sportCardSel: { backgroundColor: c.primary, borderColor: c.primaryDark },
+    sportEmoji: { fontSize: 22 },
+    sportCardName: { ...typography.caption, fontSize: 11, color: c.textSecondary, fontWeight: '600' as const },
+    sportCardNameSel: { color: c.textOnPrimary },
     timeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
     timeBtn: {
       flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
@@ -179,8 +194,8 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   const [invitedUsers, setInvitedUsers] = useState<SearchedUser[]>([]);
   const [sport, setSport] = useState(initialSport ?? SPORTS[0]);
   const [matchType, setMatchType] = useState<'casual' | 'ranked' | 'practice'>(initialMatchType ?? 'casual');
-  const [matchFormat, setMatchFormat] = useState<'1v1' | '2v2'>('1v1');
-  const maxInvites = matchType === 'practice' ? 3 : matchFormat === '2v2' ? 3 : 1;
+  const [matchFormat, setMatchFormat] = useState<'1v1' | '2v2' | '3v3'>('1v1');
+  const maxInvites = matchType === 'practice' ? 3 : matchFormat === '3v3' ? 5 : matchFormat === '2v2' ? 3 : 1;
   const [isPublic, setIsPublic] = useState(true);
   const [location, setLocation] = useState('');
   const [locationLat, setLocationLat] = useState<number | null>(null);
@@ -230,9 +245,13 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
     }
   }, [initialLocation?.latitude, initialLocation?.longitude]);
   const supports2v2 = SPORTS_2V2.includes(sport);
+  const only2v2 = SPORTS_2V2_ONLY.includes(sport);
+  const supports3v3 = SPORTS_3V3.includes(sport);
   useEffect(() => {
-    if (!supports2v2) setMatchFormat('1v1');
-  }, [supports2v2]);
+    if (supports3v3) setMatchFormat('2v2'); // volleyball defaults to 2v2
+    else if (only2v2) setMatchFormat('2v2');
+    else if (!supports2v2) setMatchFormat('1v1');
+  }, [supports2v2, only2v2, supports3v3]);
 
   useEffect(() => {
     setInvitedUsers([]);
@@ -396,6 +415,8 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
           invited_opponent_id: invitedUsers[0]?.user_id ?? null,
           invited_teammate_id: invitedUsers[1]?.user_id ?? null,
           invited_opponent_2_id: invitedUsers[2]?.user_id ?? null,
+          invited_teammate_2_id: invitedUsers[3]?.user_id ?? null,
+          invited_opponent_3_id: invitedUsers[4]?.user_id ?? null,
         })
         .select('id')
         .single();
@@ -408,8 +429,8 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
         ? `${sportLabel(sport)} ${matchType} match starting now!`
         : `${sportLabel(sport)} ${matchType} match on ${formatScheduleDate()} at ${formatTime()}`;
       const matchTypeLabel = matchType.charAt(0).toUpperCase() + matchType.slice(1);
-      const slots = ['opponent', 'teammate', 'opponent_2'] as const;
-      const formatTag = matchFormat === '2v2' ? ' 2v2' : '';
+      const slots = ['opponent', 'teammate', 'opponent_2', 'teammate_2', 'opponent_3'] as const;
+      const formatTag = matchFormat === '3v3' ? ' 3v3' : matchFormat === '2v2' ? ' 2v2' : '';
       for (let i = 0; i < invitedUsers.length; i++) {
         const inviteTitle = matchType === 'practice'
           ? `${currentUsername ?? 'Someone'} invited you to practice ${sportLabel(sport)}!`
@@ -477,9 +498,11 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                 <Text style={styles.label}>
                   {matchType === 'practice'
                     ? 'Invite practice partners (optional, up to 3)'
-                    : matchFormat === '2v2'
-                      ? 'Invite players (up to 3) — teams chosen when they accept'
-                      : 'Invite opponent (optional)'}
+                    : matchFormat === '3v3'
+                      ? 'Invite players (up to 5) — teams chosen when they accept'
+                      : matchFormat === '2v2'
+                        ? 'Invite players (up to 3) — teams chosen when they accept'
+                        : 'Invite opponent (optional)'}
                 </Text>
 
                 {invitedUsers.length > 0 && (
@@ -511,11 +534,16 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
 
               <Text style={[styles.label, { marginTop: spacing.md }]}>Match type</Text>
               <View style={styles.matchTypeRow}>
-                {(['casual', 'ranked', 'practice'] as const).map((t) => (
-                  <TouchableOpacity key={t} style={[styles.matchTypeChip, matchType === t && styles.matchTypeChipSel]} onPress={() => setMatchType(t)} activeOpacity={0.8}>
-                    <Text style={[styles.matchTypeLbl, matchType === t && styles.matchTypeLblSel]}>{t === 'casual' ? 'Casual' : t === 'ranked' ? 'Ranked' : 'Practice'}</Text>
-                  </TouchableOpacity>
-                ))}
+                {(['casual', 'ranked', 'practice'] as const).map((t) => {
+                  const icon = t === 'casual' ? 'people-outline' : t === 'ranked' ? 'trophy-outline' : 'barbell-outline';
+                  const sel = matchType === t;
+                  return (
+                    <TouchableOpacity key={t} style={[styles.matchTypeChip, sel && styles.matchTypeChipSel]} onPress={() => setMatchType(t)} activeOpacity={0.8}>
+                      <Ionicons name={icon as any} size={14} color={sel ? colors.textOnPrimary : colors.textSecondary} />
+                      <Text style={[styles.matchTypeLbl, sel && styles.matchTypeLblSel]}>{t === 'casual' ? 'Casual' : t === 'ranked' ? 'Ranked' : 'Practice'}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
               {/* {matchType === 'practice' && (
                 <Text style={[styles.label, { marginBottom: spacing.md, fontStyle: 'italic' }]}>
@@ -536,20 +564,31 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
               </View>
 
               <Text style={styles.label}>Sport</Text>
-              <View style={styles.sportsRow}>
-                {orderedSports.map((s) => (
-                  <TouchableOpacity key={s} style={[styles.sportChip, s === sport && styles.sportChipSel]} onPress={() => setSport(s)} activeOpacity={0.8}>
-                    <Text style={[styles.sportChipLbl, s === sport && styles.sportChipLblSel]}>{sportLabel(s)}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              {orderedSports.length <= 3 ? (
+                <View style={[styles.matchTypeRow, { marginBottom: spacing.md }]}>
+                  {orderedSports.map((s) => (
+                    <TouchableOpacity key={s} style={[styles.sportCard, s === sport && styles.sportCardSel]} onPress={() => setSport(s)} activeOpacity={0.8}>
+                      <Text style={styles.sportEmoji}>{SPORT_EMOJI[s] ?? '🏆'}</Text>
+                      <Text style={[styles.sportCardName, s === sport && styles.sportCardNameSel]}>{s}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.sportsRow}>
+                  {orderedSports.map((s) => (
+                    <TouchableOpacity key={s} style={[styles.sportChip, s === sport && styles.sportChipSel]} onPress={() => setSport(s)} activeOpacity={0.8}>
+                      <Text style={[styles.sportChipLbl, s === sport && styles.sportChipLblSel]}>{sportLabel(s)}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
 
-              {supports2v2 && matchType !== 'practice' && (
+              {(supports2v2 || supports3v3) && !only2v2 && matchType !== 'practice' && (
                 <>
                   <Text style={styles.label}>Format</Text>
                   <View style={styles.matchTypeRow}>
-                    {(['1v1', '2v2'] as const).map((f) => (
-                      <TouchableOpacity key={f} style={[styles.matchTypeChip, matchFormat === f && styles.matchTypeChipSel]} onPress={() => setMatchFormat(f)} activeOpacity={0.8}>
+                    {(supports3v3 ? ['2v2', '3v3'] : ['1v1', '2v2']).map((f) => (
+                      <TouchableOpacity key={f} style={[styles.matchTypeChip, matchFormat === f && styles.matchTypeChipSel]} onPress={() => setMatchFormat(f as '1v1' | '2v2' | '3v3')} activeOpacity={0.8}>
                         <Text style={[styles.matchTypeLbl, matchFormat === f && styles.matchTypeLblSel]}>{f}</Text>
                       </TouchableOpacity>
                     ))}
@@ -633,7 +672,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
               </TouchableOpacity>
 
               <Text style={styles.label}>Notes</Text>
-              <TextInput style={[styles.input, styles.notesInput]} placeholder="Format, rules, anything else..." placeholderTextColor={colors.textSecondary} value={notes} onChangeText={setNotes} multiline />
+              <TextInput style={[styles.input, styles.notesInput]} placeholder="Notes and comments..." placeholderTextColor={colors.textSecondary} value={notes} onChangeText={setNotes} multiline />
 
               <View style={styles.summaryRow}>
                 <Ionicons name={startNow ? 'flash' : 'calendar-outline'} size={18} color={colors.textSecondary} />
@@ -648,7 +687,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
               </View>
 
               <TouchableOpacity style={[styles.cta, saving && styles.ctaDisabled]} onPress={handleSave} disabled={saving}>
-                {saving ? <ActivityIndicator color={colors.textOnPrimary} /> : <Text style={styles.ctaText}>{startNow ? 'Start match' : invitedUsers.length > 0 ? 'Send invite' : 'Create match'}</Text>}
+                {saving ? <ActivityIndicator color={colors.textOnPrimary} /> : <Text style={styles.ctaText}>{startNow ? 'Start Match' : invitedUsers.length > 0 ? 'Send invite' : 'Create match'}</Text>}
               </TouchableOpacity>
             </ScrollView>
           </View>

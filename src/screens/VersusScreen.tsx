@@ -1,8 +1,8 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
@@ -64,26 +64,45 @@ function createStyles(colors: ThemeColors) {
     },
     sportChipLabel: { ...typography.label, color: colors.textSecondary },
     sportChipLabelSelected: { color: colors.textOnPrimary },
-    rankCard: {
+    rankRow: {
       flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
+      alignItems: 'stretch',
+    },
+    rankCard: {
+      flex: 1,
+      flexDirection: 'column',
+      justifyContent: 'center',
       padding: spacing.md,
       borderRadius: borderRadius.lg,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.cardBg,
+      gap: 2,
+      marginRight: spacing.xs,
     },
-    rankLeft: {},
-    rankRight: { alignItems: 'flex-end', maxWidth: '55%' },
     rankLabel: { ...typography.caption, color: colors.textSecondary },
-    rankSport: { ...typography.heading, color: colors.text },
+    rankSport: { ...typography.label, fontSize: 14, fontWeight: '700', color: colors.text },
     rankValue: {
-      ...typography.label,
+      ...typography.caption,
+      fontSize: 12,
       color: colors.primary,
-      marginBottom: spacing.xs,
+      marginTop: 2,
     },
     rankHint: { ...typography.caption, color: colors.textSecondary },
+    leaderboardCard: {
+      flex: 1,
+      marginLeft: spacing.xs,
+      padding: spacing.md,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.cardBg,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 4,
+    },
+    leaderboardLabel: { ...typography.caption, fontSize: 11, color: colors.textSecondary, textAlign: 'center' },
+    leaderboardTitle: { ...typography.label, fontSize: 11, fontWeight: '700', color: colors.text, textAlign: 'center' },
     primaryButton: {
       borderRadius: borderRadius.lg,
       padding: spacing.lg,
@@ -153,34 +172,33 @@ export default function VersusScreen() {
     if (preferredSports.length > 0) setSport(preferredSports[0]);
   }, [preferredSports]);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     let cancelled = false;
     const load = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
-        const { data } = await supabase
-          .from('user_sport_ratings')
-          .select('vp, rank_tier, rank_div, sport_id, sports!inner(name)')
-          .eq('user_id', user.id);
+        const [ratingsRes, profRes] = await Promise.all([
+          supabase.from('user_sport_ratings').select('vp, rank_tier, rank_div, sport_id, sports!inner(name)').eq('user_id', user.id),
+          supabase.from('profiles').select('preferred_sports').eq('user_id', user.id).maybeSingle(),
+        ]);
 
-        if (!cancelled && data) {
+        if (!cancelled && ratingsRes.data) {
           const map: typeof sportRatings = {};
-          for (const r of data as any[]) {
+          for (const r of ratingsRes.data as any[]) {
             const name = r.sports?.name;
             if (name) map[name] = { rank_tier: r.rank_tier, rank_div: r.rank_div, vp: r.vp };
           }
           setSportRatings(map);
         }
 
-        const { data: prof } = await supabase.from('profiles').select('preferred_sports').eq('user_id', user.id).maybeSingle();
-        if (!cancelled && prof?.preferred_sports) setPreferredSports(prof.preferred_sports);
+        if (!cancelled && profRes.data?.preferred_sports) setPreferredSports(profRes.data.preferred_sports);
       } catch { /* swallow */ }
     };
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, []));
 
   const orderedSports = useMemo(() => {
     if (preferredSports.length === 0) return SPORTS;
@@ -230,15 +248,21 @@ export default function VersusScreen() {
             );
           })}
         </ScrollView>
-        <View style={styles.rankCard}>
-          <View style={styles.rankLeft}>
+        <View style={styles.rankRow}>
+          <View style={styles.rankCard}>
             <Text style={styles.rankLabel}>Your ranking in</Text>
-            <Text style={styles.rankSport}>{sport}</Text>
+            <Text style={styles.rankSport} numberOfLines={1}>{sport}</Text>
+            <Text style={[styles.rankValue, { color: tierColor(currentRating?.rank_tier ?? null) }]} numberOfLines={1}>{rankDisplay}</Text>
           </View>
-          <View style={styles.rankRight}>
-            <Text style={[styles.rankValue, { color: tierColor(currentRating?.rank_tier ?? null) }]}>{rankDisplay}</Text>
-            {/* <Text style={styles.rankHint}>Ranks update after verified matches.</Text> */}
-          </View>
+          <TouchableOpacity
+            style={styles.leaderboardCard}
+            onPress={() => navigation.navigate('Leaderboard')}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="trophy" size={18} color={colors.primary} />
+            <Text style={styles.leaderboardTitle}>Leaderboards</Text>
+            <Text style={styles.leaderboardLabel}>Top players</Text>
+          </TouchableOpacity>
         </View>
       </View>
 

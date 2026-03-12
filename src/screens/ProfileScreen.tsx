@@ -58,6 +58,7 @@ type MatchHistoryItem = {
 
 const SCREEN_W = Dimensions.get('window').width;
 const MAX_PREFERRED = 3;
+const GENDER_OPTIONS = ['Male', 'Female', 'Other'];
 
 type SportRating = {
   sport: string;
@@ -417,6 +418,7 @@ export default function ProfileScreen() {
     date_of_birth: string | null;
     gender: string | null;
     location: string | null;
+    bio: string | null;
   } | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editName, setEditName] = useState('');
@@ -424,6 +426,7 @@ export default function ProfileScreen() {
   const [editGender, setEditGender] = useState('');
   const [editCity, setEditCity] = useState('');
   const [editState, setEditState] = useState('');
+  const [editBio, setEditBio] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [followingCount, setFollowingCount] = useState(0);
@@ -458,12 +461,11 @@ export default function ProfileScreen() {
     setUploadingAvatar(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not signed in');
+      if (!currentUserId) throw new Error('Not signed in');
 
       const mimeType = asset.mimeType ?? 'image/jpeg';
       const ext = mimeType.split('/')[1] ?? 'jpeg';
-      const filePath = `${user.id}/avatar.${ext}`;
+      const filePath = `${currentUserId}/avatar.${ext}`;
 
       if (!asset.base64) throw new Error('Image data unavailable');
       const binaryString = atob(asset.base64);
@@ -478,7 +480,7 @@ export default function ProfileScreen() {
 
       if (uploadErr) { console.error('Avatar upload error:', uploadErr); Alert.alert('Upload failed', uploadErr.message); return; }
 
-      const { error: updateErr } = await supabase.from('profiles').update({ avatar_url: filePath }).eq('user_id', user.id);
+      const { error: updateErr } = await supabase.from('profiles').update({ avatar_url: filePath }).eq('user_id', currentUserId);
       if (updateErr) { console.error('Avatar URL save error:', updateErr); Alert.alert('Save failed', updateErr.message); return; }
 
       const signedUrl = await resolveAvatarUrl(filePath);
@@ -499,20 +501,16 @@ export default function ProfileScreen() {
       setUserEmail(user.email ?? null);
       setCurrentUserId(user.id);
 
-      const { data: p } = await supabase
-        .from('profiles')
-        .select('username, full_name, vp_total, preferred_sports, avatar_url, date_of_birth, gender, location')
-        .eq('user_id', user.id)
-        .maybeSingle();
+      // All independent queries in parallel
+      const [profileRes, fingRes, fersRes, ratingsRes, participantRes] = await Promise.all([
+        supabase.from('profiles').select('username, full_name, vp_total, preferred_sports, avatar_url, date_of_birth, gender, location, bio').eq('user_id', user.id).maybeSingle(),
+        supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', user.id).eq('status', 'accepted'),
+        supabase.from('follows').select('*', { count: 'exact', head: true }).eq('followed_id', user.id).eq('status', 'accepted'),
+        supabase.from('user_sport_ratings').select('vp, rank_tier, rank_div, wins, losses, sports!inner(name)').eq('user_id', user.id),
+        supabase.from('match_participants').select('match_id').eq('user_id', user.id),
+      ]);
 
-      const { count: fing } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', user.id).eq('status', 'accepted');
-      const { count: fers } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('followed_id', user.id).eq('status', 'accepted');
-
-      const { data: ratings } = await supabase
-        .from('user_sport_ratings')
-        .select('vp, rank_tier, rank_div, wins, losses, sports!inner(name)')
-        .eq('user_id', user.id);
-
+      const p = profileRes.data;
       setProfile({
         username: p?.username ?? null,
         full_name: p?.full_name ?? null,
@@ -522,31 +520,30 @@ export default function ProfileScreen() {
         date_of_birth: p?.date_of_birth ?? null,
         gender: p?.gender ?? null,
         location: p?.location ?? null,
+        bio: p?.bio ?? null,
       });
-      if (p?.avatar_url) {
-        const resolved = await resolveAvatarUrl(p.avatar_url);
-        if (resolved) setAvatarUri(resolved);
-      }
-      setFollowingCount(fing ?? 0);
-      setFollowerCount(fers ?? 0);
-      if (ratings) {
-        setSportRatings((ratings as any[]).map((r) => ({
+      setFollowingCount(fingRes.count ?? 0);
+      setFollowerCount(fersRes.count ?? 0);
+      if (ratingsRes.data) {
+        setSportRatings((ratingsRes.data as any[]).map((r) => ({
           sport: r.sports?.name ?? '?',
           rank_tier: r.rank_tier, rank_div: r.rank_div,
           vp: r.vp, wins: r.wins, losses: r.losses,
         })));
       }
 
-      const { data: feedRows } = await supabase
-        .from('match_feed')
-        .select('id, sport_name, match_type, status, created_at, scheduled_at, started_at, location_name, match_format, is_public, participants, games')
-        .order('created_at', { ascending: false })
-        .limit(80);
-      const rows = (feedRows ?? []) as MatchHistoryItem[];
-      const myMatches = rows.filter((m) =>
-        (m.participants ?? []).some((p: { user_id?: string }) => String(p?.user_id) === String(user.id))
-      );
-      setMatchHistory(myMatches.slice(0, 30));
+      const matchIds = (participantRes.data ?? []).map((r: any) => r.match_id as string);
+
+      // Resolve avatar and fetch match history in parallel — match history filtered at DB level
+      const [resolvedAvatar, feedRes] = await Promise.all([
+        resolveAvatarUrl(p?.avatar_url ?? null),
+        matchIds.length > 0
+          ? supabase.from('match_feed').select('id, sport_name, match_type, status, created_at, scheduled_at, started_at, location_name, match_format, is_public, participants, games').in('id', matchIds).order('created_at', { ascending: false }).limit(30)
+          : Promise.resolve({ data: [] as any[] }),
+      ]);
+
+      if (resolvedAvatar) setAvatarUri(resolvedAvatar);
+      setMatchHistory((feedRes.data ?? []) as MatchHistoryItem[]);
     } catch { /* swallow */ } finally { setLoadingProfile(false); }
   }, []);
 
@@ -635,7 +632,7 @@ export default function ProfileScreen() {
   };
 
   const togglePreferred = async (sport: string) => {
-    if (!profile) return;
+    if (!profile || !currentUserId) return;
     const current = [...(profile.preferred_sports ?? [])];
     const idx = current.indexOf(sport);
     if (idx >= 0) current.splice(idx, 1);
@@ -644,9 +641,7 @@ export default function ProfileScreen() {
     setProfile({ ...profile, preferred_sports: current });
     setSavingPrefs(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { error: updateErr } = await supabase.from('profiles').update({ preferred_sports: current }).eq('user_id', user.id);
+      const { error: updateErr } = await supabase.from('profiles').update({ preferred_sports: current }).eq('user_id', currentUserId);
       if (updateErr) { console.error('Preferred sports save error:', updateErr); Alert.alert('Save failed', updateErr.message ?? 'Could not update.'); }
     } catch (e) { console.error('Preferred sports save error:', e); }
     finally { setSavingPrefs(false); }
@@ -659,21 +654,22 @@ export default function ProfileScreen() {
     const locParts = (profile?.location ?? '').split(', ');
     setEditCity(locParts[0] ?? '');
     setEditState(locParts.slice(1).join(', '));
+    setEditBio(profile?.bio ?? '');
     setShowEditModal(true);
   };
 
   const saveProfileEdits = async () => {
+    if (!currentUserId) return;
     setSavingEdit(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
       const updates: Record<string, any> = {
         full_name: editName.trim() || null,
         date_of_birth: editDob.trim() || null,
         gender: editGender.trim() || null,
         location: [editCity.trim(), editState.trim()].filter(Boolean).join(', ') || null,
+        bio: editBio.trim() || null,
       };
-      const { error } = await supabase.from('profiles').update(updates).eq('user_id', user.id);
+      const { error } = await supabase.from('profiles').update(updates).eq('user_id', currentUserId);
       if (error) { Alert.alert('Save failed', error.message); return; }
       setProfile((prev) => prev ? { ...prev, ...updates } : prev);
       setShowEditModal(false);
@@ -684,7 +680,6 @@ export default function ProfileScreen() {
     }
   };
 
-  const GENDER_OPTIONS = ['Male', 'Female', 'Other'];
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -732,6 +727,9 @@ export default function ProfileScreen() {
               <Text style={[styles.userHandle, profile?.location ? { marginBottom: 2 } : null]}>@{profile?.username || 'username'}</Text>
               {profile?.location ? (
                 <Text style={styles.userHandle}>{profile.location}</Text>
+              ) : null}
+              {profile?.bio ? (
+                <Text style={[styles.userHandle, { marginTop: 6, marginHorizontal: spacing.md, textAlign: 'center', color: colors.text }]}>{profile.bio}</Text>
               ) : null}
               <View style={styles.socialRow}>
                 <View style={styles.socialItem}>
@@ -838,7 +836,8 @@ export default function ProfileScreen() {
                   const myPart = (m.participants ?? []).find((p: { user_id?: string }) => String(p?.user_id) === String(currentUserId));
                   const others = (m.participants ?? []).filter((p: { user_id?: string }) => String(p?.user_id) !== String(currentUserId));
                   const opponentNames = others.map((p: { full_name?: string | null; username?: string | null }) => p?.full_name || p?.username || 'Opponent').join(', ');
-                  const result = myPart?.result === 'win' ? 'Win' : myPart?.result === 'loss' ? 'Loss' : myPart?.result === 'draw' ? 'Draw' : m.status === 'completed' ? '—' : m.status;
+                  const isPractice = m.match_type === 'practice';
+                  const result = isPractice ? 'Practice' : myPart?.result === 'win' ? 'Win' : myPart?.result === 'loss' ? 'Loss' : myPart?.result === 'draw' ? 'Draw' : m.status === 'completed' ? '—' : m.status;
                   const games = (m.games ?? []).filter((g: { score_challenger: number; score_opponent: number }) => g.score_challenger > 0 || g.score_opponent > 0);
                   const scoreStr = games.length > 0
                     ? games.map((g: { score_challenger: number; score_opponent: number }) => `${g.score_challenger}-${g.score_opponent}`).join(', ')
@@ -982,6 +981,17 @@ export default function ProfileScreen() {
                   placeholderTextColor={colors.textSecondary}
                   autoCapitalize="characters"
                   maxLength={50}
+                />
+
+                <Text style={styles.editLabel}>Bio</Text>
+                <TextInput
+                  style={[styles.editInput, { height: 80, paddingTop: 10, textAlignVertical: 'top' }]}
+                  value={editBio}
+                  onChangeText={setEditBio}
+                  placeholder="Tell people about yourself..."
+                  placeholderTextColor={colors.textSecondary}
+                  multiline
+                  maxLength={200}
                 />
 
                 <TouchableOpacity

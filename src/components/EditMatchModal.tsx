@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { supabase } from '../lib/supabase';
-import { SPORTS_2V2 } from '../constants/sports';
+import { SPORTS_2V2, SPORTS_2V2_ONLY } from '../constants/sports';
 import LocationPickerModal from './LocationPickerModal';
 import type { PickedLocation } from './LocationPickerModal';
 
@@ -66,14 +66,15 @@ function makeStyles(c: ThemeColors) {
     matchTypeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
     matchTypeChip: {
       flex: 1,
-      minHeight: 48,
-      paddingVertical: spacing.sm,
+      height: 36,
       borderRadius: borderRadius.md,
       borderWidth: 1,
       borderColor: c.border,
       backgroundColor: c.background,
-      alignItems: 'center',
-      justifyContent: 'center',
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      gap: 5,
     },
     matchTypeChipSel: { backgroundColor: c.primary, borderColor: c.primaryDark },
     matchTypeLbl: { ...typography.label, color: c.textSecondary },
@@ -171,10 +172,16 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
   const isParticipant = !!(currentUserId && match?.participants?.some(p => p.user_id === currentUserId));
   const is2v2 = match?.match_format === '2v2';
   const isRanked = match?.match_type?.toLowerCase() === 'ranked';
+  const isCasual = match?.match_type?.toLowerCase() === 'casual';
+
+  const [winnerRole, setWinnerRole] = useState<'challenger' | 'opponent' | 'draw'>('draw');
+  const [challengerScore, setChallengerScore] = useState('');
+  const [opponentScore, setOpponentScore] = useState('');
   // Casual / practice: all participants can edit. Ranked: creator only.
   const canEdit = isCreator || (!isRanked && isParticipant);
 
   const supports2v2 = match ? SPORTS_2V2.includes(match.sport_name) : false;
+  const only2v2 = match ? SPORTS_2V2_ONLY.includes(match.sport_name) : false;
   const canEditFormat = match && match.status !== 'in_progress' && match.status !== 'completed';
 
   useEffect(() => {
@@ -192,6 +199,20 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
         if (p.role === 'challenger' || p.role === 'opponent') roles[p.user_id] = p.role;
       }
       setTeamRoles(roles);
+
+      if (match.match_type?.toLowerCase() === 'casual') {
+        supabase.from('match_participants').select('role, result, score').eq('match_id', match.id)
+          .then(({ data }) => {
+            if (!data) return;
+            const chal = (data as any[]).find(p => p.role === 'challenger');
+            const opp = (data as any[]).find(p => p.role === 'opponent');
+            if (chal?.result === 'win') setWinnerRole('challenger');
+            else if (opp?.result === 'win') setWinnerRole('opponent');
+            else setWinnerRole('draw');
+            setChallengerScore(chal?.score ?? '');
+            setOpponentScore(opp?.score ?? '');
+          });
+      }
       if (match.scheduled_at) {
         const d = new Date(match.scheduled_at);
         let h = d.getHours();
@@ -244,6 +265,18 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
       if (canEditFormat) updates.match_format = matchFormat;
 
       await supabase.from('matches').update(updates).eq('id', match.id);
+
+      if (isCasual) {
+        const challResult = winnerRole === 'challenger' ? 'win' : winnerRole === 'opponent' ? 'loss' : 'draw';
+        const oppResult = winnerRole === 'opponent' ? 'win' : winnerRole === 'challenger' ? 'loss' : 'draw';
+        const challengers = (match.participants ?? []).filter(p => p.role === 'challenger');
+        const opponents = (match.participants ?? []).filter(p => p.role === 'opponent');
+        await Promise.all([
+          ...challengers.map(p => supabase.from('match_participants').update({ result: challResult, score: challengerScore.trim() || null }).eq('match_id', match.id).eq('user_id', p.user_id)),
+          ...opponents.map(p => supabase.from('match_participants').update({ result: oppResult, score: opponentScore.trim() || null }).eq('match_id', match.id).eq('user_id', p.user_id)),
+        ]);
+      }
+
       onClose();
       onSaved?.();
     } catch (e: any) {
@@ -376,16 +409,16 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                   <Text style={styles.label}>Visibility</Text>
                   <View style={styles.matchTypeRow}>
                     <TouchableOpacity style={[styles.matchTypeChip, isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(true)} activeOpacity={0.8}>
-                      <Ionicons name="globe-outline" size={16} color={isPublic ? colors.textOnPrimary : colors.textSecondary} style={{ marginBottom: 2 }} />
+                      <Ionicons name="globe-outline" size={16} color={isPublic ? colors.textOnPrimary : colors.textSecondary} />
                       <Text style={[styles.matchTypeLbl, isPublic && styles.matchTypeLblSel]}>Public</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={[styles.matchTypeChip, !isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(false)} activeOpacity={0.8}>
-                      <Ionicons name="lock-closed-outline" size={16} color={!isPublic ? colors.textOnPrimary : colors.textSecondary} style={{ marginBottom: 2 }} />
+                      <Ionicons name="lock-closed-outline" size={16} color={!isPublic ? colors.textOnPrimary : colors.textSecondary} />
                       <Text style={[styles.matchTypeLbl, !isPublic && styles.matchTypeLblSel]}>Private</Text>
                     </TouchableOpacity>
                   </View>
 
-                  {canEditFormat && supports2v2 && (
+                  {canEditFormat && supports2v2 && !only2v2 && (
                     <>
                       <Text style={styles.label}>Format</Text>
                       <View style={styles.matchTypeRow}>
@@ -427,8 +460,59 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                     </Text>
                   </TouchableOpacity>
 
+                  {isCasual && (() => {
+                    const challName = (match.participants ?? []).find(p => p.role === 'challenger')?.full_name
+                      ?? (match.participants ?? []).find(p => p.role === 'challenger')?.username
+                      ?? 'Challenger';
+                    const oppName = (match.participants ?? []).find(p => p.role === 'opponent')?.full_name
+                      ?? (match.participants ?? []).find(p => p.role === 'opponent')?.username
+                      ?? 'Opponent';
+                    return (
+                      <>
+                        <Text style={styles.label}>Winner</Text>
+                        <View style={styles.matchTypeRow}>
+                          {(['challenger', 'opponent', 'draw'] as const).map((opt) => {
+                            const label = opt === 'draw' ? 'Draw' : opt === 'challenger' ? challName : oppName;
+                            const icon = opt === 'draw' ? 'remove-circle-outline' : 'trophy-outline';
+                            const sel = winnerRole === opt;
+                            return (
+                              <TouchableOpacity key={opt} style={[styles.matchTypeChip, sel && styles.matchTypeChipSel]} onPress={() => setWinnerRole(opt)} activeOpacity={0.8}>
+                                <Ionicons name={icon as any} size={14} color={sel ? colors.textOnPrimary : colors.textSecondary} />
+                                <Text style={[styles.matchTypeLbl, sel && styles.matchTypeLblSel]} numberOfLines={1}>{label}</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                        <Text style={styles.label}>Score</Text>
+                        <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.md, alignItems: 'flex-end' }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.label, { textAlign: 'center', marginBottom: 4 }]} numberOfLines={1}>{challName}</Text>
+                            <TextInput
+                              style={[styles.input, { marginBottom: 0, textAlign: 'center' }]}
+                              placeholder="e.g. 21-15"
+                              placeholderTextColor={colors.textSecondary}
+                              value={challengerScore}
+                              onChangeText={setChallengerScore}
+                            />
+                          </View>
+                          <Text style={{ color: colors.textSecondary, fontWeight: '700', paddingBottom: spacing.sm, fontSize: 13 }}>vs</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.label, { textAlign: 'center', marginBottom: 4 }]} numberOfLines={1}>{oppName}</Text>
+                            <TextInput
+                              style={[styles.input, { marginBottom: 0, textAlign: 'center' }]}
+                              placeholder="e.g. 15-21"
+                              placeholderTextColor={colors.textSecondary}
+                              value={opponentScore}
+                              onChangeText={setOpponentScore}
+                            />
+                          </View>
+                        </View>
+                      </>
+                    );
+                  })()}
+
                   <Text style={styles.label}>Notes</Text>
-                  <TextInput style={[styles.input, styles.notesInput]} placeholder="Format, rules, anything else..." placeholderTextColor={colors.textSecondary} value={notes} onChangeText={setNotes} multiline />
+                  <TextInput style={[styles.input, styles.notesInput]} placeholder="Notes and comments..." placeholderTextColor={colors.textSecondary} value={notes} onChangeText={setNotes} multiline />
 
                   <TouchableOpacity
                     style={[styles.cta, saving && styles.ctaDisabled]}

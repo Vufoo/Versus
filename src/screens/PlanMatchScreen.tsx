@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -249,28 +250,39 @@ export default function PlanMatchScreen() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [allMatches, setAllMatches] = useState<UpcomingMatch[]>([]);
   const [loadingMatches, setLoadingMatches] = useState(true);
-
-  useEffect(() => {
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) setCurrentUserId(user.id);
-    })();
-  }, []);
+  const [preferredSports, setPreferredSports] = useState<string[]>([]);
 
   const loadMatches = useCallback(async () => {
     setLoadingMatches(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase
+      setCurrentUserId(user.id);
+
+      // Fetch preferred_sports and participant match IDs in parallel
+      const [profResult, participantResult] = await Promise.all([
+        supabase.from('profiles').select('preferred_sports').eq('user_id', user.id).maybeSingle(),
+        supabase.from('match_participants').select('match_id').eq('user_id', user.id),
+      ]);
+      if (profResult.data?.preferred_sports) setPreferredSports(profResult.data.preferred_sports);
+
+      const participantMatchIds = (participantResult.data ?? []).map((r: any) => r.match_id as string);
+
+      // Filter at DB level — avoids fetching 100 global matches and slicing client-side
+      let query = supabase
         .from('match_feed')
-        .select('*')
-        .order('scheduled_at', { ascending: true })
-        .limit(100);
-      const mine = (data ?? []).filter((m: any) =>
-        m.created_by === user.id || (m.participants ?? []).some((p: any) => p.user_id === user.id),
-      );
-      setAllMatches(mine as UpcomingMatch[]);
+        .select('id, sport_name, status, match_type, scheduled_at, location_name, participants, created_by')
+        .not('status', 'eq', 'canceled')
+        .order('scheduled_at', { ascending: true });
+
+      if (participantMatchIds.length > 0) {
+        query = query.or(`created_by.eq.${user.id},id.in.(${participantMatchIds.join(',')})`);
+      } else {
+        query = query.eq('created_by', user.id);
+      }
+
+      const { data } = await query;
+      setAllMatches((data ?? []) as UpcomingMatch[]);
     } catch { /* swallow */ }
     finally { setLoadingMatches(false); }
   }, []);
@@ -312,7 +324,7 @@ export default function PlanMatchScreen() {
       case 'confirmed': return colors.success;
       case 'in_progress': return colors.success;
       case 'pending': return colors.warning;
-      case 'completed': return colors.textSecondary;
+      case 'completed': return colors.success;
       default: return colors.textSecondary;
     }
   };
@@ -402,12 +414,14 @@ export default function PlanMatchScreen() {
       </View>
 
       <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxl }}>
-        {selectedDayMatches.length === 0 && (
+        {loadingMatches ? (
+          <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xl }} />
+        ) : selectedDayMatches.length === 0 ? (
           <Text style={styles.emptyText}>
             No matches on this day.{'\n'}Tap "New Match" to schedule one.
           </Text>
-        )}
-        {selectedDayMatches.map((m) => {
+        ) : null}
+        {!loadingMatches && selectedDayMatches.map((m) => {
           const d = m.scheduled_at ? new Date(m.scheduled_at) : null;
           const timeStr = d ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
           const opponent = (m.participants ?? []).find((p: any) => p.user_id !== currentUserId);
@@ -442,6 +456,7 @@ export default function PlanMatchScreen() {
         onCreated={() => { loadMatches(); setModalVisible(false); }}
         colors={colors}
         initialDate={selectedDayId}
+        preferredSports={preferredSports}
       />
     </View>
   );

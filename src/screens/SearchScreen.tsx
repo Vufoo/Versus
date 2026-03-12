@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  FlatList,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -12,8 +14,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ThemeColors } from '../constants/theme';
-import { supabase } from '../lib/supabase';
+import { supabase, resolveAvatarUrl } from '../lib/supabase';
 import UserSearch from '../components/UserSearch';
+import type { SearchedUser } from '../components/UserSearch';
 
 function createSearchStyles(colors: ThemeColors) {
   return StyleSheet.create({
@@ -51,6 +54,36 @@ function createSearchStyles(colors: ThemeColors) {
     addBtnMuted: { backgroundColor: colors.border },
     addBtnText: { ...typography.label, color: colors.textOnPrimary },
     addBtnTextMuted: { color: colors.text },
+    recSection: { marginTop: spacing.lg },
+    recTitle: {
+      ...typography.label,
+      color: colors.textSecondary,
+      textTransform: 'uppercase',
+      fontSize: 11,
+      marginBottom: spacing.sm,
+    },
+    recRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: spacing.sm + 2,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.divider ?? colors.border,
+      gap: spacing.md,
+    },
+    avatar: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarImg: { width: 40, height: 40, borderRadius: 20 },
+    initials: { fontSize: 14, fontWeight: '700', color: colors.textOnPrimary },
+    info: { flex: 1 },
+    name: { ...typography.body, fontSize: 14, fontWeight: '600', color: colors.text },
+    handle: { ...typography.caption, color: colors.textSecondary },
+    recLoader: { paddingVertical: spacing.lg, alignItems: 'center' },
   });
 }
 
@@ -63,25 +96,56 @@ export default function SearchScreen() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [followStates, setFollowStates] = useState<Record<string, 'none' | 'pending' | 'accepted'>>({});
   const [togglingFollow, setTogglingFollow] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const [recommended, setRecommended] = useState<SearchedUser[]>([]);
+  const [recLoading, setRecLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setCurrentUserId(user.id);
+
       const { data: fRows } = await supabase
         .from('follows')
         .select('followed_id, status')
         .eq('follower_id', user.id);
+      const map: Record<string, 'pending' | 'accepted'> = {};
       if (fRows) {
-        const map: Record<string, 'pending' | 'accepted'> = {};
         for (const r of fRows as { followed_id: string; status: string }[]) map[r.followed_id] = r.status as 'pending' | 'accepted';
         setFollowStates(map);
       }
+
+      // Fetch recommended: top players by vp not already followed
+      setRecLoading(true);
+      try {
+        const followedIds = Object.keys(map);
+        const { data: recData } = await supabase
+          .from('profiles')
+          .select('user_id, username, full_name, avatar_url, vp_total')
+          .neq('user_id', user.id)
+          .not('user_id', 'in', followedIds.length > 0 ? `(${followedIds.join(',')})` : '(00000000-0000-0000-0000-000000000000)')
+          .order('vp_total', { ascending: false })
+          .limit(10);
+
+        if (recData) {
+          const resolved = await Promise.all(
+            (recData as any[]).map(async (u) => ({
+              user_id: u.user_id,
+              username: u.username,
+              full_name: u.full_name,
+              avatar_url: (await resolveAvatarUrl(u.avatar_url)) ?? u.avatar_url,
+            })),
+          );
+          setRecommended(resolved);
+        }
+      } catch { /* swallow */ }
+      finally { setRecLoading(false); }
     })();
   }, []);
 
-  const sendFollowRequest = async (targetUserId: string) => {
+  const sendFollowRequest = useCallback(async (targetUserId: string) => {
     if (!currentUserId || togglingFollow) return;
     setTogglingFollow(targetUserId);
     try {
@@ -94,12 +158,8 @@ export default function SearchScreen() {
         setFollowStates((prev) => ({ ...prev, [targetUserId]: 'pending' }));
 
         const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
-        const displayName = (myProfile as { full_name?: string; username?: string })?.full_name ?? (myProfile as { full_name?: string; username?: string })?.username ?? 'Someone';
-        await supabase
-          .from('notifications')
-          .delete()
-          .match({ user_id: targetUserId, type: 'follow_request' })
-          .eq('data->>from_user_id', String(currentUserId));
+        const displayName = (myProfile as any)?.full_name ?? (myProfile as any)?.username ?? 'Someone';
+        await supabase.from('notifications').delete().match({ user_id: targetUserId, type: 'follow_request' }).eq('data->>from_user_id', String(currentUserId));
         await supabase.from('notifications').insert({
           user_id: targetUserId,
           type: 'follow_request',
@@ -110,7 +170,32 @@ export default function SearchScreen() {
       }
     } catch { /* swallow */ }
     finally { setTogglingFollow(null); }
+  }, [currentUserId, followStates, togglingFollow]);
+
+  const renderFollowBtn = (user: SearchedUser) => {
+    const state = followStates[user.user_id] ?? 'none';
+    const label = state === 'accepted' ? 'Following' : state === 'pending' ? 'Pending' : 'Follow';
+    const isMuted = state !== 'none';
+    return (
+      <TouchableOpacity
+        style={[styles.addBtn, isMuted && styles.addBtnMuted]}
+        activeOpacity={0.8}
+        onPress={() => sendFollowRequest(user.user_id)}
+        disabled={togglingFollow === user.user_id}
+      >
+        {togglingFollow === user.user_id ? (
+          <ActivityIndicator size="small" color={isMuted ? colors.text : colors.textOnPrimary} />
+        ) : (
+          <Text style={[styles.addBtnText, isMuted && styles.addBtnTextMuted]}>{label}</Text>
+        )}
+      </TouchableOpacity>
+    );
   };
+
+  const getInitials = (u: SearchedUser) =>
+    (u.full_name ?? u.username ?? '?').split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2);
+
+  const showRecommended = searchQuery.trim().length < 2;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -122,32 +207,50 @@ export default function SearchScreen() {
         <View style={{ width: 40 }} />
       </View>
       <View style={styles.content}>
-        <Text style={styles.hint}>Search by username or name (min 2 characters)</Text>
+        <Text style={styles.hint}>Search by username or name</Text>
         <UserSearch
           colors={colors}
           excludeUserId={currentUserId ?? undefined}
           placeholder="Search by username or name..."
           onSelect={(user) => navigation.navigate('UserProfile', { userId: user.user_id })}
-          renderAction={(user) => {
-            const state = followStates[user.user_id] ?? 'none';
-            const label = state === 'accepted' ? 'Following' : state === 'pending' ? 'Pending' : 'Follow';
-            const isMuted = state !== 'none';
-            return (
-              <TouchableOpacity
-                style={[styles.addBtn, isMuted && styles.addBtnMuted]}
-                activeOpacity={0.8}
-                onPress={() => sendFollowRequest(user.user_id)}
-                disabled={togglingFollow === user.user_id}
-              >
-                {togglingFollow === user.user_id ? (
-                  <ActivityIndicator size="small" color={isMuted ? colors.text : colors.textOnPrimary} />
-                ) : (
-                  <Text style={[styles.addBtnText, isMuted && styles.addBtnTextMuted]}>{label}</Text>
-                )}
-              </TouchableOpacity>
-            );
-          }}
+          onQueryChange={setSearchQuery}
+          renderAction={(user) => renderFollowBtn(user)}
         />
+
+        {showRecommended && (
+          <View style={styles.recSection}>
+            <Text style={styles.recTitle}>Suggested for you</Text>
+            {recLoading ? (
+              <View style={styles.recLoader}><ActivityIndicator color={colors.primary} /></View>
+            ) : (
+              <FlatList
+                data={recommended}
+                keyExtractor={(item) => item.user_id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.recRow}
+                    onPress={() => navigation.navigate('UserProfile', { userId: item.user_id })}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.avatar}>
+                      {item.avatar_url ? (
+                        <Image source={{ uri: item.avatar_url }} style={styles.avatarImg} />
+                      ) : (
+                        <Text style={styles.initials}>{getInitials(item)}</Text>
+                      )}
+                    </View>
+                    <View style={styles.info}>
+                      <Text style={styles.name} numberOfLines={1}>{item.full_name ?? item.username ?? 'Unknown'}</Text>
+                      {item.username ? <Text style={styles.handle}>@{item.username}</Text> : null}
+                    </View>
+                    {renderFollowBtn(item)}
+                  </TouchableOpacity>
+                )}
+                scrollEnabled={false}
+              />
+            )}
+          </View>
+        )}
       </View>
     </View>
   );

@@ -1,13 +1,36 @@
+import { NativeModules } from 'react-native';
 import { supabase } from './supabase';
+import Constants from 'expo-constants';
 
 /**
  * Registers the device push token with the user's profile.
- * This requires a native build (expo run:ios or EAS Build) — not Expo Go.
- * To enable: install expo-notifications, add the native module calls here,
- * and rebuild. The push_token column in profiles is already set up for this.
+ * Requires a native build (EAS Build / expo run:ios).
+ * No-ops silently in Expo Go where the native module is unavailable.
  */
 export async function registerPushToken(): Promise<void> {
-  // No-op in Expo Go. Implement with expo-notifications in a native build.
+  // NativeModules.ExpoPushTokenManager is undefined in Expo Go — skip entirely
+  // so no import of expo-notifications even runs
+  if (!NativeModules.ExpoPushTokenManager) return;
+
+  try {
+    const Notifications = await import('expo-notifications');
+    const { status } = await Notifications.requestPermissionsAsync();
+    if (status !== 'granted') return;
+
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
+    const tokenResult = await Notifications.getExpoPushTokenAsync(
+      projectId ? { projectId } : undefined,
+    );
+    const token = tokenResult.data;
+    if (!token) return;
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    await supabase.from('profiles').update({ push_token: token }).eq('user_id', user.id);
+  } catch {
+    // Push registration failure is non-critical
+  }
 }
 
 /**

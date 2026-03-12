@@ -25,7 +25,13 @@ export const SPORTS = [
 export type SportName = (typeof SPORTS)[number];
 
 /** Sports that support 2v2 format */
-export const SPORTS_2V2: readonly string[] = ['Tennis', 'Ping Pong', 'Basketball'];
+export const SPORTS_2V2: readonly string[] = ['Tennis', 'Ping Pong', 'Basketball', 'Volleyball'];
+
+/** Sports that only support 2v2 (1v1 option not shown) */
+export const SPORTS_2V2_ONLY: readonly string[] = [];
+
+/** Sports that support 3v3 format (and default to 2v2, no 1v1) */
+export const SPORTS_3V3: readonly string[] = ['Volleyball'];
 
 export function sportLabel(name: string): string {
   return `${SPORT_EMOJI[name] ?? '\u{1F3C6}'} ${name}`;

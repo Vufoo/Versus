@@ -347,6 +347,13 @@ function FeedCard({
   const [commentBody, setCommentBody] = useState('');
   const [commentPosting, setCommentPosting] = useState(false);
   const [commentsCount, setCommentsCount] = useState(item.comments_count);
+  const [currentUserCommentProfile, setCurrentUserCommentProfile] = useState<{ username: string | null; full_name: string | null } | null>(null);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle()
+      .then(({ data }) => { if (data) setCurrentUserCommentProfile(data as { username: string | null; full_name: string | null }); });
+  }, [currentUserId]);
 
   const [likersModalVisible, setLikersModalVisible] = useState(false);
   const [likers, setLikers] = useState<Liker[]>([]);
@@ -475,8 +482,8 @@ function FeedCard({
       user_id: currentUserId,
       body,
       created_at: new Date().toISOString(),
-      username: null,
-      full_name: null,
+      username: currentUserCommentProfile?.username ?? null,
+      full_name: currentUserCommentProfile?.full_name ?? null,
     };
     setComments((prev) => [...prev, tempComment]);
     setCommentsCount((c) => c + 1);
@@ -1778,8 +1785,8 @@ function FeedCard({
                 disabled={startStopLoading || !canStart}
                 activeOpacity={0.8}
               >
-                <Ionicons name="play" size={14} color={colors.textOnPrimary} />
-                <Text style={styles.startButtonText}>Start match</Text>
+                <Ionicons name="play" size={14} color={colors.primary} />
+                <Text style={styles.startButtonText}>{item.match_type === 'practice' ? 'Start Practice' : 'Start Match'}</Text>
               </TouchableOpacity>
             )}
             {item.status === 'in_progress' && (
@@ -1790,7 +1797,7 @@ function FeedCard({
                   disabled={startStopLoading}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="pause" size={14} color="#FFF" />
+                  <Ionicons name="pause" size={14} color={colors.error} />
                   <Text style={styles.pauseButtonText}>Pause</Text>
                 </TouchableOpacity>
                 {isPractice ? (
@@ -1800,7 +1807,7 @@ function FeedCard({
                     disabled={startStopLoading}
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="flag" size={14} color={colors.textOnPrimary} />
+                    <Ionicons name="flag" size={14} color={colors.primary} />
                     <Text style={styles.startButtonText}>Finish</Text>
                   </TouchableOpacity>
                 ) : isRanked && (() => {
@@ -1821,7 +1828,7 @@ function FeedCard({
                           disabled={startStopLoading}
                           activeOpacity={0.8}
                         >
-                          <Ionicons name="close-circle" size={14} color={colors.textOnPrimary} />
+                          <Ionicons name="close-circle" size={14} color={colors.error} />
                           <Text style={styles.deleteButtonText}>Cancel finish</Text>
                         </TouchableOpacity>
                       </View>
@@ -1834,7 +1841,7 @@ function FeedCard({
                       disabled={startStopLoading}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="flag" size={14} color={colors.textOnPrimary} />
+                      <Ionicons name="flag" size={14} color={colors.primary} />
                       <Text style={styles.startButtonText}>
                         {finishCount > 0 ? `Finish (${finishCount}/2)` : 'Finish'}
                       </Text>
@@ -1851,7 +1858,7 @@ function FeedCard({
                   disabled={startStopLoading}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="play" size={14} color="#FFF" />
+                  <Ionicons name="play" size={14} color={colors.success} />
                   <Text style={styles.resumeButtonText}>Resume</Text>
                 </TouchableOpacity>
                 {isRanked && !isPractice ? (() => {
@@ -1872,7 +1879,7 @@ function FeedCard({
                           disabled={startStopLoading}
                           activeOpacity={0.8}
                         >
-                          <Ionicons name="close-circle" size={14} color={colors.textOnPrimary} />
+                          <Ionicons name="close-circle" size={14} color={colors.error} />
                           <Text style={styles.deleteButtonText}>Cancel finish</Text>
                         </TouchableOpacity>
                       </View>
@@ -1885,7 +1892,7 @@ function FeedCard({
                       disabled={startStopLoading}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="flag" size={14} color={colors.textOnPrimary} />
+                      <Ionicons name="flag" size={14} color={colors.primary} />
                       <Text style={styles.startButtonText}>
                         {finishCount > 0 ? `Finish (${finishCount}/2)` : 'Finish'}
                       </Text>
@@ -1898,7 +1905,7 @@ function FeedCard({
                     disabled={startStopLoading}
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="flag" size={14} color={colors.textOnPrimary} />
+                    <Ionicons name="flag" size={14} color={colors.primary} />
                     <Text style={styles.startButtonText}>Finish</Text>
                   </TouchableOpacity>
                 )}
@@ -1924,7 +1931,7 @@ function FeedCard({
                       disabled={deleteLoading}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="close-circle" size={14} color={colors.textOnPrimary} />
+                      <Ionicons name="close-circle" size={14} color={colors.error} />
                       <Text style={styles.deleteButtonText}>Cancel delete</Text>
                     </TouchableOpacity>
                   </View>
@@ -1944,7 +1951,7 @@ function FeedCard({
                   disabled={deleteLoading}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name={cancelBtnIcon} size={14} color={colors.textOnPrimary} />
+                  <Ionicons name={cancelBtnIcon} size={14} color={colors.error} />
                   <Text style={styles.deleteButtonText}>{cancelBtnLabel}</Text>
                 </TouchableOpacity>
               );
@@ -2128,7 +2135,7 @@ function FeedCard({
           activeOpacity={0.8}
         >
           <Ionicons name="chatbubble-outline" size={17} color={colors.textSecondary} />
-          <Text style={styles.actionLabel}>{commentsCount > 0 ? `${commentsCount} ` : ''}Comment</Text>
+          <Text style={styles.actionLabel}>{commentsCount > 0 ? `${commentsCount} ` : ''}Comments</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionBtn} onPress={handleShare} activeOpacity={0.8}>
           <Ionicons name="share-outline" size={17} color={colors.textSecondary} />
@@ -2156,7 +2163,7 @@ function FeedCard({
                       {c.full_name || c.username || 'Someone'}
                     </Text>
                     <Text style={styles.commentDate}>
-                      {c.created_at ? new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
+                      {c.created_at ? (() => { const d = new Date(c.created_at); const now = new Date(); const diffH = (now.getTime() - d.getTime()) / 3600000; if (diffH < 1) return `${Math.max(1, Math.floor(diffH * 60))}m ago`; if (diffH < 24) return `${Math.floor(diffH)}h ago`; return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); })() : ''}
                     </Text>
                   </View>
                   <Text style={styles.commentBody}>{c.body}</Text>
@@ -2590,13 +2597,15 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: 4,
-      backgroundColor: colors.primary,
+      backgroundColor: 'transparent',
+      borderWidth: 1.5,
+      borderColor: colors.primary,
       paddingHorizontal: 11,
       paddingVertical: 6,
       borderRadius: borderRadius.sm,
       minWidth: 95,
     },
-    startButtonText: { ...typography.label, fontSize: 11, color: colors.textOnPrimary },
+    startButtonText: { ...typography.label, fontSize: 11, color: colors.primary },
     readyUpCenterButton: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -2636,25 +2645,29 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: 4,
-      backgroundColor: colors.error,
+      backgroundColor: 'transparent',
+      borderWidth: 1.5,
+      borderColor: colors.error,
       paddingHorizontal: 11,
       paddingVertical: 6,
       borderRadius: borderRadius.sm,
       minWidth: 95,
     },
-    pauseButtonText: { ...typography.label, fontSize: 11, color: '#FFF' },
+    pauseButtonText: { ...typography.label, fontSize: 11, color: colors.error },
     resumeButton: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
       gap: 4,
-      backgroundColor: colors.success,
+      backgroundColor: 'transparent',
+      borderWidth: 1.5,
+      borderColor: colors.success,
       paddingHorizontal: 11,
       paddingVertical: 6,
       borderRadius: borderRadius.sm,
       minWidth: 95,
     },
-    resumeButtonText: { ...typography.label, fontSize: 11, color: '#FFF' },
+    resumeButtonText: { ...typography.label, fontSize: 11, color: colors.success },
     scoreEditRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -2693,11 +2706,13 @@ function createHomeStyles(colors: ThemeColors) {
       gap: 4,
       paddingHorizontal: 11,
       paddingVertical: 6,
-      backgroundColor: colors.error,
+      backgroundColor: 'transparent',
+      borderWidth: 1.5,
+      borderColor: colors.error,
       borderRadius: borderRadius.sm,
       minWidth: 95,
     },
-    deleteButtonText: { ...typography.label, fontSize: 11, color: colors.textOnPrimary },
+    deleteButtonText: { ...typography.label, fontSize: 11, color: colors.error },
 
     locationRow: {
       flexDirection: 'row',
@@ -2810,7 +2825,8 @@ function createHomeStyles(colors: ThemeColors) {
       borderColor: colors.border,
       borderRadius: borderRadius.md,
       paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
+      paddingTop: 10,
+      paddingBottom: 8,
       fontSize: 14,
       color: colors.text,
       backgroundColor: colors.background,
@@ -3039,6 +3055,7 @@ export default function HomeScreen() {
   const [preferredSports, setPreferredSports] = useState<string[]>([]);
   const [feedItems, setFeedItems] = useState<FeedMatch[]>([]);
   const [loadingFeed, setLoadingFeed] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadDmCount, setUnreadDmCount] = useState(0);
@@ -3164,17 +3181,20 @@ export default function HomeScreen() {
   const loadFeed = useCallback(async (showLoading = true) => {
     if (showLoading) setLoadingFeed(true);
     try {
-      const { data } = await supabase
-        .from('match_feed')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(50);
+      const [feedRes, authRes] = await Promise.all([
+        supabase.from('match_feed').select('*').order('created_at', { ascending: false }).limit(50),
+        supabase.auth.getUser(),
+      ]);
+      const user = authRes.data.user;
+      if (user) {
+        setCurrentUserId(user.id);
+      }
       const parseParticipants = (raw: unknown): Participant[] => {
         if (Array.isArray(raw)) return raw as Participant[];
         if (typeof raw === 'string') { try { return JSON.parse(raw) as Participant[]; } catch { return []; } }
         return [];
       };
-      const newItems = (data ?? []).map((m: any) => ({ ...m, participants: parseParticipants(m.participants) })) as FeedMatch[];
+      const newItems = (feedRes.data ?? []).map((m: any) => ({ ...m, participants: parseParticipants(m.participants) })) as FeedMatch[];
       setFeedItems(newItems);
     } catch { /* swallow */ }
     finally { if (showLoading) setLoadingFeed(false); }
@@ -3665,7 +3685,7 @@ export default function HomeScreen() {
       <View style={styles.topBar}>
         <Image
           source={themeMode === 'dark' ? require('../../assets/icon_dark.png') : require('../../assets/icon_blue_small.png')}
-          style={{ height: 72, width: 148, marginLeft: -10 }}
+          style={{ height: 90, width: 185, marginLeft: -10 }}
           resizeMode="contain"
         />
         <View style={styles.topBarRight}>
@@ -3753,8 +3773,8 @@ export default function HomeScreen() {
           }}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          onRefresh={() => { loadFeed(); loadNotifications(); loadUnreadDmCount(); }}
-          refreshing={loadingFeed}
+          onRefresh={async () => { setIsRefreshing(true); await Promise.all([loadFeed(false), loadNotifications(), loadUnreadDmCount()]); setIsRefreshing(false); }}
+          refreshing={isRefreshing}
           ListEmptyComponent={
             <Text style={styles.emptyFeed}>
               {feedMode === 'my'

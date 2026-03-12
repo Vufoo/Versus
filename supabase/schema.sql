@@ -596,6 +596,20 @@ begin
   end if;
 end $$;
 
+-- Migration: add invited_teammate_2_id, invited_opponent_3_id for 3v3 support
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'matches' and column_name = 'invited_teammate_2_id') then
+    alter table public.matches add column invited_teammate_2_id uuid references auth.users (id) on delete set null;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'matches' and column_name = 'invited_opponent_3_id') then
+    alter table public.matches add column invited_opponent_3_id uuid references auth.users (id) on delete set null;
+  end if;
+end $$;
+-- Update match_format check constraint to allow '3v3'
+alter table public.matches drop constraint if exists matches_match_format_check;
+alter table public.matches add constraint matches_match_format_check check (match_format in ('1v1', '2v2', '3v3'));
+
 -- Migration: add ready to match_participants for ranked ready-up
 do $$
 begin
@@ -629,6 +643,8 @@ create policy "Creators and participants can update matches"
     or auth.uid() = invited_opponent_id
     or auth.uid() = invited_teammate_id
     or auth.uid() = invited_opponent_2_id
+    or auth.uid() = invited_teammate_2_id
+    or auth.uid() = invited_opponent_3_id
     or exists (select 1 from public.match_participants where match_id = id and user_id = auth.uid())
   );
 
@@ -684,6 +700,8 @@ select
   m.invited_opponent_id,
   m.invited_teammate_id,
   m.invited_opponent_2_id,
+  m.invited_teammate_2_id,
+  m.invited_opponent_3_id,
   s.name as sport_name,
   s.slug as sport_slug,
   array_agg(jsonb_build_object(
@@ -1033,6 +1051,8 @@ create policy "Creators and participants can delete matches"
     or invited_opponent_id = auth.uid()
     or invited_teammate_id = auth.uid()
     or invited_opponent_2_id = auth.uid()
+    or invited_teammate_2_id = auth.uid()
+    or invited_opponent_3_id = auth.uid()
   );
 
 -- RPC: delete a match — security definer bypasses RLS, auth check is enforced inside
@@ -1061,6 +1081,8 @@ begin
         or invited_opponent_id = auth.uid()
         or invited_teammate_id = auth.uid()
         or invited_opponent_2_id = auth.uid()
+        or invited_teammate_2_id = auth.uid()
+        or invited_opponent_3_id = auth.uid()
       )
   ) then
     return jsonb_build_object('ok', false, 'error', 'Not authorized to delete this match');
