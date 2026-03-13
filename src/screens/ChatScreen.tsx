@@ -185,12 +185,23 @@ export default function ChatScreen() {
       if (existing?.id) {
         cid = existing.id;
       } else {
-        const { data: created } = await supabase
+        const { data: created, error: insertErr } = await supabase
           .from('dm_conversations')
           .insert({ user1_id: u1, user2_id: u2 })
           .select('id')
           .single();
-        cid = created?.id ?? null;
+        if (insertErr) {
+          // Another client may have inserted concurrently — re-fetch
+          const { data: refetch } = await supabase
+            .from('dm_conversations')
+            .select('id')
+            .eq('user1_id', u1)
+            .eq('user2_id', u2)
+            .maybeSingle();
+          cid = refetch?.id ?? null;
+        } else {
+          cid = created?.id ?? null;
+        }
       }
       if (!cid || cancelled) { if (!cancelled) setLoading(false); return; }
       if (!cancelled) setConversationId(cid);
@@ -213,22 +224,28 @@ export default function ChatScreen() {
   // Load other user's profile
   useEffect(() => {
     if (!otherUserId) return;
+    let cancelled = false;
     supabase.from('profiles').select('full_name, username, avatar_url').eq('user_id', otherUserId).maybeSingle().then(({ data }) => {
+      if (cancelled) return;
       const p = data as { full_name: string | null; username: string | null; avatar_url: string | null } | null;
       setOtherUser(p);
-      if (p?.avatar_url) resolveAvatarUrl(p.avatar_url).then((url) => url && setOtherUserAvatarUrl(url));
+      if (p?.avatar_url) resolveAvatarUrl(p.avatar_url).then((url) => { if (!cancelled && url) setOtherUserAvatarUrl(url); });
     });
+    return () => { cancelled = true; };
   }, [otherUserId]);
 
   // Load current user's profile for avatar/initials
   useEffect(() => {
     if (!currentUserId) return;
+    let cancelled = false;
     supabase.from('profiles').select('full_name, username, avatar_url').eq('user_id', currentUserId).maybeSingle().then(({ data }) => {
+      if (cancelled) return;
       const p = data as { full_name: string | null; username: string | null; avatar_url: string | null } | null;
       if (p?.full_name?.trim()) setCurrentUserInitials(p.full_name.trim().split(/\s+/).map((w) => w[0]).join('').toUpperCase().slice(0, 2));
       else if (p?.username?.trim()) setCurrentUserInitials(p.username.trim().slice(0, 2).toUpperCase());
-      if (p?.avatar_url) resolveAvatarUrl(p.avatar_url).then((url) => url && setCurrentUserAvatarUrl(url));
+      if (p?.avatar_url) resolveAvatarUrl(p.avatar_url).then((url) => { if (!cancelled && url) setCurrentUserAvatarUrl(url); });
     });
+    return () => { cancelled = true; };
   }, [currentUserId]);
 
   // Realtime: append new messages directly — no full refetch

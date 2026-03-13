@@ -46,6 +46,7 @@ type Participant = {
   score: string | null;
   vp_delta: number;
   ready?: boolean;
+  ready_at?: string | null;
   delete_requested?: boolean;
   finish_requested?: boolean;
   username: string | null;
@@ -296,9 +297,10 @@ function FeedCard({
   let opponent2: Participant | null = null;
 
   if (is2v2) {
-    // 2v2: strictly derive from roles so a user can never appear on both sides.
-    p1 = team1[0] ?? null;
-    teammate = team1[1] ?? null;
+    // 2v2: pin p1 to the creator so avatar resolution (which uses find(not creator)) stays consistent
+    // regardless of json_agg ordering in match_feed.
+    p1 = team1.find((p) => p.user_id === item.created_by) ?? team1[0] ?? null;
+    teammate = team1.find((p) => p.user_id !== item.created_by) ?? team1[1] ?? null;
     p2 = team2[0] ?? null;
     opponent2 = team2[1] ?? null;
   } else {
@@ -540,20 +542,29 @@ function FeedCard({
   const practicePartners = isPractice ? participants.filter((p) => p.role === 'opponent').slice(0, 3) : [];
   const myParticipant = participants.find((p) => p?.user_id && String(p.user_id) === String(currentUserId));
   const requiredParticipants = (item.match_format || '1v1') === '2v2' ? 4 : 2;
-  const isReady = (p: Participant) =>
-    p?.ready === true ||
-    (typeof p?.ready === 'string' && String(p.ready).toLowerCase() === 'true') ||
-    (p?.user_id === item.created_by && p?.ready !== false);
+  const READY_EXPIRY_MS = 2 * 60 * 1000; // 2 minutes
+  const isReady = (p: Participant) => {
+    const rawReady = p?.ready === true || (typeof p?.ready === 'string' && String(p.ready).toLowerCase() === 'true');
+    const autoReady = p?.user_id === item.created_by && p?.ready !== false;
+    const ready = rawReady || autoReady;
+    if (!ready) return false;
+    if (isRanked && rawReady && p?.ready_at) {
+      const elapsed = Date.now() - new Date(p.ready_at as string).getTime();
+      if (elapsed >= READY_EXPIRY_MS) return false;
+    }
+    return true;
+  };
   const readyCount = participants.filter((p) => isReady(p)).length;
 
   const handleReady = async () => {
     if (!currentUserId || readyLoading) return;
     setReadyLoading(true);
     try {
-      await supabase.from('match_participants').update({ ready: true }).eq('match_id', item.id).eq('user_id', currentUserId);
+      const readyAt = new Date().toISOString();
+      await supabase.from('match_participants').update({ ready: true, ready_at: readyAt }).eq('match_id', item.id).eq('user_id', currentUserId);
       updateFeedItem(item.id, (m) => ({
         ...m,
-        participants: m.participants.map((p) => p.user_id === currentUserId ? { ...p, ready: true } : p),
+        participants: m.participants.map((p) => p.user_id === currentUserId ? { ...p, ready: true, ready_at: readyAt } : p),
       }));
     } catch { /* swallow */ }
     finally { setReadyLoading(false); }
@@ -563,14 +574,27 @@ function FeedCard({
     if (!currentUserId || readyLoading) return;
     setReadyLoading(true);
     try {
-      await supabase.from('match_participants').update({ ready: false }).eq('match_id', item.id).eq('user_id', currentUserId);
+      await supabase.from('match_participants').update({ ready: false, ready_at: null }).eq('match_id', item.id).eq('user_id', currentUserId);
       updateFeedItem(item.id, (m) => ({
         ...m,
-        participants: m.participants.map((p) => p.user_id === currentUserId ? { ...p, ready: false } : p),
+        participants: m.participants.map((p) => p.user_id === currentUserId ? { ...p, ready: false, ready_at: null } : p),
       }));
     } catch { /* swallow */ }
     finally { setReadyLoading(false); }
   };
+
+  // Auto-unready after 2 minutes for ranked matches
+  useEffect(() => {
+    if (!isRanked || !myParticipant?.ready_at || !myParticipant?.ready) return;
+    const elapsed = Date.now() - new Date(myParticipant.ready_at).getTime();
+    const remaining = READY_EXPIRY_MS - elapsed;
+    if (remaining <= 0) {
+      handleUnready();
+      return;
+    }
+    const t = setTimeout(() => { handleUnready(); }, remaining);
+    return () => clearTimeout(t);
+  }, [isRanked, myParticipant?.ready_at, myParticipant?.ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const statusConfirmed = String(item.status || '').toLowerCase() === 'confirmed';
   // 2v2 ranked requires all 4 to explicitly ready up; 1v1 ranked can start once confirmed or both ready
@@ -1291,16 +1315,20 @@ function FeedCard({
             try {
               await supabase.from('match_participants').delete()
                 .eq('match_id', item.id).eq('user_id', currentUserId);
-              if (item.status === 'confirmed') {
-                await supabase.from('matches').update({ status: 'pending' }).eq('id', item.id);
-              }
+              // Always touch matches to ensure all users' realtime subscriptions fire
+              const matchUpdate: Record<string, unknown> = { updated_at: new Date().toISOString() };
+              if (item.status === 'confirmed') matchUpdate.status = 'pending';
+              await supabase.from('matches').update(matchUpdate).eq('id', item.id);
               const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
               const displayName = (myProfile as any)?.full_name ?? (myProfile as any)?.username ?? 'Your opponent';
+              const notifBody = item.status === 'paused'
+                ? 'They left while the match was paused.'
+                : 'They left before the match started.';
               await supabase.from('notifications').insert({
                 user_id: item.created_by,
                 type: 'match_declined',
                 title: `${displayName} left your match`,
-                body: 'They left before the match started.',
+                body: notifBody,
                 data: { match_id: item.id, from_user_id: currentUserId },
               });
               animateAndRemove();
@@ -1410,9 +1438,7 @@ function FeedCard({
                     <TouchableOpacity onPress={() => navigation.navigate('UserProfile', { userId: teammate.user_id })} activeOpacity={0.7}>
                       <Avatar initials={getInitials(teammate)} avatarUrl={partner2AvatarUrl ?? teammate.avatar_url} size={36} colors={colors} isWinner={isCompleted && teammate.result === 'win'} />
                     </TouchableOpacity>
-                  ) : item.invited_teammate_id ? (
-                    <View style={{ opacity: 0.5 }}><Avatar initials="?" size={36} colors={colors} /></View>
-                  ) : onInviteOpponent && item.created_by === currentUserId ? (
+                  ) : item.status === 'pending' && onInviteOpponent && item.created_by === currentUserId ? (
                     <TouchableOpacity onPress={() => onInviteOpponent(item, 'teammate')} activeOpacity={0.8}>
                       <View style={{ position: 'relative' }}>
                         <Avatar initials="+" size={36} colors={colors} />
@@ -1425,7 +1451,7 @@ function FeedCard({
                     <Avatar initials="?" size={36} colors={colors} />
                   )}
                   <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>
-                    {teammate ? getName(teammate) : item.invited_teammate_id ? 'Invited' : 'TBD'}
+                    {teammate ? getName(teammate) : 'TBD'}
                   </Text>
                   {isRanked && teammate && (item.status === 'pending' || item.status === 'confirmed') && (
                     <Text style={[typography.caption, { fontSize: 9, color: isReady(teammate) ? colors.primary : colors.textSecondary }]}>{isReady(teammate) ? '✓' : '—'}</Text>
@@ -1437,11 +1463,9 @@ function FeedCard({
                 const onTeam1 = team1.some((p) => p.user_id === currentUserId);
                 const onTeam2 = team2.some((p) => p.user_id === currentUserId);
                 if (onTeam1 && !onTeam2) {
-                  return (
-                    <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>
-                      Your team
-                    </Text>
-                  );
+                  return <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>Your Team</Text>;
+                } else if (onTeam2 && !onTeam1) {
+                  return <Text style={[typography.caption, { fontSize: 11, color: colors.error, fontWeight: '500' }]}>Opponent Team</Text>;
                 }
                 return null;
               })()}
@@ -1466,9 +1490,11 @@ function FeedCard({
                   {getName(p1!)}
                 </Text>
               </TouchableOpacity>
-              {p1 && String(p1.user_id) === String(currentUserId) && (
-                <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>You</Text>
-              )}
+              {p1 && currentUserId && (() => {
+                if (String(p1.user_id) === String(currentUserId)) return <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>You</Text>;
+                if (p2 && String(p2.user_id) === String(currentUserId)) return <Text style={[typography.caption, { fontSize: 11, color: colors.error, fontWeight: '500' }]}>Opponent</Text>;
+                return null;
+              })()}
               {isRanked && p1 && (item.status === 'pending' || item.status === 'confirmed') && (
                 <Text style={[typography.caption, { fontSize: 12, fontWeight: '500', color: isReady(p1) ? colors.primary : colors.textSecondary }]}>
                   {isReady(p1) ? 'Ready ✓' : 'Not ready'}
@@ -1569,15 +1595,22 @@ function FeedCard({
               ))}
               {myParticipant && (
                 isReady(myParticipant) ? (
-                  <TouchableOpacity
-                    style={[styles.readyUpCenterButtonSmall, readyLoading && { opacity: 0.6 }, styles.readyUpUnreadyBtn]}
-                    onPress={handleUnready}
-                    disabled={readyLoading}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="close-circle" size={14} color="#b91c1c" />
-                    <Text style={[styles.readyUpCenterTextSmall, { color: '#b91c1c' }]}>Unready</Text>
-                  </TouchableOpacity>
+                  readyCount >= requiredParticipants ? (
+                    <View style={[styles.readyUpCenterButtonSmall, { backgroundColor: '#dcfce7' }]}>
+                      <Ionicons name="checkmark-circle" size={14} color="#15803d" />
+                      <Text style={[styles.readyUpCenterTextSmall, { color: '#15803d' }]}>All Ready!</Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.readyUpCenterButtonSmall, readyLoading && { opacity: 0.6 }, styles.readyUpUnreadyBtn]}
+                      onPress={handleUnready}
+                      disabled={readyLoading}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="close-circle" size={14} color="#b91c1c" />
+                      <Text style={[styles.readyUpCenterTextSmall, { color: '#b91c1c' }]}>Unready</Text>
+                    </TouchableOpacity>
+                  )
                 ) : (
                   <TouchableOpacity
                     style={[styles.readyUpCenterButtonSmall, readyLoading && { opacity: 0.6 }, styles.readyUpReadyBtn]}
@@ -1682,9 +1715,7 @@ function FeedCard({
                     <TouchableOpacity onPress={() => navigation.navigate('UserProfile', { userId: p2.user_id })} activeOpacity={0.7}>
                       <Avatar initials={getInitials(p2)} avatarUrl={p2AvatarUrl ?? p2.avatar_url} size={36} colors={colors} isWinner={isCompleted && p2.result === 'win'} />
                     </TouchableOpacity>
-                  ) : item.invited_opponent_id ? (
-                    <View style={{ opacity: 0.5 }}><Avatar initials="?" size={36} colors={colors} /></View>
-                  ) : onInviteOpponent && item.created_by === currentUserId ? (
+                  ) : item.status === 'pending' && onInviteOpponent && item.created_by === currentUserId ? (
                     <TouchableOpacity onPress={() => onInviteOpponent(item, 'opponent')} activeOpacity={0.8}>
                       <View style={{ position: 'relative' }}>
                         <Avatar initials="+" size={36} colors={colors} />
@@ -1697,7 +1728,7 @@ function FeedCard({
                     <Avatar initials="?" size={36} colors={colors} />
                   )}
                   <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>
-                    {p2 ? getName(p2) : item.invited_opponent_id ? 'Invited' : 'TBD'}
+                    {p2 ? getName(p2) : 'TBD'}
                   </Text>
                   {isRanked && p2 && (item.status === 'pending' || item.status === 'confirmed') && (
                     <Text style={[typography.caption, { fontSize: 9, color: isReady(p2) ? colors.primary : colors.textSecondary }]}>{isReady(p2) ? '✓' : '—'}</Text>
@@ -1709,9 +1740,7 @@ function FeedCard({
                     <TouchableOpacity onPress={() => navigation.navigate('UserProfile', { userId: opponent2.user_id })} activeOpacity={0.7}>
                       <Avatar initials={getInitials(opponent2)} avatarUrl={partner3AvatarUrl ?? opponent2.avatar_url} size={36} colors={colors} isWinner={isCompleted && opponent2.result === 'win'} />
                     </TouchableOpacity>
-                  ) : item.invited_opponent_2_id ? (
-                    <View style={{ opacity: 0.5 }}><Avatar initials="?" size={36} colors={colors} /></View>
-                  ) : onInviteOpponent && item.created_by === currentUserId ? (
+                  ) : item.status === 'pending' && onInviteOpponent && item.created_by === currentUserId ? (
                     <TouchableOpacity onPress={() => onInviteOpponent(item, 'opponent_2')} activeOpacity={0.8}>
                       <View style={{ position: 'relative' }}>
                         <Avatar initials="+" size={36} colors={colors} />
@@ -1724,7 +1753,7 @@ function FeedCard({
                     <Avatar initials="?" size={36} colors={colors} />
                   )}
                   <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>
-                    {opponent2 ? getName(opponent2) : item.invited_opponent_2_id ? 'Invited' : 'TBD'}
+                    {opponent2 ? getName(opponent2) : 'TBD'}
                   </Text>
                   {isRanked && opponent2 && (item.status === 'pending' || item.status === 'confirmed') && (
                     <Text style={[typography.caption, { fontSize: 9, color: isReady(opponent2) ? colors.primary : colors.textSecondary }]}>{isReady(opponent2) ? '✓' : '—'}</Text>
@@ -1736,11 +1765,9 @@ function FeedCard({
                 const onTeam1 = team1.some((p) => p.user_id === currentUserId);
                 const onTeam2 = team2.some((p) => p.user_id === currentUserId);
                 if (onTeam2 && !onTeam1) {
-                  return (
-                    <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>
-                      Your team
-                    </Text>
-                  );
+                  return <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>Your Team</Text>;
+                } else if (onTeam1 && !onTeam2) {
+                  return <Text style={[typography.caption, { fontSize: 11, color: colors.error, fontWeight: '500' }]}>Opponent Team</Text>;
                 }
                 return null;
               })()}
@@ -1764,9 +1791,11 @@ function FeedCard({
                   {getName(p2)}
                 </Text>
               </TouchableOpacity>
-              {p2 && String(p2.user_id) === String(currentUserId) && (
-                <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>You</Text>
-              )}
+              {p2 && currentUserId && (() => {
+                if (String(p2.user_id) === String(currentUserId)) return <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>You</Text>;
+                if (p1 && String(p1.user_id) === String(currentUserId)) return <Text style={[typography.caption, { fontSize: 11, color: colors.error, fontWeight: '500' }]}>Opponent</Text>;
+                return null;
+              })()}
               {isRanked && p2 && (item.status === 'pending' || item.status === 'confirmed') && (
                 <Text style={[typography.caption, { fontSize: 12, fontWeight: '500', color: isReady(p2) ? colors.primary : colors.textSecondary }]}>
                   {isReady(p2) ? 'Ready ✓' : 'Not ready'}
@@ -2007,7 +2036,7 @@ function FeedCard({
                 </TouchableOpacity>
               );
             })()}
-            {!isRanked && !isPractice && isParticipant && item.created_by !== currentUserId && (item.status === 'pending' || item.status === 'confirmed') && (
+            {!isRanked && !isPractice && isParticipant && item.created_by !== currentUserId && (item.status === 'pending' || item.status === 'confirmed' || item.status === 'paused') && (
               <TouchableOpacity
                 style={[styles.deleteButton, deleteLoading && { opacity: 0.6 }]}
                 onPress={handleLeave}
@@ -3146,6 +3175,7 @@ export default function HomeScreen() {
 
   const [inviteOpponentMatch, setInviteOpponentMatch] = useState<FeedMatch | null>(null);
   const [inviteSlot, setInviteSlot] = useState<'opponent' | 'teammate' | 'opponent_2'>('opponent');
+  const [selectedInviteUser, setSelectedInviteUser] = useState<SearchedUser | null>(null);
   const [editMatch, setEditMatch] = useState<FeedMatch | null>(null);
   const [followStates, setFollowStates] = useState<Record<string, 'none' | 'pending' | 'accepted'>>({});
   const [teamPickInvite, setTeamPickInvite] = useState<{ notif: NotificationItem; matchId: string } | null>(null);
@@ -3550,22 +3580,49 @@ export default function HomeScreen() {
       }
 
       const doAccept = async (role: 'challenger' | 'opponent') => {
+        // First-come-first-serve: fetch live participant state
+        const { data: existingParts } = await supabase
+          .from('match_participants').select('user_id, role').eq('match_id', matchId);
+        const parts = (existingParts ?? []) as { user_id: string; role: string }[];
+
+        // Already a participant (e.g., accepted from another device/notification)
+        if (parts.some((p) => p.user_id === currentUserId)) {
+          await supabase.from('notifications').update({ read: true }).eq('id', notif.id);
+          loadNotifications();
+          loadFeed(false);
+          return;
+        }
+
+        // Slot full check — first come, first served
+        const maxPerRole = m?.match_format === '2v2' ? 2 : 1;
+        if (parts.filter((p) => p.role === role).length >= maxPerRole) {
+          Alert.alert('Spot taken', 'Someone else already filled that spot. Sorry!');
+          await supabase.from('notifications').update({ read: true }).eq('id', notif.id);
+          loadNotifications();
+          return;
+        }
+
         await supabase.from('match_participants').insert({ match_id: matchId, user_id: currentUserId, role });
 
         const updatePayload: Record<string, unknown> = {};
+        // Clear matching invited_*_id (independent checks — don't clear other users' invites)
         if (m?.invited_opponent_id === currentUserId) updatePayload.invited_opponent_id = null;
-        else if (m?.invited_teammate_id === currentUserId) updatePayload.invited_teammate_id = null;
-        else if (m?.invited_opponent_2_id === currentUserId) updatePayload.invited_opponent_2_id = null;
-        else updatePayload.invited_opponent_id = null; // fallback
+        if (m?.invited_teammate_id === currentUserId) updatePayload.invited_teammate_id = null;
+        if (m?.invited_opponent_2_id === currentUserId) updatePayload.invited_opponent_2_id = null;
 
-        const remaining = [
-          m?.invited_opponent_id   !== currentUserId && m?.invited_opponent_id,
-          m?.invited_teammate_id   !== currentUserId && m?.invited_teammate_id,
-          m?.invited_opponent_2_id !== currentUserId && m?.invited_opponent_2_id,
-        ].filter(Boolean);
-        if (remaining.length === 0) updatePayload.status = 'confirmed';
+        // Count-based confirmation (participant count reaching required slots)
+        const required = m?.match_format === '2v2' ? 4 : 2;
+        if (parts.length + 1 >= required) {
+          updatePayload.status = 'confirmed';
+          // Clear all remaining invited IDs when match is full
+          updatePayload.invited_opponent_id = null;
+          updatePayload.invited_teammate_id = null;
+          updatePayload.invited_opponent_2_id = null;
+        }
 
-        await supabase.from('matches').update(updatePayload).eq('id', matchId);
+        if (Object.keys(updatePayload).length > 0) {
+          await supabase.from('matches').update(updatePayload).eq('id', matchId);
+        }
         await supabase.from('notifications').update({ read: true }).eq('id', notif.id);
 
         const fromUserId = m?.created_by ?? notif.data?.from_user_id;
@@ -3639,14 +3696,13 @@ export default function HomeScreen() {
         return;
       }
 
-      // Clear the correct invite slot (prefer truth from the match row over stale notif.data.slot).
+      // Clear the correct invite slot — only if the declining user is still tracked there.
+      // No slot-based fallback: clearing a field that belongs to a different user's invite would
+      // silently revoke that other user's pending invite (multi-invite / first-come-first-served).
       const updatePayload: Record<string, unknown> = {};
       if (m.invited_teammate_id === currentUserId) updatePayload.invited_teammate_id = null;
       else if (m.invited_opponent_2_id === currentUserId) updatePayload.invited_opponent_2_id = null;
       else if (m.invited_opponent_id === currentUserId) updatePayload.invited_opponent_id = null;
-      else if (slot === 'teammate') updatePayload.invited_teammate_id = null;
-      else if (slot === 'opponent_2') updatePayload.invited_opponent_2_id = null;
-      else updatePayload.invited_opponent_id = null;
 
       await supabase.from('matches').update(updatePayload).eq('id', matchId);
       await supabase.from('notifications').update({ read: true }).eq('id', notif.id);
@@ -3687,16 +3743,6 @@ export default function HomeScreen() {
       else if (slot === 'opponent_2') updatePayload.invited_opponent_2_id = user.user_id;
       else updatePayload.invited_opponent_id = user.user_id;
       await supabase.from('matches').update(updatePayload).eq('id', match.id);
-
-      // Optimistic update — reflect invited user immediately without reloading feed
-      updateFeedItem(match.id, (m) => ({
-        ...m,
-        ...(slot === 'teammate'
-          ? { invited_teammate_id: user.user_id }
-          : slot === 'opponent_2'
-          ? { invited_opponent_2_id: user.user_id }
-          : { invited_opponent_id: user.user_id }),
-      }));
 
       const { data: myProfile } = await supabase.from('profiles').select('username').eq('user_id', currentUserId).maybeSingle();
       const sportLabelStr = match.sport_name ?? 'Match';
@@ -3903,11 +3949,11 @@ export default function HomeScreen() {
       {/* ---- Invite opponent modal ---- */}
       <Modal visible={!!inviteOpponentMatch} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setInviteOpponentMatch(null)} />
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => { setInviteOpponentMatch(null); setSelectedInviteUser(null); }} />
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{inviteSlot === 'teammate' ? 'Invite teammate' : 'Invite opponent'}</Text>
-              <TouchableOpacity onPress={() => setInviteOpponentMatch(null)} hitSlop={12}>
+              <TouchableOpacity onPress={() => { setInviteOpponentMatch(null); setSelectedInviteUser(null); }} hitSlop={12}>
                 <Ionicons name="close" size={24} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
@@ -3917,8 +3963,42 @@ export default function HomeScreen() {
               excludeUserId={currentUserId ?? undefined}
               excludeUserIds={inviteExcludeIds}
               placeholder="Search by username or name..."
-              onSelect={(user) => inviteOpponentMatch && handleInviteOpponent(inviteOpponentMatch, user)}
+              onSelect={setSelectedInviteUser}
             />
+            {selectedInviteUser && (
+              <View style={{ marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.sm }}>
+                  {selectedInviteUser.avatar_url ? (
+                    <Image source={{ uri: selectedInviteUser.avatar_url }} style={{ width: 36, height: 36, borderRadius: 18 }} />
+                  ) : (
+                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ color: colors.textOnPrimary, fontWeight: '700', fontSize: 14 }}>
+                        {(selectedInviteUser.full_name ?? selectedInviteUser.username ?? '?').split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontWeight: '600', fontSize: 14 }}>{selectedInviteUser.full_name ?? selectedInviteUser.username}</Text>
+                    {selectedInviteUser.username && <Text style={{ color: colors.textSecondary, fontSize: 12 }}>@{selectedInviteUser.username}</Text>}
+                  </View>
+                  <TouchableOpacity onPress={() => setSelectedInviteUser(null)} hitSlop={8}>
+                    <Ionicons name="close-circle" size={20} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity
+                  style={{ backgroundColor: colors.primary, borderRadius: borderRadius.md, paddingVertical: spacing.xs + 2, marginTop: spacing.sm, alignItems: 'center' }}
+                  onPress={() => {
+                    if (inviteOpponentMatch && selectedInviteUser) {
+                      handleInviteOpponent(inviteOpponentMatch, selectedInviteUser);
+                      setSelectedInviteUser(null);
+                    }
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={{ color: colors.textOnPrimary, fontWeight: '600', fontSize: 13 }}>Send Invite</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         </View>
       </Modal>

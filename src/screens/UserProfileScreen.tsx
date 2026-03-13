@@ -155,7 +155,7 @@ function createStyles(colors: ThemeColors) {
     rankCardEmoji: { fontSize: 28, marginBottom: spacing.xs },
     rankCardSport: { ...typography.label, color: colors.text, marginBottom: spacing.xs, textAlign: 'center' },
     rankCardTier: { ...typography.caption, color: colors.primary, fontWeight: '600', marginBottom: spacing.xs },
-    rankCardVp: { ...typography.heading, fontSize: 22, color: colors.text },
+    rankCardVp: { ...typography.heading, fontSize: 22, color: '#2563EB' },
     rankCardVpLabel: { ...typography.caption, color: colors.textSecondary, fontSize: 11 },
     rankCardStats: { flexDirection: 'row', marginTop: spacing.xs, gap: spacing.sm },
     rankCardStat: { alignItems: 'center' },
@@ -543,7 +543,7 @@ export default function UserProfileScreen() {
                     <Text style={styles.rankSport}>{item.sport}</Text>
                     <Text style={[styles.rankTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}</Text>
                     <View style={styles.rankStatRow}>
-                      <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.vp}</Text><Text style={styles.rankStatLabel}>VP</Text></View>
+                      <View style={styles.rankStat}><Text style={[styles.rankStatValue, { color: '#2563EB' }]}>{item.vp}</Text><Text style={styles.rankStatLabel}>VP</Text></View>
                       <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.wins}</Text><Text style={styles.rankStatLabel}>Wins</Text></View>
                       <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.losses}</Text><Text style={styles.rankStatLabel}>Losses</Text></View>
                     </View>

@@ -160,7 +160,6 @@ export default function VersusScreen() {
   const { hasMembership } = useMembership();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [flow, setFlow] = useState<Flow>(null);
-  const [localIsRanked, setLocalIsRanked] = useState(false);
   const [sport, setSport] = useState<string>(SPORTS[0]);
   const closeFlow = () => setFlow(null);
 
@@ -209,9 +208,10 @@ export default function VersusScreen() {
   }, [preferredSports]);
 
   const currentRating = sportRatings[sport];
-  const rankDisplay = currentRating
-    ? `${currentRating.rank_tier ?? 'Unranked'} ${currentRating.rank_div ?? ''} \u00b7 ${currentRating.vp} VP`.trim()
-    : 'Unranked \u00b7 0 VP';
+  const rankTierDisplay = currentRating
+    ? `${currentRating.rank_tier ?? 'Unranked'} ${currentRating.rank_div ?? ''}`.trim() + ' \u00b7 '
+    : 'Unranked \u00b7 ';
+  const rankVpDisplay = currentRating ? `${currentRating.vp} VP` : '0 VP';
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.lg }]}>
@@ -252,7 +252,10 @@ export default function VersusScreen() {
           <View style={styles.rankCard}>
             <Text style={styles.rankLabel}>Your ranking in</Text>
             <Text style={styles.rankSport} numberOfLines={1}>{sport}</Text>
-            <Text style={[styles.rankValue, { color: tierColor(currentRating?.rank_tier ?? null) }]} numberOfLines={1}>{rankDisplay}</Text>
+            <Text numberOfLines={1}>
+              <Text style={[styles.rankValue, { color: tierColor(currentRating?.rank_tier ?? null) }]}>{rankTierDisplay}</Text>
+              <Text style={[styles.rankValue, { color: '#2563EB', fontWeight: '700' }]}>{rankVpDisplay}</Text>
+            </Text>
           </View>
           <TouchableOpacity
             style={styles.leaderboardCard}
@@ -326,7 +329,7 @@ export default function VersusScreen() {
         onCreated={() => navigation.navigate('Home')}
         colors={colors}
         initialSport={sport}
-        initialMatchType={flow === 'ranked' ? 'ranked' : flow === 'casual' ? 'casual' : (localIsRanked ? 'ranked' : 'casual')}
+        initialMatchType={flow === 'ranked' ? 'ranked' : 'casual'}
         preferredSports={preferredSports}
       />
     </View>

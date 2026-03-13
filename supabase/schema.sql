@@ -639,6 +639,14 @@ begin
   end if;
 end $$;
 
+-- Migration: add ready_at to match_participants for 2-minute ready expiry (must be before match_feed view)
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'match_participants' and column_name = 'ready_at') then
+    alter table public.match_participants add column ready_at timestamptz;
+  end if;
+end $$;
+
 -- RLS: allow invited opponent to update match (for accept flow)
 drop policy if exists "Creators and participants can update matches" on public.matches;
 create policy "Creators and participants can update matches"
@@ -716,6 +724,7 @@ select
     'score', mp.score,
     'vp_delta', mp.vp_delta,
     'ready', coalesce(mp.ready, false),
+    'ready_at', mp.ready_at,
     'delete_requested', coalesce(mp.delete_requested, false),
     'finish_requested', coalesce(mp.finish_requested, false),
     'username', p.username,
@@ -1107,3 +1116,26 @@ grant select on public.match_feed to anon, authenticated;
 
 -- Contacts integration: store hashed phone numbers for friend discovery
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS phone_hash TEXT UNIQUE;
+
+-- Prevent duplicate participant rows (one user per match)
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'match_participants_match_user_unique'
+    and conrelid = 'public.match_participants'::regclass
+  ) then
+    -- Remove any duplicates first (keep one row per match+user pair)
+    delete from public.match_participants
+    where id in (
+      select id from (
+        select id, row_number() over (partition by match_id, user_id order by id) as rn
+        from public.match_participants
+      ) sub
+      where rn > 1
+    );
+    alter table public.match_participants
+      add constraint match_participants_match_user_unique unique (match_id, user_id);
+  end if;
+end $$;
+

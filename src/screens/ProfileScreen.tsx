@@ -191,7 +191,7 @@ function createStyles(colors: ThemeColors) {
       alignItems: 'center',
       alignSelf: 'stretch',
     },
-    rankCardVp: { ...typography.heading, fontSize: 16, color: colors.text },
+    rankCardVp: { ...typography.heading, fontSize: 16, color: '#2563EB' },
     rankCardVpLabel: { ...typography.caption, color: colors.textSecondary, fontSize: 9 },
     rankCardStat: { alignItems: 'center' },
     rankCardStatValue: { ...typography.label, fontSize: 12, color: colors.text },
@@ -915,7 +915,7 @@ export default function ProfileScreen() {
                     <Text style={styles.rankSport}>{item.sport}</Text>
                     <Text style={[styles.rankTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}</Text>
                     <View style={styles.rankStatRow}>
-                      <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.vp}</Text><Text style={styles.rankStatLabel}>VP</Text></View>
+                      <View style={styles.rankStat}><Text style={[styles.rankStatValue, { color: '#2563EB' }]}>{item.vp}</Text><Text style={styles.rankStatLabel}>VP</Text></View>
                       <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.wins}</Text><Text style={styles.rankStatLabel}>Wins</Text></View>
                       <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.losses}</Text><Text style={styles.rankStatLabel}>Losses</Text></View>
                     </View>

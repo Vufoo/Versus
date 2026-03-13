@@ -436,19 +436,19 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
       const matchTypeLabel = matchType.charAt(0).toUpperCase() + matchType.slice(1);
       const slots = ['opponent', 'teammate', 'opponent_2', 'teammate_2', 'opponent_3'] as const;
       const formatTag = matchFormat === '3v3' ? ' 3v3' : matchFormat === '2v2' ? ' 2v2' : '';
-      for (let i = 0; i < invitedUsers.length; i++) {
-        const inviteTitle = matchType === 'practice'
-          ? `${currentUsername ?? 'Someone'} invited you to practice ${sportLabel(sport)}!`
-          : `${currentUsername ?? 'Someone'} invited you to a ${matchTypeLabel}${formatTag} match!`;
-        await supabase.from('notifications').insert({
-          user_id: invitedUsers[i].user_id,
+      const inviteTitle = matchType === 'practice'
+        ? `${currentUsername ?? 'Someone'} invited you to practice ${sportLabel(sport)}!`
+        : `${currentUsername ?? 'Someone'} invited you to a ${matchTypeLabel}${formatTag} match!`;
+      await Promise.all([
+        ...invitedUsers.map((u, i) => supabase.from('notifications').insert({
+          user_id: u.user_id,
           type: 'match_invite',
           title: inviteTitle,
           body: notifBody,
           data: { match_id: match.id, from_user_id: user.id, slot: slots[i] },
-        });
-      }
-      await supabase.from('match_participants').insert(participants);
+        })),
+        supabase.from('match_participants').insert(participants),
+      ]);
 
       reset();
       onClose();

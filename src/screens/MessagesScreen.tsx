@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -138,6 +138,8 @@ export default function MessagesScreen() {
   const [composeFollowing, setComposeFollowing] = useState<FollowerEntry[]>([]);
   const [composeAvatarUrls, setComposeAvatarUrls] = useState<Record<string, string>>({});
   const [composeLoading, setComposeLoading] = useState(false);
+  const isMountedRef = useRef(true);
+  useEffect(() => { return () => { isMountedRef.current = false; }; }, []);
 
   const loadFollowers = useCallback(async () => {
     try {
@@ -186,7 +188,7 @@ export default function MessagesScreen() {
       list.forEach((p) => {
         if (p.avatar_url) {
           resolveAvatarUrl(p.avatar_url).then((url) => {
-            if (url) setAvatarUrls((prev) => ({ ...prev, [p.user_id]: url }));
+            if (url && isMountedRef.current) setAvatarUrls((prev) => ({ ...prev, [p.user_id]: url }));
           });
         }
       });

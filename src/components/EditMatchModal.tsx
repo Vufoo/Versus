@@ -201,9 +201,10 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
       setTeamRoles(roles);
 
       if (match.match_type?.toLowerCase() === 'casual') {
+        let cancelled = false;
         supabase.from('match_participants').select('role, result, score').eq('match_id', match.id)
           .then(({ data }) => {
-            if (!data) return;
+            if (cancelled || !data) return;
             const chal = (data as any[]).find(p => p.role === 'challenger');
             const opp = (data as any[]).find(p => p.role === 'opponent');
             if (chal?.result === 'win') setWinnerRole('challenger');
@@ -212,6 +213,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
             setChallengerScore(chal?.score ?? '');
             setOpponentScore(opp?.score ?? '');
           });
+        return () => { cancelled = true; };
       }
       if (match.scheduled_at) {
         const d = new Date(match.scheduled_at);
@@ -266,7 +268,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
 
       await supabase.from('matches').update(updates).eq('id', match.id);
 
-      if (isCasual) {
+      if (isCasual && match.status === 'completed') {
         const challResult = winnerRole === 'challenger' ? 'win' : winnerRole === 'opponent' ? 'loss' : 'draw';
         const oppResult = winnerRole === 'opponent' ? 'win' : winnerRole === 'challenger' ? 'loss' : 'draw';
         const challengers = (match.participants ?? []).filter(p => p.role === 'challenger');
@@ -353,8 +355,19 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
     }
   };
 
+  const canLeave = !isCreator && isParticipant && (() => {
+    if (!match) return false;
+    const s = match.status;
+    if (isRanked) return s === 'pending' || s === 'confirmed';
+    return s === 'pending' || s === 'confirmed' || s === 'paused';
+  })();
+
   const handleLeave = async () => {
     if (!match || !currentUserId) return;
+    if (!canLeave) {
+      Alert.alert('Cannot leave', match.status === 'completed' ? 'This match is already finished.' : 'You cannot leave this match at this stage.');
+      return;
+    }
     Alert.alert('Leave match', 'Are you sure you want to leave this match?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Leave', style: 'destructive', onPress: async () => {
@@ -363,9 +376,10 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
           const { error: delErr } = await supabase.from('match_participants').delete()
             .eq('match_id', match.id).eq('user_id', currentUserId);
           if (delErr) throw delErr;
-          if (match.status === 'confirmed') {
-            await supabase.from('matches').update({ status: 'pending' }).eq('id', match.id);
-          }
+          // Always touch matches to ensure all users' realtime subscriptions fire
+          const matchUpdate: Record<string, unknown> = { updated_at: new Date().toISOString() };
+          if (match.status === 'confirmed') matchUpdate.status = 'pending';
+          await supabase.from('matches').update(matchUpdate).eq('id', match.id);
           // Remove any pending match invite notification for this user
           await supabase.from('notifications').delete()
             .eq('user_id', currentUserId).eq('type', 'match_invite')
@@ -374,11 +388,14 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
           if (match.created_by && match.created_by !== currentUserId) {
             const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
             const displayName = (myProfile as any)?.full_name ?? (myProfile as any)?.username ?? 'Your opponent';
+            const notifBody = match.status === 'paused'
+              ? 'They left while the match was paused.'
+              : 'They left before the match started.';
             await supabase.from('notifications').insert({
               user_id: match.created_by,
               type: 'match_declined',
               title: `${displayName} left your match`,
-              body: 'They left before the match started.',
+              body: notifBody,
               data: { match_id: match.id, from_user_id: currentUserId },
             });
           }
@@ -605,7 +622,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                   </TouchableOpacity>
                 )}
 
-                {!isCreator && isParticipant && (
+                {canLeave && (
                   <TouchableOpacity
                     style={[styles.deleteCta, deleting && styles.ctaDisabled]}
                     onPress={handleLeave}

@@ -325,6 +325,11 @@ export default function MapScreen() {
 
   // Ref to always call the latest loadNearby (used by expiry timeouts)
   const loadNearbyRef = useRef<() => void>(() => {});
+  // Track expiry timers so they can be cleared on unmount or re-run
+  const expiryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => {
+    return () => { expiryTimersRef.current.forEach(clearTimeout); };
+  }, []);
 
   // Stable ref for coords so loadNearby doesn't need to be recreated on every GPS update
   const coordsRef = useRef(coords);
@@ -568,12 +573,15 @@ export default function MapScreen() {
     }
     setNearbyMatches(visibleMatches);
 
+    // Clear previous expiry timers before scheduling new ones
+    expiryTimersRef.current.forEach(clearTimeout);
+    expiryTimersRef.current = [];
     // Schedule a reload for each recently-completed match when its 60s window expires
     for (const m of visibleMatches) {
       if (m.status === 'completed' && m.ended_at) {
         const expiresIn = 60000 - (Date.now() - new Date(m.ended_at).getTime());
         if (expiresIn > 0) {
-          setTimeout(() => loadNearbyRef.current(), expiresIn + 500);
+          expiryTimersRef.current.push(setTimeout(() => loadNearbyRef.current(), expiresIn + 500));
         }
       }
     }
