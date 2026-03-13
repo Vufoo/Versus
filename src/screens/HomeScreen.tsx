@@ -262,6 +262,7 @@ function FeedCard({
   colors,
   onRefresh,
   updateFeedItem,
+  onRemoveItem,
   onInviteOpponent,
   onEditMatch,
   navigation,
@@ -273,6 +274,7 @@ function FeedCard({
   colors: ThemeColors;
   onRefresh: () => void;
   updateFeedItem: (matchId: string, updater: (item: FeedMatch) => FeedMatch) => void;
+  onRemoveItem: (matchId: string) => void;
   onInviteOpponent?: (match: FeedMatch, slot?: 'opponent' | 'teammate' | 'opponent_2') => void;
   onEditMatch?: (match: FeedMatch) => void;
   navigation: { navigate: (screen: string, params?: object) => void };
@@ -340,6 +342,18 @@ function FeedCard({
   const [winnerSelection, setWinnerSelection] = useState<string | null>(null); // null = draw
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
+
+  const cardAnim = useRef(new Animated.Value(1)).current;
+  const animateAndRemove = useCallback(() => {
+    Animated.timing(cardAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => onRemoveItem(item.id));
+  }, [cardAnim, onRemoveItem, item.id]);
+
+  // Clear auto-save timer on unmount to prevent state updates after removal
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, []);
 
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [comments, setComments] = useState<MatchComment[]>([]);
@@ -1133,7 +1147,7 @@ function FeedCard({
     const { data: delResult, error: delError } = await supabase.rpc('delete_match_as_participant', { p_match_id: item.id });
     if (delError) throw delError;
     if (!delResult?.ok) throw new Error(delResult?.error ?? 'Could not delete match.');
-    onRefresh();
+    animateAndRemove();
   };
 
   const handleDelete = () => {
@@ -1262,6 +1276,43 @@ function FeedCard({
     );
   };
 
+  const handleLeave = () => {
+    if (!currentUserId || deleteLoading) return;
+    Alert.alert(
+      'Leave match?',
+      'Are you sure you want to leave this match? The host can invite someone else.',
+      [
+        { text: 'Stay', style: 'cancel' },
+        {
+          text: 'Leave',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleteLoading(true);
+            try {
+              await supabase.from('match_participants').delete()
+                .eq('match_id', item.id).eq('user_id', currentUserId);
+              if (item.status === 'confirmed') {
+                await supabase.from('matches').update({ status: 'pending' }).eq('id', item.id);
+              }
+              const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
+              const displayName = (myProfile as any)?.full_name ?? (myProfile as any)?.username ?? 'Your opponent';
+              await supabase.from('notifications').insert({
+                user_id: item.created_by,
+                type: 'match_declined',
+                title: `${displayName} left your match`,
+                body: 'They left before the match started.',
+                data: { match_id: item.id, from_user_id: currentUserId },
+              });
+              animateAndRemove();
+            } catch (e: any) {
+              Alert.alert('Error', e?.message ?? 'Could not leave match.');
+            } finally { setDeleteLoading(false); }
+          },
+        },
+      ],
+    );
+  };
+
   if (!p1) return null;
 
   const isCompleted = item.status === 'completed';
@@ -1292,7 +1343,7 @@ function FeedCard({
   const halfWidth = (mediaRowWidth - spacing.sm) / 2;
 
   return (
-    <>
+    <Animated.View style={{ opacity: cardAnim, transform: [{ scale: cardAnim.interpolate({ inputRange: [0, 1], outputRange: [0.93, 1] }) }] }}>
     <View style={styles.feedCard}>
       {/* Header: Created by (left) + Sport (right) */}
       <View style={styles.stravaHeader}>
@@ -1785,7 +1836,7 @@ function FeedCard({
                 disabled={startStopLoading || !canStart}
                 activeOpacity={0.8}
               >
-                <Ionicons name="play" size={14} color={colors.primary} />
+                <Ionicons name="play" size={12} color={colors.primary} />
                 <Text style={styles.startButtonText}>{item.match_type === 'practice' ? 'Start Practice' : 'Start Match'}</Text>
               </TouchableOpacity>
             )}
@@ -1797,7 +1848,7 @@ function FeedCard({
                   disabled={startStopLoading}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="pause" size={14} color={colors.error} />
+                  <Ionicons name="pause" size={12} color={colors.error} />
                   <Text style={styles.pauseButtonText}>Pause</Text>
                 </TouchableOpacity>
                 {isPractice ? (
@@ -1807,7 +1858,7 @@ function FeedCard({
                     disabled={startStopLoading}
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="flag" size={14} color={colors.primary} />
+                    <Ionicons name="flag" size={12} color={colors.primary} />
                     <Text style={styles.startButtonText}>Finish</Text>
                   </TouchableOpacity>
                 ) : isRanked && (() => {
@@ -1828,7 +1879,7 @@ function FeedCard({
                           disabled={startStopLoading}
                           activeOpacity={0.8}
                         >
-                          <Ionicons name="close-circle" size={14} color={colors.error} />
+                          <Ionicons name="close-circle" size={12} color={colors.error} />
                           <Text style={styles.deleteButtonText}>Cancel finish</Text>
                         </TouchableOpacity>
                       </View>
@@ -1841,7 +1892,7 @@ function FeedCard({
                       disabled={startStopLoading}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="flag" size={14} color={colors.primary} />
+                      <Ionicons name="flag" size={12} color={colors.primary} />
                       <Text style={styles.startButtonText}>
                         {finishCount > 0 ? `Finish (${finishCount}/2)` : 'Finish'}
                       </Text>
@@ -1858,7 +1909,7 @@ function FeedCard({
                   disabled={startStopLoading}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="play" size={14} color={colors.success} />
+                  <Ionicons name="play" size={12} color={colors.success} />
                   <Text style={styles.resumeButtonText}>Resume</Text>
                 </TouchableOpacity>
                 {isRanked && !isPractice ? (() => {
@@ -1879,7 +1930,7 @@ function FeedCard({
                           disabled={startStopLoading}
                           activeOpacity={0.8}
                         >
-                          <Ionicons name="close-circle" size={14} color={colors.error} />
+                          <Ionicons name="close-circle" size={12} color={colors.error} />
                           <Text style={styles.deleteButtonText}>Cancel finish</Text>
                         </TouchableOpacity>
                       </View>
@@ -1892,7 +1943,7 @@ function FeedCard({
                       disabled={startStopLoading}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="flag" size={14} color={colors.primary} />
+                      <Ionicons name="flag" size={12} color={colors.primary} />
                       <Text style={styles.startButtonText}>
                         {finishCount > 0 ? `Finish (${finishCount}/2)` : 'Finish'}
                       </Text>
@@ -1905,7 +1956,7 @@ function FeedCard({
                     disabled={startStopLoading}
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="flag" size={14} color={colors.primary} />
+                    <Ionicons name="flag" size={12} color={colors.primary} />
                     <Text style={styles.startButtonText}>Finish</Text>
                   </TouchableOpacity>
                 )}
@@ -1931,7 +1982,7 @@ function FeedCard({
                       disabled={deleteLoading}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="close-circle" size={14} color={colors.error} />
+                      <Ionicons name="close-circle" size={12} color={colors.error} />
                       <Text style={styles.deleteButtonText}>Cancel delete</Text>
                     </TouchableOpacity>
                   </View>
@@ -1951,11 +2002,22 @@ function FeedCard({
                   disabled={deleteLoading}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name={cancelBtnIcon} size={14} color={colors.error} />
+                  <Ionicons name={cancelBtnIcon} size={12} color={colors.error} />
                   <Text style={styles.deleteButtonText}>{cancelBtnLabel}</Text>
                 </TouchableOpacity>
               );
             })()}
+            {!isRanked && !isPractice && isParticipant && item.created_by !== currentUserId && (item.status === 'pending' || item.status === 'confirmed') && (
+              <TouchableOpacity
+                style={[styles.deleteButton, deleteLoading && { opacity: 0.6 }]}
+                onPress={handleLeave}
+                disabled={deleteLoading}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="exit-outline" size={12} color={colors.error} />
+                <Text style={styles.deleteButtonText}>Leave</Text>
+              </TouchableOpacity>
+            )}
           </View>
           {(item.status === 'in_progress' || item.status === 'paused') && !isPractice && (
             <View style={styles.gamesEditSection}>
@@ -2007,7 +2069,7 @@ function FeedCard({
                 )}
                 <View style={styles.gameActionsRow}>
                   <TouchableOpacity style={styles.addGameBtn} onPress={handleAddGame} activeOpacity={0.8}>
-                    <Ionicons name="add" size={14} color={colors.primary} />
+                    <Ionicons name="add" size={12} color={colors.primary} />
                     <Text style={styles.addGameBtnText}>Add game</Text>
                   </TouchableOpacity>
                   {saving && (
@@ -2356,7 +2418,7 @@ function FeedCard({
       onConfirm={handlePickLocation}
       colors={colors}
     />
-    </>
+    </Animated.View>
   );
 }
 
@@ -2514,15 +2576,15 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 4,
-      paddingHorizontal: 11,
-      paddingVertical: 6,
+      gap: 3,
+      paddingHorizontal: 9,
+      paddingVertical: 5,
       borderWidth: 1,
       borderColor: colors.primary,
       borderRadius: borderRadius.sm,
-      minWidth: 95,
+      minWidth: 82,
     },
-    addGameBtnText: { ...typography.label, fontSize: 11, color: colors.primary },
+    addGameBtnText: { ...typography.label, fontSize: 10, color: colors.primary },
     playersRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -2596,16 +2658,16 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 4,
+      gap: 3,
       backgroundColor: 'transparent',
       borderWidth: 1.5,
       borderColor: colors.primary,
-      paddingHorizontal: 11,
-      paddingVertical: 6,
+      paddingHorizontal: 9,
+      paddingVertical: 5,
       borderRadius: borderRadius.sm,
-      minWidth: 95,
+      minWidth: 82,
     },
-    startButtonText: { ...typography.label, fontSize: 11, color: colors.primary },
+    startButtonText: { ...typography.label, fontSize: 10, color: colors.primary },
     readyUpCenterButton: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -2644,30 +2706,30 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 4,
+      gap: 3,
       backgroundColor: 'transparent',
       borderWidth: 1.5,
       borderColor: colors.error,
-      paddingHorizontal: 11,
-      paddingVertical: 6,
+      paddingHorizontal: 9,
+      paddingVertical: 5,
       borderRadius: borderRadius.sm,
-      minWidth: 95,
+      minWidth: 82,
     },
-    pauseButtonText: { ...typography.label, fontSize: 11, color: colors.error },
+    pauseButtonText: { ...typography.label, fontSize: 10, color: colors.error },
     resumeButton: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 4,
+      gap: 3,
       backgroundColor: 'transparent',
       borderWidth: 1.5,
       borderColor: colors.success,
-      paddingHorizontal: 11,
-      paddingVertical: 6,
+      paddingHorizontal: 9,
+      paddingVertical: 5,
       borderRadius: borderRadius.sm,
-      minWidth: 95,
+      minWidth: 82,
     },
-    resumeButtonText: { ...typography.label, fontSize: 11, color: colors.success },
+    resumeButtonText: { ...typography.label, fontSize: 10, color: colors.success },
     scoreEditRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -2703,16 +2765,16 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 4,
-      paddingHorizontal: 11,
-      paddingVertical: 6,
+      gap: 3,
+      paddingHorizontal: 9,
+      paddingVertical: 5,
       backgroundColor: 'transparent',
       borderWidth: 1.5,
       borderColor: colors.error,
       borderRadius: borderRadius.sm,
-      minWidth: 95,
+      minWidth: 82,
     },
-    deleteButtonText: { ...typography.label, fontSize: 11, color: colors.error },
+    deleteButtonText: { ...typography.label, fontSize: 10, color: colors.error },
 
     locationRow: {
       flexDirection: 'row',
@@ -3178,6 +3240,10 @@ export default function HomeScreen() {
     setFeedItems(prev => prev.map(m => m.id === matchId ? updater(m) : m));
   }, []);
 
+  const removeFeedItem = useCallback((matchId: string) => {
+    setFeedItems(prev => prev.filter(m => m.id !== matchId));
+  }, []);
+
   const loadFeed = useCallback(async (showLoading = true) => {
     if (showLoading) setLoadingFeed(true);
     try {
@@ -3195,6 +3261,7 @@ export default function HomeScreen() {
         return [];
       };
       const newItems = (feedRes.data ?? []).map((m: any) => ({ ...m, participants: parseParticipants(m.participants) })) as FeedMatch[];
+      newItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       setFeedItems(newItems);
     } catch { /* swallow */ }
     finally { if (showLoading) setLoadingFeed(false); }
@@ -3286,18 +3353,25 @@ export default function HomeScreen() {
     } catch { /* swallow */ }
   }, []);
 
-  useEffect(() => { loadFeed(); loadNotifications(); loadUnreadDmCount(); }, [loadFeed, loadNotifications, loadUnreadDmCount]);
-
   useEffect(() => {
-    if (isFocused) { loadFeed(false); loadNotifications(); loadUnreadDmCount(); }
+    if (!isFocused) return;
+    loadFeed();
+    loadNotifications();
+    loadUnreadDmCount();
   }, [isFocused, loadFeed, loadNotifications, loadUnreadDmCount]);
 
-  const loadFeedDebounced = useMemo(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    return (showLoading = true) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => loadFeed(showLoading), 100);
-    };
+  // Scroll to top when the user taps the Home tab while already on it
+  useEffect(() => {
+    const unsub = navigation.addListener('tabPress', () => {
+      if (isFocused) feedListRef.current?.scrollToOffset({ offset: 0, animated: true });
+    });
+    return unsub;
+  }, [navigation, isFocused]);
+
+  const feedDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadFeedDebounced = useCallback((showLoading = true) => {
+    if (feedDebounceTimerRef.current) clearTimeout(feedDebounceTimerRef.current);
+    feedDebounceTimerRef.current = setTimeout(() => loadFeed(showLoading), 100);
   }, [loadFeed]);
 
   const realtimeChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -3305,7 +3379,7 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!isFocused || !currentUserId) return;
     const channel = supabase
-      .channel('matches-changes')
+      .channel(`matches-changes-${currentUserId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => {
         loadFeedDebounced(false);
       })
@@ -3324,6 +3398,7 @@ export default function HomeScreen() {
       .subscribe();
     realtimeChannelRef.current = channel;
     return () => {
+      if (feedDebounceTimerRef.current) clearTimeout(feedDebounceTimerRef.current);
       realtimeChannelRef.current = null;
       supabase.removeChannel(channel);
     };
@@ -3363,37 +3438,36 @@ export default function HomeScreen() {
   const deletingMatchRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!currentUserId) return;
-    feedItems.forEach(async (m) => {
-      if (String(m.match_type || '').toLowerCase() !== 'ranked') return;
+    const candidates = feedItems.filter((m) => {
+      if (String(m.match_type || '').toLowerCase() !== 'ranked') return false;
       const pts = Array.isArray(m.participants) ? m.participants : [];
-      if (pts.length < 2) return;
-      const amIn = pts.some((p) => String(p?.user_id) === String(currentUserId));
-      if (!amIn) return;
-      const allWantDelete = pts.every((p) => p.delete_requested === true);
-      if (!allWantDelete) return;
-      if (deletingMatchRef.current.has(m.id)) return; // already processing
-      deletingMatchRef.current.add(m.id);
+      if (pts.length < 2) return false;
+      if (!pts.some((p) => String(p?.user_id) === String(currentUserId))) return false;
+      if (!pts.every((p) => p.delete_requested === true)) return false;
+      if (deletingMatchRef.current.has(m.id)) return false;
+      return true;
+    });
+    if (candidates.length === 0) return;
+    candidates.forEach((m) => deletingMatchRef.current.add(m.id));
+    Promise.all(candidates.map(async (m) => {
+      const pts = Array.isArray(m.participants) ? m.participants : [];
       try {
-        // Reverse sport ratings if completed ranked
         if (m.status === 'completed') {
           const { data: sportRow } = await supabase.from('sports').select('id').eq('name', m.sport_name).maybeSingle();
           if (sportRow?.id) {
-            for (const p of pts) {
-              await supabase.rpc('reverse_sport_rating', {
-                p_user_id: p.user_id,
-                p_sport_id: sportRow.id,
-                p_vp_loss: Math.max(0, p.vp_delta ?? 0),
-                p_was_win: p.result === 'win',
-                p_was_loss: p.result === 'loss',
-              });
-            }
+            await Promise.all(pts.map((p) => supabase.rpc('reverse_sport_rating', {
+              p_user_id: p.user_id,
+              p_sport_id: sportRow.id,
+              p_vp_loss: Math.max(0, p.vp_delta ?? 0),
+              p_was_win: p.result === 'win',
+              p_was_loss: p.result === 'loss',
+            })));
           }
         }
         await supabase.from('matches').delete().eq('id', m.id);
-        loadFeed(false);
       } catch { /* swallow — other user may have already deleted */ }
       finally { deletingMatchRef.current.delete(m.id); }
-    });
+    })).then(() => { if (candidates.length > 0) loadFeed(false); });
   }, [feedItems, currentUserId, loadFeed]);
 
   const myFeed = useMemo(
@@ -3790,6 +3864,7 @@ export default function HomeScreen() {
               colors={colors}
               onRefresh={loadFeed}
               updateFeedItem={updateFeedItem}
+              onRemoveItem={removeFeedItem}
               onInviteOpponent={(match, slot) => { setInviteOpponentMatch(match); setInviteSlot(slot ?? 'opponent'); }}
               onEditMatch={setEditMatch}
               navigation={navigation}

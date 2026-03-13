@@ -94,15 +94,16 @@ function createStyles(colors: ThemeColors, isDark: boolean) {
     },
     messageBubbleSent: { backgroundColor: colors.primary },
     messageBubbleReceived: {
-      backgroundColor: isDark ? '#3A3530' : colors.cardBg,
+      backgroundColor: isDark ? '#5A5450' : colors.cardBg,
       borderWidth: 1,
-      borderColor: isDark ? '#5A5248' : colors.border,
+      borderColor: isDark ? '#7A7470' : colors.border,
     },
     messageBubblePending: { opacity: 0.6 },
     messageText: { ...typography.body, fontSize: 15, textAlignVertical: 'center' as any },
     messageTextSent: { color: colors.textOnPrimary },
-    messageTextReceived: { color: colors.text },
-    messageTime: { ...typography.caption, fontSize: 11, marginTop: 2, opacity: 0.8 },
+    messageTextReceived: { color: isDark ? '#FFFFFF' : colors.text },
+    messageTimeSent: { ...typography.caption, fontSize: 11, marginTop: 2, color: 'rgba(255,255,255,0.75)' },
+    messageTimeReceived: { ...typography.caption, fontSize: 11, marginTop: 2, color: isDark ? 'rgba(255,255,255,0.65)' : colors.textSecondary },
     inputRow: {
       flexDirection: 'row',
       alignItems: 'flex-end',
@@ -406,7 +407,7 @@ export default function ChatScreen() {
                   </View>
                   <View style={[styles.messageBubble, isSent ? styles.messageBubbleSent : styles.messageBubbleReceived, isPending && styles.messageBubblePending]}>
                     <Text style={[styles.messageText, isSent ? styles.messageTextSent : styles.messageTextReceived]}>{msg.body}</Text>
-                    <Text style={[styles.messageTime, isSent && { color: colors.textOnPrimary }]}>
+                    <Text style={isSent ? styles.messageTimeSent : styles.messageTimeReceived}>
                       {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                     </Text>
                   </View>

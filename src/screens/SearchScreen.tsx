@@ -10,11 +10,13 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ThemeColors } from '../constants/theme';
 import { supabase, resolveAvatarUrl } from '../lib/supabase';
+import { requestContactsPermission, getContactHashes } from '../lib/contacts';
 import UserSearch from '../components/UserSearch';
 import type { SearchedUser } from '../components/UserSearch';
 
@@ -84,6 +86,43 @@ function createSearchStyles(colors: ThemeColors) {
     name: { ...typography.body, fontSize: 14, fontWeight: '600', color: colors.text },
     handle: { ...typography.caption, color: colors.textSecondary },
     recLoader: { paddingVertical: spacing.lg, alignItems: 'center' },
+    contactsBanner: {
+      backgroundColor: colors.cardBg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: borderRadius.lg,
+      padding: spacing.md,
+      marginTop: spacing.lg,
+      marginBottom: spacing.sm,
+    },
+    contactsBannerHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginBottom: spacing.xs,
+    },
+    contactsBannerTitle: {
+      ...typography.body,
+      fontSize: 14,
+      fontWeight: '600' as const,
+      color: colors.text,
+      flex: 1,
+    },
+    contactsBannerSub: {
+      ...typography.caption,
+      fontSize: 12,
+      color: colors.textSecondary,
+      marginBottom: spacing.sm,
+    },
+    contactsBannerAllow: {
+      alignSelf: 'flex-start',
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.primary,
+    },
+    contactsBannerAllowText: { ...typography.label, color: colors.textOnPrimary },
+    contactSubLabel: { ...typography.caption, color: colors.textSecondary, fontSize: 11 },
   });
 }
 
@@ -101,11 +140,49 @@ export default function SearchScreen() {
   const [recommended, setRecommended] = useState<SearchedUser[]>([]);
   const [recLoading, setRecLoading] = useState(false);
 
+  const [contactsGranted, setContactsGranted] = useState(false);
+  const [contactsBannerVisible, setContactsBannerVisible] = useState(false);
+  const [contactUsers, setContactUsers] = useState<SearchedUser[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+
+  const loadContactMatches = useCallback(async (userId: string) => {
+    setContactsLoading(true);
+    try {
+      const hashes = await getContactHashes();
+      if (hashes.length === 0) return;
+      const { data } = await supabase
+        .from('profiles')
+        .select('user_id, username, full_name, avatar_url')
+        .in('phone_hash', hashes)
+        .neq('user_id', userId);
+      if (data) {
+        const resolved = await Promise.all(
+          (data as any[]).map(async (u) => ({
+            user_id: u.user_id,
+            username: u.username,
+            full_name: u.full_name,
+            avatar_url: (await resolveAvatarUrl(u.avatar_url)) ?? u.avatar_url,
+          })),
+        );
+        setContactUsers(resolved);
+      }
+    } catch { /* swallow */ }
+    finally { setContactsLoading(false); }
+  }, []);
+
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setCurrentUserId(user.id);
+
+      const stored = await AsyncStorage.getItem('contacts_permission');
+      if (stored === 'granted') {
+        setContactsGranted(true);
+        loadContactMatches(user.id);
+      } else if (stored !== 'dismissed') {
+        setContactsBannerVisible(true);
+      }
 
       const { data: fRows } = await supabase
         .from('follows')
@@ -143,7 +220,7 @@ export default function SearchScreen() {
       } catch { /* swallow */ }
       finally { setRecLoading(false); }
     })();
-  }, []);
+  }, [loadContactMatches]);
 
   const sendFollowRequest = useCallback(async (targetUserId: string) => {
     if (!currentUserId || togglingFollow) return;
@@ -192,6 +269,24 @@ export default function SearchScreen() {
     );
   };
 
+  const handleAllowContacts = useCallback(async () => {
+    const status = await requestContactsPermission();
+    if (status === 'granted') {
+      await AsyncStorage.setItem('contacts_permission', 'granted');
+      setContactsGranted(true);
+      setContactsBannerVisible(false);
+      if (currentUserId) loadContactMatches(currentUserId);
+    } else {
+      await AsyncStorage.setItem('contacts_permission', 'dismissed');
+      setContactsBannerVisible(false);
+    }
+  }, [currentUserId, loadContactMatches]);
+
+  const handleDismissBanner = useCallback(async () => {
+    await AsyncStorage.setItem('contacts_permission', 'dismissed');
+    setContactsBannerVisible(false);
+  }, []);
+
   const getInitials = (u: SearchedUser) =>
     (u.full_name ?? u.username ?? '?').split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2);
 
@@ -218,38 +313,94 @@ export default function SearchScreen() {
         />
 
         {showRecommended && (
-          <View style={styles.recSection}>
-            <Text style={styles.recTitle}>Suggested for you</Text>
-            {recLoading ? (
-              <View style={styles.recLoader}><ActivityIndicator color={colors.primary} /></View>
-            ) : (
-              <FlatList
-                data={recommended}
-                keyExtractor={(item) => item.user_id}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={styles.recRow}
-                    onPress={() => navigation.navigate('UserProfile', { userId: item.user_id })}
-                    activeOpacity={0.8}
-                  >
-                    <View style={styles.avatar}>
-                      {item.avatar_url ? (
-                        <Image source={{ uri: item.avatar_url }} style={styles.avatarImg} />
-                      ) : (
-                        <Text style={styles.initials}>{getInitials(item)}</Text>
-                      )}
-                    </View>
-                    <View style={styles.info}>
-                      <Text style={styles.name} numberOfLines={1}>{item.full_name ?? item.username ?? 'Unknown'}</Text>
-                      {item.username ? <Text style={styles.handle}>@{item.username}</Text> : null}
-                    </View>
-                    {renderFollowBtn(item)}
+          <>
+            {/* Contacts banner */}
+            {contactsBannerVisible && (
+              <View style={styles.contactsBanner}>
+                <View style={styles.contactsBannerHeader}>
+                  <Ionicons name="people-outline" size={16} color={colors.primary} />
+                  <Text style={styles.contactsBannerTitle}>Find friends from your contacts</Text>
+                  <TouchableOpacity onPress={handleDismissBanner} hitSlop={10} activeOpacity={0.7}>
+                    <Ionicons name="close" size={16} color={colors.textSecondary} />
                   </TouchableOpacity>
-                )}
-                scrollEnabled={false}
-              />
+                </View>
+                <Text style={styles.contactsBannerSub}>See which of your contacts are already on Versus</Text>
+                <TouchableOpacity style={styles.contactsBannerAllow} onPress={handleAllowContacts} activeOpacity={0.8}>
+                  <Text style={styles.contactsBannerAllowText}>Connect contacts</Text>
+                </TouchableOpacity>
+              </View>
             )}
-          </View>
+
+            {/* From your contacts section */}
+            {(contactsGranted && (contactsLoading || contactUsers.length > 0)) && (
+              <View style={styles.recSection}>
+                <Text style={styles.recTitle}>From your contacts</Text>
+                {contactsLoading ? (
+                  <View style={styles.recLoader}><ActivityIndicator color={colors.primary} /></View>
+                ) : (
+                  <FlatList
+                    data={contactUsers}
+                    keyExtractor={(item) => item.user_id}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity
+                        style={styles.recRow}
+                        onPress={() => navigation.navigate('UserProfile', { userId: item.user_id })}
+                        activeOpacity={0.8}
+                      >
+                        <View style={styles.avatar}>
+                          {item.avatar_url ? (
+                            <Image source={{ uri: item.avatar_url }} style={styles.avatarImg} />
+                          ) : (
+                            <Text style={styles.initials}>{getInitials(item)}</Text>
+                          )}
+                        </View>
+                        <View style={styles.info}>
+                          <Text style={styles.name} numberOfLines={1}>{item.full_name ?? item.username ?? 'Unknown'}</Text>
+                          <Text style={styles.contactSubLabel}>In your contacts</Text>
+                        </View>
+                        {renderFollowBtn(item)}
+                      </TouchableOpacity>
+                    )}
+                    scrollEnabled={false}
+                  />
+                )}
+              </View>
+            )}
+
+            {/* Suggested for you section */}
+            <View style={styles.recSection}>
+              <Text style={styles.recTitle}>Suggested for you</Text>
+              {recLoading ? (
+                <View style={styles.recLoader}><ActivityIndicator color={colors.primary} /></View>
+              ) : (
+                <FlatList
+                  data={recommended}
+                  keyExtractor={(item) => item.user_id}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={styles.recRow}
+                      onPress={() => navigation.navigate('UserProfile', { userId: item.user_id })}
+                      activeOpacity={0.8}
+                    >
+                      <View style={styles.avatar}>
+                        {item.avatar_url ? (
+                          <Image source={{ uri: item.avatar_url }} style={styles.avatarImg} />
+                        ) : (
+                          <Text style={styles.initials}>{getInitials(item)}</Text>
+                        )}
+                      </View>
+                      <View style={styles.info}>
+                        <Text style={styles.name} numberOfLines={1}>{item.full_name ?? item.username ?? 'Unknown'}</Text>
+                        {item.username ? <Text style={styles.handle}>@{item.username}</Text> : null}
+                      </View>
+                      {renderFollowBtn(item)}
+                    </TouchableOpacity>
+                  )}
+                  scrollEnabled={false}
+                />
+              )}
+            </View>
+          </>
         )}
       </View>
     </View>

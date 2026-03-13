@@ -24,6 +24,7 @@ import { spacing, typography, borderRadius } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ThemeColors } from '../constants/theme';
 import { supabase, resolveAvatarUrl } from '../lib/supabase';
+import { normalizePhone, hashPhone } from '../lib/contacts';
 import { SPORTS, sportLabel, SPORT_EMOJI } from '../constants/sports';
 
 type ProfileTab = 'overview' | 'rankings';
@@ -427,6 +428,8 @@ export default function ProfileScreen() {
   const [editCity, setEditCity] = useState('');
   const [editState, setEditState] = useState('');
   const [editBio, setEditBio] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [phoneHashSet, setPhoneHashSet] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [followingCount, setFollowingCount] = useState(0);
@@ -456,8 +459,6 @@ export default function ProfileScreen() {
     if (result.canceled || !result.assets?.[0]?.uri) return;
 
     const asset = result.assets[0];
-    const uri = asset.uri;
-    setAvatarUri(uri);
     setUploadingAvatar(true);
 
     try {
@@ -503,7 +504,7 @@ export default function ProfileScreen() {
 
       // All independent queries in parallel
       const [profileRes, fingRes, fersRes, ratingsRes, participantRes] = await Promise.all([
-        supabase.from('profiles').select('username, full_name, vp_total, preferred_sports, avatar_url, date_of_birth, gender, location, bio').eq('user_id', user.id).maybeSingle(),
+        supabase.from('profiles').select('username, full_name, vp_total, preferred_sports, avatar_url, date_of_birth, gender, location, bio, phone_hash').eq('user_id', user.id).maybeSingle(),
         supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', user.id).eq('status', 'accepted'),
         supabase.from('follows').select('*', { count: 'exact', head: true }).eq('followed_id', user.id).eq('status', 'accepted'),
         supabase.from('user_sport_ratings').select('vp, rank_tier, rank_div, wins, losses, sports!inner(name)').eq('user_id', user.id),
@@ -522,6 +523,7 @@ export default function ProfileScreen() {
         location: p?.location ?? null,
         bio: p?.bio ?? null,
       });
+      setPhoneHashSet(!!(p as any)?.phone_hash);
       setFollowingCount(fingRes.count ?? 0);
       setFollowerCount(fersRes.count ?? 0);
       if (ratingsRes.data) {
@@ -655,6 +657,7 @@ export default function ProfileScreen() {
     setEditCity(locParts[0] ?? '');
     setEditState(locParts.slice(1).join(', '));
     setEditBio(profile?.bio ?? '');
+    setEditPhone(''); // never pre-fill — one-way hash
     setShowEditModal(true);
   };
 
@@ -669,8 +672,24 @@ export default function ProfileScreen() {
         location: [editCity.trim(), editState.trim()].filter(Boolean).join(', ') || null,
         bio: editBio.trim() || null,
       };
+
+      const phoneInput = editPhone.trim();
+      if (phoneInput === '') {
+        // blank → clear the hash
+        updates.phone_hash = null;
+      } else {
+        const normalized = normalizePhone(phoneInput);
+        if (!normalized) {
+          Alert.alert('Invalid phone', 'Enter a 10-digit US number (e.g. 5551234567).');
+          setSavingEdit(false);
+          return;
+        }
+        updates.phone_hash = await hashPhone(normalized);
+      }
+
       const { error } = await supabase.from('profiles').update(updates).eq('user_id', currentUserId);
       if (error) { Alert.alert('Save failed', error.message); return; }
+      setPhoneHashSet(updates.phone_hash !== null);
       setProfile((prev) => prev ? { ...prev, ...updates } : prev);
       setShowEditModal(false);
     } catch (e: any) {
@@ -992,6 +1011,22 @@ export default function ProfileScreen() {
                   placeholderTextColor={colors.textSecondary}
                   multiline
                   maxLength={200}
+                />
+
+                <Text style={styles.editLabel}>
+                  Phone number{' '}
+                  <Text style={{ fontWeight: '400', color: colors.textSecondary }}>
+                    {phoneHashSet ? '(Connected)' : '(optional)'}
+                  </Text>
+                </Text>
+                <TextInput
+                  style={styles.editInput}
+                  value={editPhone}
+                  onChangeText={setEditPhone}
+                  placeholder={phoneHashSet ? 'Enter new number to update, or leave blank to clear' : '10-digit US number (e.g. 5551234567)'}
+                  placeholderTextColor={colors.textSecondary}
+                  keyboardType="phone-pad"
+                  maxLength={15}
                 />
 
                 <TouchableOpacity

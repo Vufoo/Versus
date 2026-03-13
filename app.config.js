@@ -22,6 +22,8 @@ module.exports = ({ config }) => ({
         'Versus uses your location to show nearby players, courts, and matches on the map.',
       NSPhotoLibraryUsageDescription:
         'Versus needs photo access to set your profile picture and add photos to matches.',
+      NSContactsUsageDescription:
+        'Versus uses your contacts to help you find friends who are already on the app.',
     },
   },
   android: {
@@ -32,7 +34,7 @@ module.exports = ({ config }) => ({
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
-    permissions: ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION'],
+    permissions: ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION', 'READ_CONTACTS'],
   },
   plugins: [
     [

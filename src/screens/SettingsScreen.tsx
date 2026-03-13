@@ -73,6 +73,18 @@ function createStyles(colors: ThemeColors) {
     themeChipSelected: { backgroundColor: colors.primary, borderColor: colors.primaryDark },
     themeChipText: { ...typography.caption, color: colors.textSecondary },
     themeChipTextSelected: { color: colors.textOnPrimary },
+    themeChipSm: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 3,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 3,
+      borderRadius: 9999,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+    },
+    themeChipSmText: { fontSize: 11, fontWeight: '600' as const, color: colors.textSecondary },
     signOutBtn: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -146,15 +158,16 @@ export default function SettingsScreen() {
   }, []);
 
   const updateLocationVisibility = async (value: 'public' | 'private') => {
+    const previous = locationVisibility;
     setLocationVisibility(value);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const update: { location_visibility: string; last_lat?: null; last_lng?: null } = { location_visibility: value };
-    if (value === 'private') {
-      update.last_lat = null;
-      update.last_lng = null;
-    }
-    await supabase.from('profiles').update(update).eq('user_id', user.id);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLocationVisibility(previous); return; }
+      const update: { location_visibility: string; last_lat?: null; last_lng?: null } = { location_visibility: value };
+      if (value === 'private') { update.last_lat = null; update.last_lng = null; }
+      const { error } = await supabase.from('profiles').update(update).eq('user_id', user.id);
+      if (error) throw error;
+    } catch { setLocationVisibility(previous); }
   };
 
   const updatePushNotifs = async (enabled: boolean) => {
@@ -169,10 +182,14 @@ export default function SettingsScreen() {
   };
 
   const updateProfileVisibility = async (value: 'public' | 'private') => {
+    const previous = profileVisibility;
     setProfileVisibility(value);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    await supabase.from('profiles').update({ profile_visibility: value }).eq('user_id', user.id);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setProfileVisibility(previous); return; }
+      const { error } = await supabase.from('profiles').update({ profile_visibility: value }).eq('user_id', user.id);
+      if (error) throw error;
+    } catch { setProfileVisibility(previous); }
   };
 
   const handleSignOut = () => {
@@ -335,20 +352,20 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.themeChips}>
               <TouchableOpacity
-                style={[styles.themeChip, locationVisibility === 'private' && styles.themeChipSelected]}
+                style={[styles.themeChipSm, locationVisibility === 'private' && styles.themeChipSelected]}
                 activeOpacity={0.8}
                 onPress={() => updateLocationVisibility('private')}
               >
-                <Ionicons name="lock-closed-outline" size={14} color={locationVisibility === 'private' ? colors.textOnPrimary : colors.textSecondary} />
-                <Text style={[styles.themeChipText, locationVisibility === 'private' && styles.themeChipTextSelected]}>Private</Text>
+                <Ionicons name="lock-closed-outline" size={11} color={locationVisibility === 'private' ? colors.textOnPrimary : colors.textSecondary} />
+                <Text style={[styles.themeChipSmText, locationVisibility === 'private' && styles.themeChipTextSelected]}>Private</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.themeChip, locationVisibility === 'public' && styles.themeChipSelected]}
+                style={[styles.themeChipSm, locationVisibility === 'public' && styles.themeChipSelected]}
                 activeOpacity={0.8}
                 onPress={() => updateLocationVisibility('public')}
               >
-                <Ionicons name="globe-outline" size={14} color={locationVisibility === 'public' ? colors.textOnPrimary : colors.textSecondary} />
-                <Text style={[styles.themeChipText, locationVisibility === 'public' && styles.themeChipTextSelected]}>Public</Text>
+                <Ionicons name="globe-outline" size={11} color={locationVisibility === 'public' ? colors.textOnPrimary : colors.textSecondary} />
+                <Text style={[styles.themeChipSmText, locationVisibility === 'public' && styles.themeChipTextSelected]}>Public</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -365,26 +382,26 @@ export default function SettingsScreen() {
               <View style={styles.settingRowTextBlock}>
                 <Text style={styles.settingLabel}>Profile visibility</Text>
                 <Text style={styles.settingValue}>
-                  {profileVisibility === 'private' ? 'Match history hidden from others' : 'Match history visible to others'}
+                  {profileVisibility === 'private' ? 'Match history hidden' : 'Match history visible'}
                 </Text>
               </View>
             </View>
             <View style={styles.themeChips}>
               <TouchableOpacity
-                style={[styles.themeChip, profileVisibility === 'private' && styles.themeChipSelected]}
+                style={[styles.themeChipSm, profileVisibility === 'private' && styles.themeChipSelected]}
                 activeOpacity={0.8}
                 onPress={() => updateProfileVisibility('private')}
               >
-                <Ionicons name="lock-closed-outline" size={14} color={profileVisibility === 'private' ? colors.textOnPrimary : colors.textSecondary} />
-                <Text style={[styles.themeChipText, profileVisibility === 'private' && styles.themeChipTextSelected]}>Private</Text>
+                <Ionicons name="lock-closed-outline" size={11} color={profileVisibility === 'private' ? colors.textOnPrimary : colors.textSecondary} />
+                <Text style={[styles.themeChipSmText, profileVisibility === 'private' && styles.themeChipTextSelected]}>Private</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.themeChip, profileVisibility === 'public' && styles.themeChipSelected]}
+                style={[styles.themeChipSm, profileVisibility === 'public' && styles.themeChipSelected]}
                 activeOpacity={0.8}
                 onPress={() => updateProfileVisibility('public')}
               >
-                <Ionicons name="globe-outline" size={14} color={profileVisibility === 'public' ? colors.textOnPrimary : colors.textSecondary} />
-                <Text style={[styles.themeChipText, profileVisibility === 'public' && styles.themeChipTextSelected]}>Public</Text>
+                <Ionicons name="globe-outline" size={11} color={profileVisibility === 'public' ? colors.textOnPrimary : colors.textSecondary} />
+                <Text style={[styles.themeChipSmText, profileVisibility === 'public' && styles.themeChipTextSelected]}>Public</Text>
               </TouchableOpacity>
             </View>
           </View>

@@ -192,7 +192,7 @@ export default function UserProfileScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<RootStackParamList, 'UserProfile'>>();
-  const styles = createStyles(colors);
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   const targetUserId = route.params?.userId ?? '';
 
@@ -247,10 +247,23 @@ export default function UserProfileScreen() {
         setFollowState((f as { status?: string })?.status === 'accepted' ? 'accepted' : (f as { status?: string })?.status === 'pending' ? 'pending' : 'none');
       }
 
-      const { data: feedRows } = await supabase.from('match_feed').select('id, sport_name, match_type, status, created_at, scheduled_at, started_at, location_name, match_format, is_public, participants, games').order('created_at', { ascending: false }).limit(80);
-      const rows = (feedRows ?? []) as MatchHistoryItem[];
-      const theirMatches = rows.filter((m) => (m.participants ?? []).some((p: { user_id?: string }) => String(p?.user_id) === String(targetUserId)));
-      setMatchHistory(theirMatches.slice(0, 30));
+      // Fetch match IDs where this user is a participant, then load those specific matches
+      const { data: participantRows } = await supabase
+        .from('match_participants')
+        .select('match_id')
+        .eq('user_id', targetUserId);
+      const matchIds = (participantRows ?? []).map((r: { match_id: string }) => r.match_id);
+      if (matchIds.length > 0) {
+        const { data: feedRows } = await supabase
+          .from('match_feed')
+          .select('id, sport_name, match_type, status, created_at, scheduled_at, started_at, location_name, match_format, is_public, participants, games')
+          .in('id', matchIds)
+          .order('created_at', { ascending: false })
+          .limit(30);
+        setMatchHistory((feedRows ?? []) as MatchHistoryItem[]);
+      } else {
+        setMatchHistory([]);
+      }
     } catch { /* swallow */ }
     finally { setLoadingProfile(false); }
   }, [targetUserId, currentUserId]);

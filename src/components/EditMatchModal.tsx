@@ -360,11 +360,9 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
       { text: 'Leave', style: 'destructive', onPress: async () => {
         setDeleting(true);
         try {
-          await supabase.from('match_participants').delete()
+          const { error: delErr } = await supabase.from('match_participants').delete()
             .eq('match_id', match.id).eq('user_id', currentUserId);
-          // If this user was the invited opponent, clear that field so others can be invited
-          await supabase.from('matches').update({ invited_opponent_id: null })
-            .eq('id', match.id).eq('invited_opponent_id', currentUserId);
+          if (delErr) throw delErr;
           if (match.status === 'confirmed') {
             await supabase.from('matches').update({ status: 'pending' }).eq('id', match.id);
           }
@@ -372,8 +370,22 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
           await supabase.from('notifications').delete()
             .eq('user_id', currentUserId).eq('type', 'match_invite')
             .filter('data->>match_id', 'eq', match.id);
+          // Notify creator
+          if (match.created_by && match.created_by !== currentUserId) {
+            const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
+            const displayName = (myProfile as any)?.full_name ?? (myProfile as any)?.username ?? 'Your opponent';
+            await supabase.from('notifications').insert({
+              user_id: match.created_by,
+              type: 'match_declined',
+              title: `${displayName} left your match`,
+              body: 'They left before the match started.',
+              data: { match_id: match.id, from_user_id: currentUserId },
+            });
+          }
           onSaved?.(); onClose();
-        } catch { /* swallow */ } finally { setDeleting(false); }
+        } catch (e: any) {
+          Alert.alert('Error', e?.message ?? 'Could not leave match.');
+        } finally { setDeleting(false); }
       }},
     ]);
   };
@@ -460,7 +472,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                     </Text>
                   </TouchableOpacity>
 
-                  {isCasual && (() => {
+                  {isCasual && match.status === 'completed' && (() => {
                     const challName = (match.participants ?? []).find(p => p.role === 'challenger')?.full_name
                       ?? (match.participants ?? []).find(p => p.role === 'challenger')?.username
                       ?? 'Challenger';

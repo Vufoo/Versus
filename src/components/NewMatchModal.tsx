@@ -229,6 +229,11 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Clear pending location search timer on unmount
+  useEffect(() => {
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+  }, []);
+
   const orderedSports = useMemo(() => {
     if (preferredSports.length === 0) return SPORTS;
     const prefSet = new Set(preferredSports);

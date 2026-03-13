@@ -362,6 +362,11 @@ create policy "Creators can update participants of their matches"
   on public.match_participants for update
   using (exists (select 1 from public.matches where id = match_id and created_by = auth.uid()));
 
+drop policy if exists "Users can leave matches" on public.match_participants;
+create policy "Users can leave matches"
+  on public.match_participants for delete
+  using (auth.uid() = user_id);
+
 -- Likes & comments for the feed ---------------------------------------------
 
 create table if not exists public.match_likes (
@@ -1099,3 +1104,6 @@ grant usage on schema public to anon, authenticated;
 grant all on all tables in schema public to anon, authenticated;
 grant execute on all functions in schema public to anon, authenticated;
 grant select on public.match_feed to anon, authenticated;
+
+-- Contacts integration: store hashed phone numbers for friend discovery
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS phone_hash TEXT UNIQUE;

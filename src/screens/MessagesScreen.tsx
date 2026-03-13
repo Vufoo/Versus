@@ -140,6 +140,7 @@ export default function MessagesScreen() {
   const [composeLoading, setComposeLoading] = useState(false);
 
   const loadFollowers = useCallback(async () => {
+    try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       setLoading(false);
@@ -247,7 +248,7 @@ export default function MessagesScreen() {
       };
     });
     setConversationByUser(metaByUser);
-    setLoading(false);
+    } catch { /* swallow */ } finally { setLoading(false); }
   }, []);
 
   useFocusEffect(
@@ -315,7 +316,11 @@ export default function MessagesScreen() {
               Your conversations will appear here. Start a chat from a profile or from your followers.
             </Text>
           ) : (
-            followers.map((f) => {
+            [...followers].sort((a, b) => {
+              const aTime = conversationByUser[a.user_id]?.latestCreatedAt || '';
+              const bTime = conversationByUser[b.user_id]?.latestCreatedAt || '';
+              return bTime.localeCompare(aTime);
+            }).map((f) => {
               const meta = conversationByUser[f.user_id];
               const preview = meta?.latestBody ?? (f.username ? `@${f.username}` : 'Tap to message');
               const unread = Boolean(
