@@ -128,12 +128,15 @@ function makeStyles(c: ThemeColors) {
     myRankValue: { fontSize: 16, fontWeight: '700', color: c.text, marginTop: 2 },
     myRankSub: { fontSize: 11, color: c.textSecondary, marginTop: 2 },
 
-    // List card with primary blue border
-    listCard: {
-      backgroundColor: c.cardBg,
+    // Outer wrapper carries the border; inner card clips children
+    listCardWrapper: {
       borderRadius: borderRadius.lg,
       borderWidth: 1.5,
       borderColor: c.primary,
+    },
+    listCard: {
+      backgroundColor: c.cardBg,
+      borderRadius: borderRadius.lg - 1.5,
       overflow: 'hidden',
     },
 
@@ -389,6 +392,7 @@ export default function LeaderboardScreen() {
                 )}
 
                 {/* 10-slot leaderboard card */}
+                <View style={styles.listCardWrapper}>
                 <View style={styles.listCard}>
                   {/* Column headers */}
                   <View style={styles.colHeader}>
@@ -486,6 +490,7 @@ export default function LeaderboardScreen() {
                       );
                     })
                   )}
+                </View>
                 </View>
 
               </ScrollView>

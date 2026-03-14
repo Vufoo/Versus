@@ -420,6 +420,13 @@ export default function SettingsScreen() {
 
         <View style={styles.settingSection}>
           <Text style={styles.settingSectionTitle}>Support</Text>
+          <TouchableOpacity style={styles.settingRow} onPress={() => navigation.navigate('FAQ')} activeOpacity={0.7}>
+            <View style={styles.settingRowLeft}>
+              <Ionicons name="book-outline" size={20} color={colors.textSecondary} />
+              <Text style={styles.settingLabel}>FAQ</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Help', 'Visit versus.app/help for support.')} activeOpacity={0.7}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="help-circle-outline" size={20} color={colors.textSecondary} />

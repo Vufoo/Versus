@@ -310,14 +310,40 @@ export default function UserProfileScreen() {
   }, [sportRatings]);
 
   const top3Rankings = useMemo(() => {
-    const withStats = rankingsData.filter((r) => r.vp > 0 || r.rank_tier);
-    if (withStats.length > 0) return [...withStats].sort((a, b) => b.vp - a.vp).slice(0, 3);
     const preferred = profile?.preferred_sports ?? [];
-    const sportsToShow = preferred.length >= 3 ? preferred.slice(0, 3) : SPORTS.slice(0, 3);
-    return sportsToShow.map((s) => {
-      const r = rankingsData.find((rd) => rd.sport === s);
-      return r ?? { sport: s, rank_tier: null, rank_div: null, vp: 0, wins: 0, losses: 0 };
-    });
+    const result: typeof rankingsData = [];
+
+    // 1. Preferred sports in user-selected order
+    for (const sp of preferred) {
+      if (result.length >= 3) break;
+      const r = rankingsData.find((rd) => rd.sport === sp);
+      result.push(r ?? { sport: sp, rank_tier: null, rank_div: null, vp: 0, wins: 0, losses: 0 });
+    }
+
+    // 2. Sports with activity (by VP) not already included
+    if (result.length < 3) {
+      const used = new Set(result.map((r) => r.sport));
+      const withStats = [...rankingsData.filter((r) => (r.vp > 0 || r.rank_tier) && !used.has(r.sport))]
+        .sort((a, b) => b.vp - a.vp);
+      for (const r of withStats) {
+        if (result.length >= 3) break;
+        result.push(r);
+      }
+    }
+
+    // 3. Fill remaining with any sports in default order
+    if (result.length < 3) {
+      const used = new Set(result.map((r) => r.sport));
+      for (const s of SPORTS) {
+        if (result.length >= 3) break;
+        if (!used.has(s)) {
+          const r = rankingsData.find((rd) => rd.sport === s);
+          result.push(r ?? { sport: s, rank_tier: null, rank_div: null, vp: 0, wins: 0, losses: 0 });
+        }
+      }
+    }
+
+    return result;
   }, [rankingsData, profile?.preferred_sports]);
 
   const sendFollowRequest = async () => {
@@ -491,7 +517,8 @@ export default function UserProfileScreen() {
                   const theirPart = (m.participants ?? []).find((p: { user_id?: string }) => String(p?.user_id) === String(targetUserId));
                   const others = (m.participants ?? []).filter((p: { user_id?: string }) => String(p?.user_id) !== String(targetUserId));
                   const opponentNames = others.map((p: { full_name?: string | null; username?: string | null }) => p?.full_name || p?.username || 'Opponent').join(', ');
-                  const result = theirPart?.result === 'win' ? 'Win' : theirPart?.result === 'loss' ? 'Loss' : theirPart?.result === 'draw' ? 'Draw' : m.status === 'completed' ? '—' : m.status;
+                  const statusFallback = m.status === 'in_progress' ? 'In Progress' : (m.status as string).charAt(0).toUpperCase() + (m.status as string).slice(1);
+                  const result = theirPart?.result === 'win' ? 'Win' : theirPart?.result === 'loss' ? 'Loss' : theirPart?.result === 'draw' ? 'Draw' : m.status === 'completed' ? '—' : statusFallback;
                   const games = (m.games ?? []).filter((g: { score_challenger: number; score_opponent: number }) => g.score_challenger > 0 || g.score_opponent > 0);
                   const scoreStr = games.length > 0 ? games.map((g: { score_challenger: number; score_opponent: number }) => `${g.score_challenger}-${g.score_opponent}`).join(', ') : null;
                   const dateStr = new Date(m.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });

@@ -143,7 +143,6 @@ function createStyles(colors: ThemeColors) {
     socialItem: { alignItems: 'center' },
     socialValue: { ...typography.heading, fontSize: 18, color: colors.text },
     socialLabel: { ...typography.caption, color: colors.textSecondary },
-
     /* ---- Tab bar ---- */
     tabRow: {
       flexDirection: 'row',
@@ -243,8 +242,8 @@ function createStyles(colors: ThemeColors) {
     rankEmoji: { fontSize: 48, marginBottom: spacing.sm },
     rankSport: { ...typography.heading, color: colors.text, marginBottom: spacing.xs },
     rankTier: { ...typography.body, color: colors.primary, marginBottom: spacing.md },
-    rankStatRow: { flexDirection: 'row', gap: spacing.xl, marginBottom: spacing.md },
-    rankStat: { alignItems: 'center' },
+    rankStatRow: { flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginBottom: spacing.md },
+    rankStat: { flex: 1, alignItems: 'center' },
     rankStatValue: { ...typography.heading, fontSize: 20, color: colors.text },
     rankStatLabel: { ...typography.caption, color: colors.textSecondary },
     rankHint: { ...typography.caption, color: colors.textSecondary, textAlign: 'center' },
@@ -443,6 +442,7 @@ export default function ProfileScreen() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
+
   const pickAvatar = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -598,21 +598,39 @@ export default function ProfileScreen() {
   }, [sportRatings]);
 
   const top3Rankings = useMemo(() => {
-    const withStats = [...rankingsData.filter((r) => r.vp > 0 || r.rank_tier || r.wins > 0 || r.losses > 0)].sort((a, b) => b.vp - a.vp);
-    const result = withStats.slice(0, 3);
+    const preferred = profile?.preferred_sports ?? [];
+    const result: typeof rankingsData = [];
+
+    // 1. Preferred sports in user-selected order
+    for (const sp of preferred) {
+      if (result.length >= 3) break;
+      const r = rankingsData.find((rd) => rd.sport === sp);
+      result.push(r ?? { sport: sp, rank_tier: null, rank_div: null, vp: 0, wins: 0, losses: 0 });
+    }
+
+    // 2. Sports with activity (by VP) not already included
     if (result.length < 3) {
-      const usedSports = new Set(result.map((r) => r.sport));
-      const preferred = profile?.preferred_sports ?? [];
-      const preferredSet = new Set(preferred);
-      const fillers = [...SPORTS]
-        .sort((a, b) => (preferredSet.has(a) ? 0 : 1) - (preferredSet.has(b) ? 0 : 1))
-        .filter((s) => !usedSports.has(s));
-      for (const s of fillers) {
+      const used = new Set(result.map((r) => r.sport));
+      const withStats = [...rankingsData.filter((r) => (r.vp > 0 || r.rank_tier || r.wins > 0 || r.losses > 0) && !used.has(r.sport))]
+        .sort((a, b) => b.vp - a.vp);
+      for (const r of withStats) {
         if (result.length >= 3) break;
-        const r = rankingsData.find((rd) => rd.sport === s);
-        result.push(r ?? { sport: s, rank_tier: null, rank_div: null, vp: 0, wins: 0, losses: 0 });
+        result.push(r);
       }
     }
+
+    // 3. Fill remaining with any sports in default order
+    if (result.length < 3) {
+      const used = new Set(result.map((r) => r.sport));
+      for (const s of SPORTS) {
+        if (result.length >= 3) break;
+        if (!used.has(s)) {
+          const r = rankingsData.find((rd) => rd.sport === s);
+          result.push(r ?? { sport: s, rank_tier: null, rank_div: null, vp: 0, wins: 0, losses: 0 });
+        }
+      }
+    }
+
     return result;
   }, [rankingsData, profile?.preferred_sports]);
 
@@ -714,7 +732,7 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefreshProfile} />}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefreshProfile} tintColor={colors.text} colors={[colors.primary]} progressBackgroundColor={colors.cardBg} />}>
         {/* Profile header */}
         <View style={styles.headerCard}>
           {!loadingProfile && (
@@ -801,12 +819,12 @@ export default function ProfileScreen() {
                     </Text>
                     <View style={styles.rankCardBottomRow}>
                       <View style={styles.rankCardStat}>
-                        <Text style={styles.rankCardVp}>{item.vp}</Text>
-                        <Text style={styles.rankCardVpLabel}>VP</Text>
-                      </View>
-                      <View style={styles.rankCardStat}>
                         <Text style={styles.rankCardStatValue}>{item.wins}</Text>
                         <Text style={styles.rankCardStatLabel}>W</Text>
+                      </View>
+                      <View style={styles.rankCardStat}>
+                        <Text style={styles.rankCardVp}>{item.vp}</Text>
+                        <Text style={styles.rankCardVpLabel}>VP</Text>
                       </View>
                       <View style={styles.rankCardStat}>
                         <Text style={styles.rankCardStatValue}>{item.losses}</Text>
@@ -856,7 +874,8 @@ export default function ProfileScreen() {
                   const others = (m.participants ?? []).filter((p: { user_id?: string }) => String(p?.user_id) !== String(currentUserId));
                   const opponentNames = others.map((p: { full_name?: string | null; username?: string | null }) => p?.full_name || p?.username || 'Opponent').join(', ');
                   const isPractice = m.match_type === 'practice';
-                  const result = isPractice ? 'Practice' : myPart?.result === 'win' ? 'Win' : myPart?.result === 'loss' ? 'Loss' : myPart?.result === 'draw' ? 'Draw' : m.status === 'completed' ? '—' : m.status;
+                  const statusFallback = m.status === 'in_progress' ? 'In Progress' : (m.status as string).charAt(0).toUpperCase() + (m.status as string).slice(1);
+                  const result = isPractice ? 'Practice' : myPart?.result === 'win' ? 'Win' : myPart?.result === 'loss' ? 'Loss' : myPart?.result === 'draw' ? 'Draw' : m.status === 'completed' ? '—' : statusFallback;
                   const games = (m.games ?? []).filter((g: { score_challenger: number; score_opponent: number }) => g.score_challenger > 0 || g.score_opponent > 0);
                   const scoreStr = games.length > 0
                     ? games.map((g: { score_challenger: number; score_opponent: number }) => `${g.score_challenger}-${g.score_opponent}`).join(', ')
@@ -915,8 +934,8 @@ export default function ProfileScreen() {
                     <Text style={styles.rankSport}>{item.sport}</Text>
                     <Text style={[styles.rankTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}</Text>
                     <View style={styles.rankStatRow}>
-                      <View style={styles.rankStat}><Text style={[styles.rankStatValue, { color: '#2563EB' }]}>{item.vp}</Text><Text style={styles.rankStatLabel}>VP</Text></View>
                       <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.wins}</Text><Text style={styles.rankStatLabel}>Wins</Text></View>
+                      <View style={styles.rankStat}><Text style={[styles.rankStatValue, { color: '#2563EB' }]}>{item.vp}</Text><Text style={styles.rankStatLabel}>VP</Text></View>
                       <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.losses}</Text><Text style={styles.rankStatLabel}>Losses</Text></View>
                     </View>
                     <Text style={styles.rankHint}>Play ranked matches in {item.sport} to earn VP and climb the ranks.</Text>

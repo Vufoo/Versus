@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -140,6 +141,7 @@ function createPlanStyles(colors: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
       paddingVertical: 8,
+      position: 'relative',
     },
     calendarCellInner: {
       width: 36,
@@ -167,13 +169,27 @@ function createPlanStyles(colors: ThemeColors) {
       color: colors.textOnPrimary,
       fontWeight: '600',
     },
-    dayDot: {
-      width: 6,
-      height: 6,
-      borderRadius: 3,
-      backgroundColor: colors.primary,
-      marginTop: 2,
+    dayFlame: {
+      position: 'absolute',
+      top: 2,
+      right: 2,
+      fontSize: 9,
+      lineHeight: 11,
     },
+    calendarCellHasMatch: {
+      borderWidth: 1.5,
+      borderColor: '#F97316',
+    },
+    streakBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+      backgroundColor: '#F9731620',
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 3,
+      borderRadius: borderRadius.full,
+    },
+    streakText: { ...typography.caption, fontSize: 11, color: '#F97316', fontWeight: '700' },
     sectionHeader: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -250,6 +266,7 @@ export default function PlanMatchScreen() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [allMatches, setAllMatches] = useState<UpcomingMatch[]>([]);
   const [loadingMatches, setLoadingMatches] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [preferredSports, setPreferredSports] = useState<string[]>([]);
 
   const loadMatches = useCallback(async () => {
@@ -289,10 +306,29 @@ export default function PlanMatchScreen() {
 
   useEffect(() => { if (isFocused) loadMatches(); }, [isFocused, loadMatches]);
 
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadMatches();
+    setRefreshing(false);
+  }, [loadMatches]);
+
   const matchDayIds = useMemo(
-    () => new Set(allMatches.map((m) => m.scheduled_at ? localDateStr(new Date(m.scheduled_at)) : null).filter(Boolean)),
+    () => new Set(allMatches.map((m) => m.scheduled_at ? localDateStr(new Date(m.scheduled_at)) : null).filter(Boolean) as string[]),
     [allMatches],
   );
+
+  const currentStreak = useMemo(() => {
+    const now = new Date();
+    let count = 0;
+    for (let i = 0; i < 365; i++) {
+      const d = new Date(now);
+      d.setDate(now.getDate() - i);
+      if (d > now) continue;
+      if (matchDayIds.has(localDateStr(d))) count++;
+      else break;
+    }
+    return count;
+  }, [matchDayIds]);
 
   const selectedDayMatches = useMemo(
     () => allMatches.filter((m) => m.scheduled_at ? localDateStr(new Date(m.scheduled_at)) === selectedDayId : false),
@@ -342,9 +378,17 @@ export default function PlanMatchScreen() {
 
       <View style={styles.calendarCard}>
         <View style={styles.calendarHeaderRow}>
-          <Text style={styles.calendarTitle}>
-            {MONTH_NAMES[calMonth]} {calYear}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+            <Text style={styles.calendarTitle}>
+              {MONTH_NAMES[calMonth]} {calYear}
+            </Text>
+            {currentStreak > 0 && (
+              <View style={styles.streakBadge}>
+                <Text style={{ fontSize: 11 }}>🔥</Text>
+                <Text style={styles.streakText}>{currentStreak}d</Text>
+              </View>
+            )}
+          </View>
           <View style={styles.monthNav}>
             <TouchableOpacity onPress={goToPrevMonth} hitSlop={12}>
               <Ionicons name="chevron-back" size={22} color={colors.text} />
@@ -379,6 +423,7 @@ export default function PlanMatchScreen() {
                     style={[
                       styles.calendarCellInner,
                       cell.isToday && !isSelected && styles.calendarCellToday,
+                      hasMatch && !isSelected && styles.calendarCellHasMatch,
                       isSelected && styles.calendarCellSelected,
                     ]}
                   >
@@ -393,7 +438,7 @@ export default function PlanMatchScreen() {
                     </Text>
                   </View>
                   {hasMatch && (
-                    <View style={[styles.dayDot, isSelected && { backgroundColor: colors.textOnPrimary }]} />
+                    <Text style={styles.dayFlame}>🔥</Text>
                   )}
                 </TouchableOpacity>
               );
@@ -413,7 +458,12 @@ export default function PlanMatchScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxl }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: spacing.xxl }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.text} colors={[colors.primary]} progressBackgroundColor={colors.cardBg} />}
+      >
         {loadingMatches ? (
           <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xl }} />
         ) : selectedDayMatches.length === 0 ? (
@@ -443,7 +493,7 @@ export default function PlanMatchScreen() {
                 </Text>
               </View>
               <Text style={[styles.matchStatus, { backgroundColor: `${sc}18`, color: sc }]}>
-                {m.status}
+                {m.status === 'in_progress' ? 'In Progress' : m.status.charAt(0).toUpperCase() + m.status.slice(1)}
               </Text>
             </TouchableOpacity>
           );

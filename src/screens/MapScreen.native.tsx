@@ -39,6 +39,17 @@ function formatNearbyPlace(addr: Location.LocationGeocodedAddress | null): strin
   return '';
 }
 
+// Strip street-level detail from a location name for privacy.
+// e.g. "Venice Beach Courts, Los Angeles, CA" → "Los Angeles, CA"
+// e.g. "123 Main St, Santa Monica, CA" → "Santa Monica, CA"
+// If there's no comma (e.g. just a venue name), return "General area".
+function generalizeLocation(name: string | null): string {
+  if (!name) return 'General area';
+  const commaIdx = name.indexOf(',');
+  if (commaIdx === -1) return 'General area';
+  return name.slice(commaIdx + 1).trim();
+}
+
 const DEFAULT_REGION = {
   latitude: 37.78825,
   longitude: -122.4324,
@@ -765,8 +776,9 @@ export default function MapScreen() {
         <RefreshControl
           refreshing={refreshing}
           onRefresh={handleRefresh}
-          tintColor={colors.primary}
+          tintColor={colors.text}
           colors={[colors.primary]}
+          progressBackgroundColor={colors.cardBg}
         />
       }
     >
@@ -894,7 +906,23 @@ export default function MapScreen() {
                 key={`match-${m.id}`}
                 coordinate={{ latitude: m.location_lat, longitude: m.location_lng }}
               >
-                <Image source={versusPin} style={{ width: pinSize, height: pinSize, resizeMode: 'contain' }} />
+                <View style={{
+                  width: pinSize + 12,
+                  height: pinSize + 12,
+                  borderRadius: (pinSize + 12) / 2,
+                  backgroundColor: '#1E3A8A',
+                  borderWidth: 2.5,
+                  borderColor: '#1E3A8A',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  shadowColor: '#000',
+                  shadowOpacity: 0.3,
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowRadius: 4,
+                  elevation: 4,
+                }}>
+                  <Image source={versusPin} style={{ width: pinSize - 4, height: pinSize - 4, resizeMode: 'contain' }} />
+                </View>
                 <Callout tooltip={true}>
                   <View style={styles.calloutContainer}>
                     {m.isFriendMatch && (
@@ -908,11 +936,9 @@ export default function MapScreen() {
                     <Text style={styles.calloutSport}>
                       {m.match_type.charAt(0).toUpperCase() + m.match_type.slice(1)} · {matchStatusLabel(m.status)}
                     </Text>
-                    {m.location_name && (
-                      <Text style={styles.calloutDetail} numberOfLines={1}>
-                        {m.location_name}
-                      </Text>
-                    )}
+                    <Text style={styles.calloutDetail} numberOfLines={1}>
+                      {generalizeLocation(m.location_name)}
+                    </Text>
                     <Text style={styles.calloutDetail}>
                       By @{m.creator_username ?? 'unknown'} · {m.participant_count}/{maxSlots} players
                     </Text>
@@ -956,7 +982,23 @@ export default function MapScreen() {
               }}
             >
               <Animated.View style={{ transform: [{ scale: droppedPinBounce }] }}>
-                <Image source={versusPin} style={{ width: 44, height: 44, resizeMode: 'contain' }} />
+                <View style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: 28,
+                  backgroundColor: '#1E3A8A',
+                  borderWidth: 2.5,
+                  borderColor: '#1E3A8A',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  shadowColor: '#000',
+                  shadowOpacity: 0.3,
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowRadius: 4,
+                  elevation: 4,
+                }}>
+                  <Image source={versusPin} style={{ width: 36, height: 36, resizeMode: 'contain' }} />
+                </View>
               </Animated.View>
             </Marker>
           )}

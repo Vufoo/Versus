@@ -17,6 +17,7 @@ import {
   Dimensions,
   Animated,
   Linking,
+  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapPreview from '../components/MapPreview';
@@ -63,6 +64,7 @@ type FeedMatch = {
   scheduled_at: string | null;
   started_at: string | null;
   ended_at: string | null;
+  updated_at?: string | null;
   match_type: string;
   status: string;
   is_public?: boolean;
@@ -327,6 +329,10 @@ function FeedCard({
   const [likesCount, setLikesCount] = useState(item.likes_count);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [deleteImageId, setDeleteImageId] = useState<string | null>(null);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightboxImgId, setLightboxImgId] = useState<string | null>(null);
+  const [deleteToast, setDeleteToast] = useState(false);
+  const deleteToastAnim = useRef(new Animated.Value(0)).current;
   const gamesList = (item.games ?? []) as MatchGame[];
   const [localGames, setLocalGames] = useState<{ score_challenger: string; score_opponent: string }[]>(
     gamesList.length > 0 ? gamesList.map((g) => ({ score_challenger: String(g.score_challenger), score_opponent: String(g.score_opponent) })) : [{ score_challenger: '', score_opponent: '' }],
@@ -1137,13 +1143,31 @@ function FeedCard({
 
   const handleDeleteImage = async (img: MatchImage) => {
     try {
-      await supabase.storage.from('match-images').remove([img.file_path]);
-      await supabase.from('match_images').delete().eq('id', img.id);
+      // Delete DB row first — verify it actually deleted (RLS could block silently)
+      const { data: deleted, error: dbErr } = await supabase
+        .from('match_images').delete().eq('id', img.id).select('id');
+      if (dbErr) throw dbErr;
+      if (!deleted || deleted.length === 0) {
+        Alert.alert('Delete failed', 'Permission denied.');
+        return;
+      }
+      // Remove from storage (best-effort, don't block on failure)
+      supabase.storage.from('match-images').remove([img.file_path]).catch(() => {});
+      setLightboxUrl(null);
+      setLightboxImgId(null);
       setDeleteImageId(null);
+      setImageUrls((prev) => { const next = { ...prev }; delete next[img.id]; return next; });
       updateFeedItem(item.id, (m) => ({
         ...m,
         images: (m.images ?? []).filter((i) => i.id !== img.id),
       }));
+      // Show toast
+      setDeleteToast(true);
+      Animated.sequence([
+        Animated.timing(deleteToastAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+        Animated.delay(1800),
+        Animated.timing(deleteToastAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
+      ]).start(() => setDeleteToast(false));
     } catch (e: any) {
       Alert.alert('Delete failed', e?.message ?? 'Could not delete image.');
     }
@@ -2170,7 +2194,12 @@ function FeedCard({
           <TouchableOpacity
             key={img.id}
             activeOpacity={0.9}
-            onPress={() => isParticipant && setDeleteImageId(deleteImageId === img.id ? null : img.id)}
+            onPress={() => {
+              if (imageUrls[img.id]) {
+                setLightboxUrl(imageUrls[img.id]);
+                setLightboxImgId(img.id);
+              }
+            }}
             style={{ width: halfWidth, height: halfWidth * 0.75, borderRadius: borderRadius.md, overflow: 'hidden', backgroundColor: colors.background }}
           >
             {imageUrls[img.id] ? (
@@ -2180,17 +2209,9 @@ function FeedCard({
                 <Ionicons name="image-outline" size={28} color={colors.textSecondary} />
               </View>
             )}
-            {deleteImageId === img.id && (
-              <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', borderRadius: borderRadius.md }}>
-                <TouchableOpacity
-                  onPress={() => handleDeleteImage(img)}
-                  style={{ backgroundColor: '#E53935', paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: borderRadius.full, flexDirection: 'row', alignItems: 'center', gap: 6 }}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="trash-outline" size={16} color="#fff" />
-                  <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>Delete</Text>
-                </TouchableOpacity>
-              </View>
+            {/* Removed inline delete overlay — delete is now in the lightbox */}
+            {false && (
+              <View />
             )}
           </TouchableOpacity>
         ))}
@@ -2226,7 +2247,7 @@ function FeedCard({
           activeOpacity={0.8}
         >
           <Ionicons name="chatbubble-outline" size={17} color={colors.textSecondary} />
-          <Text style={styles.actionLabel}>{commentsCount > 0 ? `${commentsCount} ` : ''}Comments</Text>
+          <Text style={styles.actionLabel}>{commentsCount > 0 ? `${commentsCount} ` : ''}{commentsCount === 1 ? 'Comment' : 'Comments'}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionBtn} onPress={handleShare} activeOpacity={0.8}>
           <Ionicons name="share-outline" size={17} color={colors.textSecondary} />
@@ -2270,9 +2291,10 @@ function FeedCard({
                 placeholderTextColor={colors.textSecondary}
                 value={commentBody}
                 onChangeText={setCommentBody}
-                multiline
                 maxLength={500}
                 editable={!commentPosting}
+                returnKeyType="send"
+                onSubmitEditing={handlePostComment}
               />
               <TouchableOpacity
                 onPress={handlePostComment}
@@ -2447,6 +2469,73 @@ function FeedCard({
       onConfirm={handlePickLocation}
       colors={colors}
     />
+
+    {/* Photo lightbox */}
+    <Modal visible={!!lightboxUrl} transparent animationType="fade" onRequestClose={() => { setLightboxUrl(null); setLightboxImgId(null); }}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' }}>
+        {/* Close */}
+        <Pressable
+          onPress={() => { setLightboxUrl(null); setLightboxImgId(null); }}
+          style={{ position: 'absolute', top: 52, right: 20, zIndex: 10, padding: 8, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 20 }}
+        >
+          <Ionicons name="close" size={24} color="#fff" />
+        </Pressable>
+        {/* Delete button for participants */}
+        {isParticipant && lightboxImgId && (
+          <Pressable
+            onPress={() => {
+              const img = imagesList.find((i) => i.id === lightboxImgId);
+              if (img) handleDeleteImage(img);
+            }}
+            style={{ position: 'absolute', top: 52, left: 20, zIndex: 10, padding: 8, backgroundColor: 'rgba(229,57,53,0.85)', borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+          >
+            <Ionicons name="trash-outline" size={20} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>Delete</Text>
+          </Pressable>
+        )}
+        {/* Zoomable image */}
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+          minimumZoomScale={1}
+          maximumZoomScale={5}
+          showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          centerContent
+        >
+          {lightboxUrl ? (
+            <Image
+              source={{ uri: lightboxUrl }}
+              style={{ width: Dimensions.get('window').width, height: Dimensions.get('window').height * 0.8 }}
+              resizeMode="contain"
+            />
+          ) : null}
+        </ScrollView>
+      </View>
+    </Modal>
+
+    {/* Delete toast */}
+    {deleteToast && (
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          bottom: 14,
+          alignSelf: 'center',
+          backgroundColor: 'rgba(0,0,0,0.75)',
+          paddingHorizontal: 10,
+          paddingVertical: 5,
+          borderRadius: 12,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 4,
+          opacity: deleteToastAnim,
+        }}
+      >
+        <Ionicons name="checkmark-circle" size={12} color="#4ade80" />
+        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>Photo deleted</Text>
+      </Animated.View>
+    )}
     </Animated.View>
   );
 }
@@ -2890,48 +2979,49 @@ function createHomeStyles(colors: ThemeColors) {
     commentsSection: {
       marginTop: spacing.sm,
       paddingTop: spacing.sm,
-      paddingHorizontal: spacing.md,
       paddingBottom: spacing.md,
       borderTopWidth: 1,
       borderTopColor: colors.divider,
     },
     commentsLoading: { paddingVertical: spacing.md, alignItems: 'center' },
     commentRow: {
-      marginBottom: spacing.xs,
-      paddingVertical: spacing.xs,
+      marginBottom: 2,
+      paddingVertical: 3,
+      paddingLeft: spacing.sm,
     },
-    commentAuthor: { ...typography.label, fontSize: 13, color: colors.primary, fontWeight: '600' },
-    commentDate: { ...typography.caption, fontSize: 12, color: colors.textSecondary },
-    commentBody: { ...typography.body, fontSize: 13, color: colors.text },
+    commentAuthor: { ...typography.label, fontSize: 12, color: colors.primary, fontWeight: '600' },
+    commentDate: { ...typography.caption, fontSize: 11, color: colors.textSecondary },
+    commentBody: { ...typography.body, fontSize: 12, color: colors.text },
     commentInputRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.sm,
-      marginTop: spacing.sm,
+      gap: spacing.xs,
+      marginTop: spacing.xs,
     },
     commentInput: {
       flex: 1,
-      height: 40,
+      height: 30,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: borderRadius.md,
-      paddingHorizontal: spacing.md,
-      paddingTop: 10,
-      paddingBottom: 8,
-      fontSize: 14,
+      borderRadius: borderRadius.full,
+      paddingHorizontal: spacing.sm,
+      paddingTop: 0,
+      paddingBottom: 0,
+      fontSize: 12,
       color: colors.text,
       backgroundColor: colors.background,
+      textAlignVertical: 'center',
     },
     commentPostBtn: {
-      height: 40,
-      paddingHorizontal: spacing.md,
+      height: 30,
+      paddingHorizontal: spacing.sm,
       backgroundColor: colors.primary,
-      borderRadius: borderRadius.md,
+      borderRadius: borderRadius.full,
       justifyContent: 'center',
       alignItems: 'center',
     },
     commentPostBtnDisabled: { opacity: 0.5 },
-    commentPostBtnText: { ...typography.label, color: colors.textOnPrimary },
+    commentPostBtnText: { ...typography.caption, fontSize: 12, color: colors.textOnPrimary, fontWeight: '600' },
     likersCard: {
       backgroundColor: colors.cardBg,
       marginHorizontal: spacing.lg,
@@ -3511,7 +3601,9 @@ export default function HomeScreen() {
     [feedItems, currentUserId],
   );
   const publicFeed = useMemo(
-    () => feedItems.filter((m) => (m.status === 'confirmed' || m.status === 'completed') && (m.is_public !== false)),
+    () => feedItems
+      .filter((m) => m.status === 'completed' && m.match_type !== 'practice' && m.is_public !== false)
+      .sort((a, b) => new Date(b.ended_at ?? b.created_at).getTime() - new Date(a.ended_at ?? a.created_at).getTime()),
     [feedItems],
   );
   const displayedItems = useMemo(() => {
@@ -3893,8 +3985,15 @@ export default function HomeScreen() {
           }}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          onRefresh={async () => { setIsRefreshing(true); await Promise.all([loadFeed(false), loadNotifications(), loadUnreadDmCount()]); setIsRefreshing(false); }}
-          refreshing={isRefreshing}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={async () => { setIsRefreshing(true); await Promise.all([loadFeed(false), loadNotifications(), loadUnreadDmCount()]); setIsRefreshing(false); }}
+              tintColor={colors.text}
+              colors={[colors.primary]}
+              progressBackgroundColor={colors.cardBg}
+            />
+          }
           ListEmptyComponent={
             <Text style={styles.emptyFeed}>
               {feedMode === 'my'

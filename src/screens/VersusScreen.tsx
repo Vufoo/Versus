@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl, Modal, Pressable, FlatList } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -44,26 +44,102 @@ function createStyles(colors: ThemeColors) {
     },
     scroll: { flex: 1 },
     scrollContent: { paddingBottom: spacing.xxl },
-    sportsRow: {
+    sportDropdownBtn: {
       flexDirection: 'row',
-      gap: spacing.sm,
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm + 2,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      backgroundColor: colors.cardBg,
       marginBottom: spacing.md,
     },
-    sportChip: {
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm - 2,
-      borderRadius: borderRadius.full,
+    sportDropdownLabel: { ...typography.label, color: colors.textSecondary, fontSize: 11, marginBottom: 1 },
+    sportDropdownValue: { ...typography.label, color: colors.text, fontSize: 15, fontWeight: '700' },
+    sportDropdownLeft: { flexDirection: 'column' },
+    // dropdown modal
+    dropdownOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+    dropdownSheet: {
+      backgroundColor: colors.cardBg,
+      borderTopLeftRadius: borderRadius.xl ?? 20,
+      borderTopRightRadius: borderRadius.xl ?? 20,
+      paddingBottom: spacing.xl,
+      maxHeight: '75%',
+    },
+    dropdownSheetHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    dropdownSheetTitle: { ...typography.label, color: colors.text, fontSize: 15, fontWeight: '700' },
+    dropdownSportRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    dropdownSportRowSelected: { backgroundColor: colors.primary + '18' },
+    dropdownSportName: { ...typography.body, fontSize: 14, color: colors.text },
+    dropdownSportNameSelected: { color: colors.primary, fontWeight: '700' },
+    dropdownSportRating: { ...typography.caption, fontSize: 11, color: colors.textSecondary },
+    // calendar
+    calendarCard: {
+      backgroundColor: colors.cardBg,
+      borderRadius: borderRadius.lg,
       borderWidth: 1,
       borderColor: colors.border,
-      backgroundColor: colors.background,
-      marginRight: spacing.sm,
+      padding: spacing.md,
+      marginBottom: spacing.md,
     },
-    sportChipSelected: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primaryDark,
+    calendarHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: spacing.sm,
     },
-    sportChipLabel: { ...typography.label, color: colors.textSecondary },
-    sportChipLabelSelected: { color: colors.textOnPrimary },
+    calendarTitle: { ...typography.label, fontSize: 13, fontWeight: '700', color: colors.text },
+    calendarStreakBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      backgroundColor: colors.primary + '20',
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 3,
+      borderRadius: borderRadius.full,
+    },
+    calendarStreakText: { ...typography.label, fontSize: 12, color: colors.primary, fontWeight: '700' },
+    calendarDayLabels: {
+      flexDirection: 'row',
+      marginBottom: spacing.xs,
+    },
+    calendarDayLabel: {
+      flex: 1,
+      textAlign: 'center',
+      ...typography.caption,
+      fontSize: 10,
+      color: colors.textSecondary,
+      fontWeight: '600',
+    },
+    calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+    calendarCell: {
+      width: `${100 / 7}%`,
+      aspectRatio: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    calendarDayNum: { ...typography.caption, fontSize: 11, color: colors.textSecondary },
+    calendarDayNumToday: { color: colors.primary, fontWeight: '700' },
+    calendarDayNumPlayed: { color: colors.text, fontWeight: '600', fontSize: 10, marginTop: 1 },
+    calendarFlame: { fontSize: 16, lineHeight: 20 },
     rankRow: {
       flexDirection: 'row',
       alignItems: 'stretch',
@@ -165,46 +241,52 @@ export default function VersusScreen() {
 
   const [sportRatings, setSportRatings] = useState<Record<string, { rank_tier: string | null; rank_div: string | null; vp: number }>>({});
   const [preferredSports, setPreferredSports] = useState<string[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [sportDropdownOpen, setSportDropdownOpen] = useState(false);
 
   // Default to first preferred sport once loaded
   useEffect(() => {
     if (preferredSports.length > 0) setSport(preferredSports[0]);
   }, [preferredSports]);
 
-  useFocusEffect(useCallback(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+  const loadData = useCallback(async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-        const [ratingsRes, profRes] = await Promise.all([
-          supabase.from('user_sport_ratings').select('vp, rank_tier, rank_div, sport_id, sports!inner(name)').eq('user_id', user.id),
-          supabase.from('profiles').select('preferred_sports').eq('user_id', user.id).maybeSingle(),
-        ]);
+      const [ratingsRes, profRes] = await Promise.all([
+        supabase.from('user_sport_ratings').select('vp, rank_tier, rank_div, sport_id, sports!inner(name)').eq('user_id', user.id),
+        supabase.from('profiles').select('preferred_sports').eq('user_id', user.id).maybeSingle(),
+      ]);
 
-        if (!cancelled && ratingsRes.data) {
-          const map: typeof sportRatings = {};
-          for (const r of ratingsRes.data as any[]) {
-            const name = r.sports?.name;
-            if (name) map[name] = { rank_tier: r.rank_tier, rank_div: r.rank_div, vp: r.vp };
-          }
-          setSportRatings(map);
+      if (ratingsRes.data) {
+        const map: typeof sportRatings = {};
+        for (const r of ratingsRes.data as any[]) {
+          const name = r.sports?.name;
+          if (name) map[name] = { rank_tier: r.rank_tier, rank_div: r.rank_div, vp: r.vp };
         }
+        setSportRatings(map);
+      }
 
-        if (!cancelled && profRes.data?.preferred_sports) setPreferredSports(profRes.data.preferred_sports);
-      } catch { /* swallow */ }
-    };
-    load();
-    return () => { cancelled = true; };
-  }, []));
+      if (profRes.data?.preferred_sports) setPreferredSports(profRes.data.preferred_sports);
+    } catch { /* swallow */ }
+  }, []);
+
+  useFocusEffect(useCallback(() => {
+    loadData();
+  }, [loadData]));
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  }, [loadData]);
 
   const orderedSports = useMemo(() => {
     if (preferredSports.length === 0) return SPORTS;
     const prefSet = new Set(preferredSports);
-    const preferred = SPORTS.filter((s) => prefSet.has(s));
     const rest = SPORTS.filter((s) => !prefSet.has(s));
-    return [...preferred, ...rest] as readonly string[];
+    return [...preferredSports, ...rest] as readonly string[];
   }, [preferredSports]);
 
   const currentRating = sportRatings[sport];
@@ -218,36 +300,63 @@ export default function VersusScreen() {
       <View style={styles.pageHeader}>
         <Text style={styles.pageTitle}>Versus</Text>
       </View>
-      <View style={styles.header}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        alwaysBounceVertical
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.text} colors={[colors.primary]} progressBackgroundColor={colors.cardBg} />}
+      >
+        {/* Header content — inside ScrollView so pull-to-refresh works from the top */}
+        <View style={styles.header}>
         <Text style={styles.subtitle}>
           Choose your sport, see your rank, then find someone to play.
         </Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.sportsRow}
-        >
-          {orderedSports.map((s) => {
-            const isSelected = s === sport;
-            return (
-              <TouchableOpacity
-                key={s}
-                style={[styles.sportChip, isSelected && styles.sportChipSelected]}
-                onPress={() => setSport(s)}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.sportChipLabel,
-                    isSelected && styles.sportChipLabelSelected,
-                  ]}
-                >
-                  {sportLabel(s)}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+
+        {/* Sport dropdown button */}
+        <TouchableOpacity style={styles.sportDropdownBtn} onPress={() => setSportDropdownOpen(true)} activeOpacity={0.85}>
+          <View style={styles.sportDropdownLeft}>
+            <Text style={styles.sportDropdownLabel}>Sport</Text>
+            <Text style={styles.sportDropdownValue}>{sportLabel(sport)}</Text>
+          </View>
+          <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+        </TouchableOpacity>
+
+        {/* Sport picker modal */}
+        <Modal visible={sportDropdownOpen} transparent animationType="slide" onRequestClose={() => setSportDropdownOpen(false)}>
+          <Pressable style={styles.dropdownOverlay} onPress={() => setSportDropdownOpen(false)}>
+            <Pressable style={styles.dropdownSheet} onPress={() => {}}>
+              <View style={styles.dropdownSheetHeader}>
+                <Text style={styles.dropdownSheetTitle}>Select Sport</Text>
+                <TouchableOpacity onPress={() => setSportDropdownOpen(false)} hitSlop={12}>
+                  <Ionicons name="close" size={22} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <FlatList
+                data={orderedSports as string[]}
+                keyExtractor={(item) => item}
+                renderItem={({ item: s }) => {
+                  const rating = sportRatings[s];
+                  const ratingLabel = rating ? `${rating.rank_tier ?? 'Unranked'} · ${rating.vp} VP` : 'Unranked';
+                  const isSelected = s === sport;
+                  return (
+                    <TouchableOpacity
+                      style={[styles.dropdownSportRow, isSelected && styles.dropdownSportRowSelected]}
+                      onPress={() => { setSport(s); setSportDropdownOpen(false); }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.dropdownSportName, isSelected && styles.dropdownSportNameSelected]}>
+                        {sportLabel(s)}
+                      </Text>
+                      <Text style={styles.dropdownSportRating}>{ratingLabel}</Text>
+                    </TouchableOpacity>
+                  );
+                }}
+                showsVerticalScrollIndicator={false}
+              />
+            </Pressable>
+          </Pressable>
+        </Modal>
         <View style={styles.rankRow}>
           <View style={styles.rankCard}>
             <Text style={styles.rankLabel}>Your ranking in</Text>
@@ -269,11 +378,6 @@ export default function VersusScreen() {
         </View>
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
         <TouchableOpacity
           style={[styles.primaryButton, styles.rankedButton]}
           onPress={() => setFlow('local')}

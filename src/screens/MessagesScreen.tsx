@@ -312,7 +312,7 @@ export default function MessagesScreen() {
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
-        <ScrollView showsVerticalScrollIndicator={false} alwaysBounceVertical refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}>
+        <ScrollView showsVerticalScrollIndicator={false} alwaysBounceVertical refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.text} colors={[colors.primary]} progressBackgroundColor={colors.cardBg} />}>
           {followers.length === 0 ? (
             <Text style={styles.emptyText}>
               Your conversations will appear here. Start a chat from a profile or from your followers.
