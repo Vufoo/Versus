@@ -21,6 +21,7 @@ import type { ThemeColors } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
 import { useLocation } from '../hooks/useLocation';
 import { supabase, resolveAvatarUrl } from '../lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { sportLabel } from '../constants/sports';
 import NewMatchModal from '../components/NewMatchModal';
 
@@ -322,14 +323,16 @@ export default function MapScreen() {
   const [nearbyMatches, setNearbyMatches] = useState<NearbyMatch[]>([]);
   const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
   const [nearbyPlace, setNearbyPlace] = useState<string | null>(null);
-  const [showPlayers, setShowPlayers] = useState(true);
   const [showMatches, setShowMatches] = useState(true);
+  const [requestedMatchIds, setRequestedMatchIds] = useState<Set<string>>(new Set());
+  const [deniedMatchIds, setDeniedMatchIds] = useState<Set<string>>(new Set());
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUserProfile, setCurrentUserProfile] = useState<{ avatar_url: string | null; username: string | null; full_name: string | null } | null>(null);
   const [myAvatarUrl, setMyAvatarUrl] = useState<string | null>(null);
   const [joiningMatchId, setJoiningMatchId] = useState<string | null>(null);
   const [radiusMiles, setRadiusMiles] = useState(5);
   const radiusRef = useRef(5);
+
   const [preferredSports, setPreferredSports] = useState<string[]>([]);
 
   const [refreshing, setRefreshing] = useState(false);
@@ -385,6 +388,18 @@ export default function MapScreen() {
         setMyAvatarUrl(resolved);
         if (p.preferred_sports) setPreferredSports(p.preferred_sports);
       }
+      // Restore persisted pending requests
+      const storedReqs = await AsyncStorage.getItem(`join_requests_${user.id}`);
+      if (storedReqs) setRequestedMatchIds(new Set(JSON.parse(storedReqs)));
+      // Load denied matches from notifications
+      const { data: denied } = await supabase
+        .from('notifications')
+        .select('data')
+        .eq('user_id', user.id)
+        .eq('type', 'match_join_denied');
+      if (denied) {
+        setDeniedMatchIds(new Set((denied as any[]).map((n) => n.data?.match_id).filter(Boolean)));
+      }
     })();
   }, []);
 
@@ -426,38 +441,38 @@ export default function MapScreen() {
     const profileCols = 'user_id, last_lat, last_lng, username, full_name, avatar_url';
     const matchCols = 'id, location_lat, location_lng, location_name, match_type, status, is_public, created_by, scheduled_at, match_format, sport_id, ended_at';
 
-    // Round 1: follows + nearby profiles (within bbox) + matches — all parallel
+    // Round 1: follows + matches — all parallel
     // NOTE: profiles use last_lat/last_lng; matches use location_lat/location_lng
-    const [followsRes, nearbyProfilesRes, activeRes, recentCompletedRes] = await Promise.all([
+    const [followsRes, activeRes, recentCompletedRes] = await Promise.all([
       supabase.from('follows')
         .select('follower_id, followed_id')
         .or(`follower_id.eq.${user.id},followed_id.eq.${user.id}`)
         .eq('status', 'accepted'),
-      supabase.from('profiles').select(profileCols)
-        .eq('location_visibility', 'public')
-        .not('last_lat', 'is', null)
-        .not('last_lng', 'is', null)
-        .neq('user_id', user.id)
-        .gte('last_lat', latMin).lte('last_lat', latMax)
-        .gte('last_lng', lngMin).lte('last_lng', lngMax),
       supabase.from('matches').select(matchCols)
         .not('location_lat', 'is', null).not('location_lng', 'is', null)
         .gte('location_lat', latMin).lte('location_lat', latMax)
         .gte('location_lng', lngMin).lte('location_lng', lngMax)
+        .eq('is_public', true)
+        .neq('match_type', 'practice')
         .in('status', ['pending', 'confirmed', 'in_progress', 'paused']),
       supabase.from('matches').select(matchCols)
         .not('location_lat', 'is', null).not('location_lng', 'is', null)
         .gte('location_lat', latMin).lte('location_lat', latMax)
         .gte('location_lng', lngMin).lte('location_lng', lngMax)
+        .eq('is_public', true)
+        .neq('match_type', 'practice')
         .eq('status', 'completed')
         .gte('ended_at', oneMinuteAgo),
     ]);
 
-    // Build friend id set
-    const ids = new Set<string>();
-    for (const f of followsRes.data ?? []) {
-      ids.add(f.follower_id === user.id ? f.followed_id : f.follower_id);
-    }
+    // Build mutual follows set — both A→B and B→A must be accepted
+    const iFollow = new Set<string>(
+      (followsRes.data ?? []).filter(f => f.follower_id === user.id).map(f => f.followed_id)
+    );
+    const followMe = new Set<string>(
+      (followsRes.data ?? []).filter(f => f.followed_id === user.id).map(f => f.follower_id)
+    );
+    const ids = new Set<string>([...iFollow].filter(id => followMe.has(id)));
     setFriendIds(ids);
 
     const bboxMatchRows = [...(activeRes.data ?? []), ...(recentCompletedRes.data ?? [])];
@@ -474,18 +489,22 @@ export default function MapScreen() {
             .not('last_lng', 'is', null)
             .neq('user_id', user.id)
         : Promise.resolve({ data: [] as any[] }),
-      // Friend-created active matches anywhere (no bbox)
+      // Friend-created active public non-practice matches anywhere (no bbox)
       ids.size > 0
         ? supabase.from('matches').select(matchCols)
             .not('location_lat', 'is', null).not('location_lng', 'is', null)
             .in('created_by', [...ids])
+            .eq('is_public', true)
+            .neq('match_type', 'practice')
             .in('status', ['pending', 'confirmed', 'in_progress', 'paused'])
         : Promise.resolve({ data: [] as any[] }),
-      // Friend-created recently completed matches anywhere (no bbox)
+      // Friend-created recently completed public non-practice matches anywhere (no bbox)
       ids.size > 0
         ? supabase.from('matches').select(matchCols)
             .not('location_lat', 'is', null).not('location_lng', 'is', null)
             .in('created_by', [...ids])
+            .eq('is_public', true)
+            .neq('match_type', 'practice')
             .eq('status', 'completed')
             .gte('ended_at', oneMinuteAgo)
         : Promise.resolve({ data: [] as any[] }),
@@ -514,12 +533,9 @@ export default function MapScreen() {
         : Promise.resolve({ data: [] as any[] }),
     ]);
 
-    // Merge profiles: start with bbox results, then add friends outside range (deduplicated)
+    // Only show mutual followers' locations — strangers are never visible
     const profileMap = new Map<string, any>();
-    for (const p of (nearbyProfilesRes.data ?? [])) profileMap.set(p.user_id, p);
-    for (const p of ((friendProfilesRes as any).data ?? [])) {
-      if (!profileMap.has(p.user_id)) profileMap.set(p.user_id, p);
-    }
+    for (const p of ((friendProfilesRes as any).data ?? [])) profileMap.set(p.user_id, p);
     const usersRaw: NearbyUser[] = [...profileMap.values()].map((p: any) => ({
       user_id: p.user_id,
       last_lat: p.last_lat,
@@ -559,9 +575,6 @@ export default function MapScreen() {
       const isFriendCreator = ids.has(m.created_by);
       const hasFriendParticipant = participants.some((uid: string) => ids.has(uid));
       const isFriendMatch = isFriendCreator || hasFriendParticipant;
-
-      // Private matches: only show if current user is involved, or a friend is playing
-      if (!m.is_public && !isCreator && !isParticipant && !isFriendMatch) continue;
 
       visibleMatches.push({
         id: m.id,
@@ -688,70 +701,26 @@ export default function MapScreen() {
     setShowNewMatch(true);
   };
 
-  const handleJoinMatch = async (match: NearbyMatch) => {
+  const handleRequestJoin = async (match: NearbyMatch) => {
     if (!currentUserId) return;
-    if (match.created_by === currentUserId) {
-      Alert.alert('Your match', 'You created this match.');
-      return;
-    }
+    if (requestedMatchIds.has(match.id) || deniedMatchIds.has(match.id)) return;
     setJoiningMatchId(match.id);
     try {
-      // Check current participant count from DB (fresh check)
-      const maxSlots = match.match_format === '2v2' ? 4 : 2;
-      const { count: freshCount } = await supabase
-        .from('match_participants')
-        .select('id', { count: 'exact', head: true })
-        .eq('match_id', match.id);
-      if ((freshCount ?? 0) >= maxSlots) {
-        Alert.alert('Match is full', `This match already has ${maxSlots}/${maxSlots} players.`);
-        loadNearby();
-        return;
-      }
-
-      const { count } = await supabase
-        .from('match_participants')
-        .select('id', { count: 'exact', head: true })
-        .eq('match_id', match.id)
-        .eq('user_id', currentUserId);
-      if (count && count > 0) {
-        Alert.alert('Already joined', 'You are already in this match.');
-        return;
-      }
-
-      await supabase.from('match_participants').insert({
-        match_id: match.id,
-        user_id: currentUserId,
-        role: 'opponent',
+      const myUsername = currentUserProfile?.username ?? 'Someone';
+      await supabase.from('notifications').insert({
+        user_id: match.created_by,
+        type: 'match_join_request',
+        title: `${myUsername} wants to join your ${sportLabel(match.sport_name)} match!`,
+        body: `They requested to join your ${match.match_type} match${match.location_name ? ` at ${generalizeLocation(match.location_name)}` : ''}.`,
+        data: { match_id: match.id, from_user_id: currentUserId, sport_name: match.sport_name },
       });
 
-      // Confirm match now that both slots are filled (freshCount was 1 before joining)
-      if ((freshCount ?? 0) + 1 >= maxSlots) {
-        await supabase.from('matches').update({ status: 'confirmed' }).eq('id', match.id);
-      }
-
-      const { data: myProfile } = await supabase.from('profiles').select('username').eq('user_id', currentUserId).maybeSingle();
-      await Promise.all([
-        // Notify the creator
-        supabase.from('notifications').insert({
-          user_id: match.created_by,
-          type: 'match_joined',
-          title: `${(myProfile as any)?.username ?? 'Someone'} joined your ${sportLabel(match.sport_name)} match!`,
-          body: `A player joined your ${match.match_type} match${match.location_name ? ` at ${match.location_name}` : ''}.`,
-          data: { match_id: match.id, from_user_id: currentUserId },
-        }),
-        // Delete any pending match_invite notification for this match sent to us
-        supabase.from('notifications')
-          .delete()
-          .eq('user_id', currentUserId)
-          .eq('type', 'match_invite')
-          .filter('data->>match_id', 'eq', match.id),
-      ]);
-
-      Alert.alert('Joined!', `You joined the ${sportLabel(match.sport_name)} match.`);
-      loadNearby();
+      const updated = new Set([...requestedMatchIds, match.id]);
+      setRequestedMatchIds(updated);
+      await AsyncStorage.setItem(`join_requests_${currentUserId}`, JSON.stringify([...updated]));
+      Alert.alert('Request sent!', 'The match creator will review your request.');
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Could not join match.');
-      loadNearby(); // refresh to remove any stale pins
+      Alert.alert('Error', e?.message ?? 'Could not send join request.');
     } finally {
       setJoiningMatchId(null);
     }
@@ -841,7 +810,7 @@ export default function MapScreen() {
             />
           )}
 
-          {showPlayers && nearbyUsers.map((u) => {
+          {nearbyUsers.map((u) => {
             if (u.isFriend) {
               // Friend: profile picture pin with callout
               const initial = (u.full_name ?? u.username ?? '?')[0].toUpperCase();
@@ -948,10 +917,19 @@ export default function MapScreen() {
                       </Text>
                     )}
                     {canJoin && !isFull && (
-                      <CalloutSubview onPress={() => handleJoinMatch(m)}>
-                        <View style={styles.calloutJoin}>
+                      <CalloutSubview onPress={() => handleRequestJoin(m)}>
+                        <View style={[
+                          styles.calloutJoin,
+                          (requestedMatchIds.has(m.id) || deniedMatchIds.has(m.id)) && { backgroundColor: '#6B7280' },
+                        ]}>
                           <Text style={styles.calloutJoinText}>
-                            {joiningMatchId === m.id ? 'Joining...' : 'Join match'}
+                            {joiningMatchId === m.id
+                              ? 'Sending...'
+                              : deniedMatchIds.has(m.id)
+                              ? 'Request Denied'
+                              : requestedMatchIds.has(m.id)
+                              ? 'Requested'
+                              : 'Request to Join'}
                           </Text>
                         </View>
                       </CalloutSubview>
@@ -1007,14 +985,6 @@ export default function MapScreen() {
         <View style={styles.filterRow}>
           <View style={styles.filterChipRow}>
             <TouchableOpacity
-              style={[styles.filterChip, showPlayers && styles.filterChipActive]}
-              onPress={() => setShowPlayers((p) => !p)}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="people" size={14} color={showPlayers ? colors.textOnPrimary : colors.textSecondary} />
-              <Text style={[styles.filterChipText, showPlayers && styles.filterChipTextActive]}>Players</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
               style={[styles.filterChip, showMatches && styles.filterChipActive]}
               onPress={() => setShowMatches((p) => !p)}
               activeOpacity={0.8}
@@ -1024,7 +994,7 @@ export default function MapScreen() {
             </TouchableOpacity>
           </View>
           <View style={styles.filterChipRow}>
-            {([1, 3, 5, 10] as const).map((mi) => (
+            {([2, 5, 10, 20] as const).map((mi) => (
               <TouchableOpacity
                 key={mi}
                 style={[styles.radiusChip, radiusMiles === mi && styles.radiusChipActive]}

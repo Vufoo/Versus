@@ -185,36 +185,24 @@ export default function MessagesScreen() {
         .in('user_id', profileIds);
       const list = (profiles ?? []) as FollowerEntry[];
       setFollowers(list);
-      list.forEach((p) => {
-        if (p.avatar_url) {
-          resolveAvatarUrl(p.avatar_url).then((url) => {
-            if (url && isMountedRef.current) setAvatarUrls((prev) => ({ ...prev, [p.user_id]: url }));
-          });
-        }
-      });
+      Promise.all(list.filter((p) => p.avatar_url).map(async (p) => {
+        const url = await resolveAvatarUrl(p.avatar_url);
+        if (url && isMountedRef.current) setAvatarUrls((prev) => ({ ...prev, [p.user_id]: url }));
+      }));
     } else {
       setFollowers([]);
     }
 
     const readMap: Record<string, string> = {};
+    let messages: { conversation_id: string; sender_id: string; body: string; created_at: string }[] = [];
     if (convIds.length > 0) {
-      const { data: readRows } = await supabase
-        .from('dm_conversation_read')
-        .select('conversation_id, last_read_at')
-        .eq('user_id', uid)
-        .in('conversation_id', convIds);
+      const [{ data: readRows }, { data: msgRows }] = await Promise.all([
+        supabase.from('dm_conversation_read').select('conversation_id, last_read_at').eq('user_id', uid).in('conversation_id', convIds),
+        supabase.from('dm_messages').select('conversation_id, sender_id, body, created_at').in('conversation_id', convIds).order('created_at', { ascending: false }),
+      ]);
       (readRows ?? []).forEach((r: { conversation_id: string; last_read_at: string }) => {
         readMap[r.conversation_id] = r.last_read_at;
       });
-    }
-
-    let messages: { conversation_id: string; sender_id: string; body: string; created_at: string }[] = [];
-    if (convIds.length > 0) {
-      const { data: msgRows } = await supabase
-        .from('dm_messages')
-        .select('conversation_id, sender_id, body, created_at')
-        .in('conversation_id', convIds)
-        .order('created_at', { ascending: false });
       messages = (msgRows ?? []) as { conversation_id: string; sender_id: string; body: string; created_at: string }[];
     }
 

@@ -179,6 +179,8 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
   const [opponentScore, setOpponentScore] = useState('');
   // Casual / practice: all participants can edit. Ranked: creator only.
   const canEdit = isCreator || (!isRanked && isParticipant);
+  // Ranked non-creator participants can edit limited fields (location, notes, visibility).
+  const canEditLimited = !isCreator && isRanked && isParticipant;
 
   const supports2v2 = match ? SPORTS_2V2.includes(match.sport_name) : false;
   const only2v2 = match ? SPORTS_2V2_ONLY.includes(match.sport_name) : false;
@@ -427,12 +429,56 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
           <TouchableOpacity style={styles.backdropHit} activeOpacity={1} onPress={onClose} />
           <View style={styles.card}>
             <View style={styles.header}>
-              <Text style={styles.title}>{canEdit ? 'Edit match' : 'Match options'}</Text>
+              <Text style={styles.title}>{canEdit || canEditLimited ? 'Edit match' : 'Match options'}</Text>
               <TouchableOpacity onPress={onClose} hitSlop={12}>
                 <Ionicons name="close" size={24} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
+              {canEditLimited && (
+                <>
+                  <Text style={styles.label}>Visibility</Text>
+                  <View style={styles.matchTypeRow}>
+                    <TouchableOpacity style={[styles.matchTypeChip, isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(true)} activeOpacity={0.8}>
+                      <Ionicons name="globe-outline" size={16} color={isPublic ? colors.textOnPrimary : colors.textSecondary} />
+                      <Text style={[styles.matchTypeLbl, isPublic && styles.matchTypeLblSel]}>Public</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.matchTypeChip, !isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(false)} activeOpacity={0.8}>
+                      <Ionicons name="lock-closed-outline" size={16} color={!isPublic ? colors.textOnPrimary : colors.textSecondary} />
+                      <Text style={[styles.matchTypeLbl, !isPublic && styles.matchTypeLblSel]}>Private</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={styles.label}>Location</Text>
+                  <TextInput style={styles.input} placeholder="Court or gym name" placeholderTextColor={colors.textSecondary} value={location} onChangeText={(t) => { setLocation(t); if (!t.trim()) { setLocationLat(null); setLocationLng(null); } }} />
+                  <TouchableOpacity
+                    style={[styles.timeBtn, { marginBottom: spacing.md }]}
+                    onPress={() => setLocationPicker(true)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="map-outline" size={18} color={colors.primary} />
+                    <Text style={styles.timeText}>
+                      {locationLat != null ? 'Change pin on map' : 'Pick on map'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.label}>Notes</Text>
+                  <TextInput style={[styles.input, styles.notesInput]} placeholder="Notes and comments..." placeholderTextColor={colors.textSecondary} value={notes} onChangeText={setNotes} multiline />
+
+                  <TouchableOpacity
+                    style={[styles.cta, saving && styles.ctaDisabled]}
+                    onPress={handleSave}
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      <ActivityIndicator color={colors.textOnPrimary} />
+                    ) : (
+                      <Text style={styles.ctaText}>Save changes</Text>
+                    )}
+                  </TouchableOpacity>
+                </>
+              )}
+
               {canEdit && (
                 <>
                   <Text style={styles.label}>Visibility</Text>

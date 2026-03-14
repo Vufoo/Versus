@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl, Modal, Pressable, FlatList } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -59,25 +59,21 @@ function createStyles(colors: ThemeColors) {
     sportDropdownLabel: { ...typography.label, color: colors.textSecondary, fontSize: 11, marginBottom: 1 },
     sportDropdownValue: { ...typography.label, color: colors.text, fontSize: 15, fontWeight: '700' },
     sportDropdownLeft: { flexDirection: 'column' },
-    // dropdown modal
-    dropdownOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+    // dropdown popover
     dropdownSheet: {
+      position: 'absolute' as const,
       backgroundColor: colors.cardBg,
-      borderTopLeftRadius: borderRadius.xl ?? 20,
-      borderTopRightRadius: borderRadius.xl ?? 20,
-      paddingBottom: spacing.xl,
-      maxHeight: '75%',
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      maxHeight: 320,
+      overflow: 'hidden' as const,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 8,
+      elevation: 8,
     },
-    dropdownSheetHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-    },
-    dropdownSheetTitle: { ...typography.label, color: colors.text, fontSize: 15, fontWeight: '700' },
     dropdownSportRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -243,6 +239,15 @@ export default function VersusScreen() {
   const [preferredSports, setPreferredSports] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [sportDropdownOpen, setSportDropdownOpen] = useState(false);
+  const [dropdownLayout, setDropdownLayout] = useState<{ top: number; left: number; width: number } | null>(null);
+  const sportBtnRef = useRef<any>(null);
+
+  const openSportDropdown = () => {
+    sportBtnRef.current?.measureInWindow((x: number, y: number, width: number, height: number) => {
+      setDropdownLayout({ top: y + height + 4, left: x, width });
+      setSportDropdownOpen(true);
+    });
+  };
 
   // Default to first preferred sport once loaded
   useEffect(() => {
@@ -314,24 +319,18 @@ export default function VersusScreen() {
         </Text>
 
         {/* Sport dropdown button */}
-        <TouchableOpacity style={styles.sportDropdownBtn} onPress={() => setSportDropdownOpen(true)} activeOpacity={0.85}>
+        <TouchableOpacity ref={sportBtnRef} style={styles.sportDropdownBtn} onPress={openSportDropdown} activeOpacity={0.85}>
           <View style={styles.sportDropdownLeft}>
             <Text style={styles.sportDropdownLabel}>Sport</Text>
             <Text style={styles.sportDropdownValue}>{sportLabel(sport)}</Text>
           </View>
-          <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+          <Ionicons name={sportDropdownOpen ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textSecondary} />
         </TouchableOpacity>
 
-        {/* Sport picker modal */}
-        <Modal visible={sportDropdownOpen} transparent animationType="slide" onRequestClose={() => setSportDropdownOpen(false)}>
-          <Pressable style={styles.dropdownOverlay} onPress={() => setSportDropdownOpen(false)}>
-            <Pressable style={styles.dropdownSheet} onPress={() => {}}>
-              <View style={styles.dropdownSheetHeader}>
-                <Text style={styles.dropdownSheetTitle}>Select Sport</Text>
-                <TouchableOpacity onPress={() => setSportDropdownOpen(false)} hitSlop={12}>
-                  <Ionicons name="close" size={22} color={colors.textSecondary} />
-                </TouchableOpacity>
-              </View>
+        {/* Sport picker popover */}
+        <Modal visible={sportDropdownOpen} transparent animationType="fade" onRequestClose={() => setSportDropdownOpen(false)}>
+          <Pressable style={{ flex: 1 }} onPress={() => setSportDropdownOpen(false)}>
+            <View style={[styles.dropdownSheet, { top: dropdownLayout?.top ?? 200, left: dropdownLayout?.left ?? spacing.lg, width: dropdownLayout?.width ?? 300 }]}>
               <FlatList
                 data={orderedSports as string[]}
                 keyExtractor={(item) => item}
@@ -354,7 +353,7 @@ export default function VersusScreen() {
                 }}
                 showsVerticalScrollIndicator={false}
               />
-            </Pressable>
+            </View>
           </Pressable>
         </Modal>
         <View style={styles.rankRow}>

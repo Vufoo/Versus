@@ -312,19 +312,21 @@ export default function LoginScreen({ onContinue, onGoToSignup }: Props) {
               <View style={styles.dividerLine} />
             </View>
 
+            <Text style={[styles.infoText, { marginBottom: spacing.sm }]}>Create an account with</Text>
+
+            <TouchableOpacity style={styles.socialBtn} activeOpacity={0.8} onPress={onGoToSignup}>
+              <Ionicons name="mail-outline" size={20} color={colors.text} />
+              <Text style={styles.socialBtnText}>Email</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity style={styles.socialBtn} activeOpacity={0.8} onPress={handleGoogleSignIn} disabled={loading}>
               <Ionicons name="logo-google" size={20} color="#4285F4" />
-              <Text style={styles.socialBtnText}>Continue with Google</Text>
+              <Text style={styles.socialBtnText}>Google</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={[styles.socialBtn, { backgroundColor: '#000' }]} activeOpacity={0.8} onPress={handleAppleSignIn} disabled={loading}>
               <Ionicons name="logo-apple" size={20} color="#FFF" />
-              <Text style={[styles.socialBtnText, { color: '#FFF' }]}>Continue with Apple</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.socialBtn} activeOpacity={0.8} onPress={onGoToSignup}>
-              <Ionicons name="mail-outline" size={20} color={colors.text} />
-              <Text style={styles.socialBtnText}>Continue with email</Text>
+              <Text style={[styles.socialBtnText, { color: '#FFF' }]}>Apple</Text>
             </TouchableOpacity>
           </View>
 

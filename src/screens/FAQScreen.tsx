@@ -92,6 +92,14 @@ const FAQ_SECTIONS = [
         q: 'What match types are available?',
         a: 'Ranked — affects your VP and rank. Casual — just for fun, no VP changes. Local — open challenges visible to nearby players. Practice — no records kept.',
       },
+      {
+        q: 'What is the Plan view?',
+        a: 'The Plan view (calendar icon in the tab bar) shows your upcoming and past matches on a calendar. Days with matches are highlighted with a flame icon. A streak counter in the header shows how many consecutive days you\'ve played.',
+      },
+      {
+        q: 'How do I set my preferred sports?',
+        a: 'Go to your Profile → Edit Profile → Preferred Sports. The order you select them matters — your sports appear in that order on your profile cards, in the Versus view, and everywhere else in the app.',
+      },
     ],
   },
   {
@@ -115,13 +123,21 @@ const FAQ_SECTIONS = [
       },
       {
         q: 'How does the Leaderboard work?',
-        a: 'The Leaderboard shows the top players per sport ranked by VP. Swipe left/right to switch sports. Your rank is shown at the top even if you\'re outside the top 10. Players with 0 VP don\'t appear on the board.',
+        a: 'The Leaderboard shows the top 10 players per sport ranked by VP. Swipe left/right to switch sports. Your own rank and VP are shown in a card at the top even if you\'re outside the top 10. Players with 0 VP don\'t appear on the board.',
+      },
+      {
+        q: 'Do casual or practice matches affect my rank?',
+        a: 'No. Only Ranked matches change your VP and rank. Casual, Local, and Practice matches are tracked in your history but have no effect on your standing.',
       },
     ],
   },
   {
     title: 'Matches & Results',
     items: [
+      {
+        q: 'What do the match statuses mean?',
+        a: 'Planned — scheduled but not yet accepted by all players. Pending — waiting on opponent acceptance. Confirmed — all players accepted, ready to play. In Progress — match has started. Paused — temporarily paused. Completed — finished and results submitted. Canceled — called off with no VP change.',
+      },
       {
         q: 'How do I record match results?',
         a: 'After completing a match, open it from your home feed and tap "Submit Result". Enter the scores for each game. Both players must confirm before VP is awarded.',
@@ -134,6 +150,43 @@ const FAQ_SECTIONS = [
         q: 'Can I cancel a match?',
         a: 'Yes. Open the match and tap the cancel option. Canceling a planned match before it starts has no effect on VP.',
       },
+      {
+        q: 'What happens if there\'s a dispute over results?',
+        a: 'Both players must confirm the result for VP to be awarded. If one player submits different scores, the match will remain unresolved until both sides agree. Contact support if a dispute cannot be resolved.',
+      },
+    ],
+  },
+  {
+    title: 'Map & Location',
+    items: [
+      {
+        q: 'Who can see my location on the map?',
+        a: 'Only mutual followers can see each other\'s location — meaning you follow them AND they follow you (both accepted). Strangers cannot see your location even if your setting is set to Public. If either person has their location set to Private, neither can see the other.',
+      },
+      {
+        q: 'How do I control my location visibility?',
+        a: 'Go to Settings → Location Privacy and choose Public or Private. Public shares your location with mutual followers only. Private means no one can see your location on the map, not even mutual followers.',
+      },
+      {
+        q: 'Is my exact location shown to others?',
+        a: 'No. Match location pins show only the general area (neighborhood or city level), not an exact address. This protects your privacy while still letting you find nearby games.',
+      },
+      {
+        q: 'What matches appear on the map?',
+        a: 'Only public matches are shown. Private matches are never visible on the map to anyone other than the participants. Matches from mutual followers appear anywhere on the map; other public matches only appear within your selected radius (2, 5, 10, or 20 miles).',
+      },
+      {
+        q: 'How do I request to join a match on the map?',
+        a: 'Tap a match pin to see its details. If it\'s open, tap "Request to Join." The match creator receives a notification and can accept or deny your request. If accepted, you\'re added to the match. If denied, you\'ll receive a notification and the button stays greyed out.',
+      },
+      {
+        q: 'Can I turn off location sharing entirely?',
+        a: 'Yes — two ways. Set Location Privacy to Private in Settings, or deny location permission for Versus in your phone\'s system settings. Either will prevent your location from appearing on the map.',
+      },
+      {
+        q: 'Why isn\'t my location updating on the map?',
+        a: 'Your location only updates after you\'ve moved roughly 100 meters from where it was last recorded. This is intentional to reduce battery drain. Make sure location permissions are set to "Always" or "While Using" in your phone\'s settings for the most accurate updates.',
+      },
     ],
   },
   {
@@ -141,7 +194,7 @@ const FAQ_SECTIONS = [
     items: [
       {
         q: 'How does following work?',
-        a: 'You can follow other players to see their match activity on your feed. If their profile is set to Private, they must approve your follow request first.',
+        a: 'You can follow other players to see their match activity on your feed. If their profile is set to Private, they must approve your follow request first. Mutual follows (both following each other) unlock location visibility on the map.',
       },
       {
         q: 'How do I find friends?',
@@ -149,11 +202,19 @@ const FAQ_SECTIONS = [
       },
       {
         q: 'How does contact matching work?',
-        a: 'To be discoverable via contacts, add your phone number in Edit Profile. Your number is hashed (irreversibly encrypted) before being stored — we never see or store your actual number. Others who have your number saved in their contacts will then see you in their "From your contacts" list on the Search screen.',
+        a: 'To be discoverable via contacts, add your phone number in Edit Profile. Your number is hashed (irreversibly encrypted) before being stored — we never see or store your actual number. Others who have your number saved in their contacts will see you in their "From your contacts" section on the Search screen.',
+      },
+      {
+        q: 'How do I message someone?',
+        a: 'Tap the chat bubble icon at the top of the Home screen, or visit a player\'s profile and tap the message button. Direct messages are private and only visible to you and the recipient.',
       },
       {
         q: 'What does Private profile mean?',
-        a: 'A Private profile hides your match history from users who don\'t follow you. Your username and basic info are still visible in search results.',
+        a: 'A Private profile hides your match history and stats from users who don\'t follow you. Your username and basic info are still visible in search results. Followers you\'ve approved can see your full profile.',
+      },
+      {
+        q: 'Can I block or report a user?',
+        a: 'You can remove followers at any time by going to your follower list and removing them. To report inappropriate behavior, contact us through the Support section in Settings.',
       },
     ],
   },

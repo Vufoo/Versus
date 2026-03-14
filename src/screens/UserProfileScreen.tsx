@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Image,
   Alert,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -377,14 +378,14 @@ export default function UserProfileScreen() {
     };
 
     if (followState === 'accepted') {
-      Alert.alert(
-        'Unfollow user',
-        'Are you sure you want to unfollow this user?',
-        [
+      if (Platform.OS === 'web') {
+        if (window.confirm('Are you sure you want to unfollow this user?')) performToggle();
+      } else {
+        Alert.alert('Unfollow user', 'Are you sure you want to unfollow this user?', [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Unfollow', style: 'destructive', onPress: performToggle },
-        ],
-      );
+        ]);
+      }
     } else {
       performToggle();
     }

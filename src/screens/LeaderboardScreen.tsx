@@ -151,7 +151,8 @@ function makeStyles(c: ThemeColors) {
     },
     colHeaderRank: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.7)', width: 28, textAlign: 'center' },
     colHeaderPlayer: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.7)', flex: 1 },
-    colHeaderRight: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.7)', textAlign: 'right', minWidth: 64 },
+    colHeaderDiv: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.7)', textAlign: 'center', width: 72 },
+    colHeaderVP: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.7)', textAlign: 'right', width: 52 },
 
     // Each row
     row: {
@@ -185,10 +186,10 @@ function makeStyles(c: ThemeColors) {
     name: { fontSize: 13, fontWeight: '600', color: c.text },
     nameMe: { color: c.primary },
     handle: { fontSize: 11, color: c.textSecondary, marginTop: 1 },
-    right: { alignItems: 'flex-end', gap: 2, minWidth: 64 },
+    divCol: { width: 72, alignItems: 'center' },
+    vpCol: { width: 52, textAlign: 'right', fontSize: 11, fontWeight: '700', color: '#2563EB' },
     tierBadge: { paddingHorizontal: 5, paddingVertical: 2, borderRadius: borderRadius.sm, borderWidth: 1 },
     tierText: { fontSize: 9, fontWeight: '700' },
-    vpText: { fontSize: 11, color: c.textSecondary },
     // Empty slot placeholders
     emptyBar: { height: 7, borderRadius: 4, backgroundColor: c.border, opacity: 0.35 },
 
@@ -280,13 +281,13 @@ export default function LeaderboardScreen() {
           .select('user_id, username, full_name, avatar_url')
           .in('user_id', userIds);
         if (profileErr) console.error('[Leaderboard] profiles query error:', profileErr);
-        for (const p of (profileRows ?? []) as any[]) {
+        await Promise.all((profileRows ?? []).map(async (p: any) => {
           profileMap[p.user_id] = {
             username: p.username ?? null,
             full_name: p.full_name ?? null,
             avatar_url: (await resolveAvatarUrl(p.avatar_url)) ?? null,
           };
-        }
+        }));
       }
 
       const resolved: LeaderEntry[] = rows.map(r => ({
@@ -398,7 +399,8 @@ export default function LeaderboardScreen() {
                   <View style={styles.colHeader}>
                     <Text style={styles.colHeaderRank}>#</Text>
                     <Text style={[styles.colHeaderPlayer, { marginLeft: 36 + spacing.sm }]}>Player</Text>
-                    <Text style={styles.colHeaderRight}>Rank · VP</Text>
+                    <Text style={styles.colHeaderDiv}>Rank</Text>
+                    <Text style={styles.colHeaderVP}>VP</Text>
                   </View>
 
                   {!data ? (
@@ -468,23 +470,26 @@ export default function LeaderboardScreen() {
                             )}
                           </View>
 
-                          {/* Tier + VP */}
-                          {entry ? (
-                            <View style={styles.right}>
-                              {tier && tColor && (
+                          {/* Rank (tier/div) column */}
+                          <View style={styles.divCol}>
+                            {entry ? (
+                              tier && tColor ? (
                                 <View style={[styles.tierBadge, { borderColor: tColor }]}>
                                   <Text style={[styles.tierText, { color: tColor }]}>
                                     {tier}{entry.rank_div ? ` ${entry.rank_div}` : ''}
                                   </Text>
                                 </View>
-                              )}
-                              <Text style={[styles.vpText, { color: '#2563EB', fontWeight: '700' }]}>{entry.vp} VP</Text>
-                            </View>
+                              ) : null
+                            ) : (
+                              <View style={[styles.emptyBar, { width: 44 }]} />
+                            )}
+                          </View>
+
+                          {/* VP column */}
+                          {entry ? (
+                            <Text style={styles.vpCol}>{entry.vp} VP</Text>
                           ) : (
-                            <View style={[styles.right, { gap: 5 }]}>
-                              <View style={[styles.emptyBar, { width: 44, alignSelf: 'flex-end' }]} />
-                              <View style={[styles.emptyBar, { width: 28, alignSelf: 'flex-end' }]} />
-                            </View>
+                            <View style={[styles.emptyBar, { width: 32 }]} />
                           )}
                         </TouchableOpacity>
                       );

@@ -390,6 +390,30 @@ create table if not exists public.match_comments (
 create index if not exists match_comments_match_id_idx on public.match_comments (match_id);
 create index if not exists match_comments_user_id_idx on public.match_comments (user_id);
 
+-- Comment likes ---------------------------------------------------------------
+create table if not exists public.comment_likes (
+  comment_id  uuid not null references public.match_comments (id) on delete cascade,
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  created_at  timestamptz not null default now(),
+  primary key (comment_id, user_id)
+);
+
+create index if not exists comment_likes_comment_id_idx on public.comment_likes (comment_id);
+
+alter table public.comment_likes enable row level security;
+
+drop policy if exists "Anyone can read comment likes" on public.comment_likes;
+create policy "Anyone can read comment likes"
+  on public.comment_likes for select using (true);
+
+drop policy if exists "Users can like comments" on public.comment_likes;
+create policy "Users can like comments"
+  on public.comment_likes for insert with check (auth.uid() = user_id);
+
+drop policy if exists "Users can unlike comments" on public.comment_likes;
+create policy "Users can unlike comments"
+  on public.comment_likes for delete using (auth.uid() = user_id);
+
 -- Match games: per-game/set scores (e.g. tennis 6-4, 4-6, 6-4) -----------------
 create table if not exists public.match_games (
   id              uuid primary key default gen_random_uuid(),

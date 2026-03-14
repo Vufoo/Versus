@@ -7,6 +7,7 @@ import {
   ScrollView,
   Switch,
   Alert,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -193,25 +194,26 @@ export default function SettingsScreen() {
   };
 
   const handleSignOut = () => {
-    Alert.alert('Sign out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign out',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            const { GoogleSignin } = require('@react-native-google-signin/google-signin');
-            await GoogleSignin.revokeAccess();
-            await GoogleSignin.signOut();
-          } catch {
-            // native module not available or user didn't sign in with Google — skip
-          }
-          await supabase.auth.signOut();
-          setSignedIn(false);
-          navigation.goBack();
-        },
-      },
-    ]);
+    const doSignOut = async () => {
+      try {
+        const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+        await GoogleSignin.revokeAccess();
+        await GoogleSignin.signOut();
+      } catch {
+        // native module not available or user didn't sign in with Google — skip
+      }
+      await supabase.auth.signOut();
+      setSignedIn(false);
+      navigation.goBack();
+    };
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to sign out?')) doSignOut();
+    } else {
+      Alert.alert('Sign out', 'Are you sure you want to sign out?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign out', style: 'destructive', onPress: doSignOut },
+      ]);
+    }
   };
 
   return (
@@ -286,7 +288,8 @@ export default function SettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Delete account', 'Are you sure? This will permanently delete your account and all data. This cannot be undone.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => {
+          <TouchableOpacity style={styles.settingRow} onPress={() => {
+            const doDelete = async () => {
               try {
                 const { error } = await supabase.rpc('delete_own_account');
                 if (error) throw error;
@@ -296,7 +299,16 @@ export default function SettingsScreen() {
               } catch (e: any) {
                 Alert.alert('Error', e?.message ?? 'Failed to delete account. Please try again.');
               }
-            }}])} activeOpacity={0.7}>
+            };
+            if (Platform.OS === 'web') {
+              if (window.confirm('Are you sure? This will permanently delete your account and all data. This cannot be undone.')) doDelete();
+            } else {
+              Alert.alert('Delete account', 'Are you sure? This will permanently delete your account and all data. This cannot be undone.', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Delete', style: 'destructive', onPress: doDelete },
+              ]);
+            }
+          }} activeOpacity={0.7}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="trash-outline" size={20} color={colors.error} />
               <Text style={[styles.settingLabel, { color: colors.error }]}>Delete account</Text>
