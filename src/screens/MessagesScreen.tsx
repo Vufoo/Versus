@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 import {
   View,
   Text,
@@ -124,6 +125,7 @@ function formatMessageDate(dateStr: string): string {
 
 export default function MessagesScreen() {
   const { colors } = useTheme();
+  const { t } = useLanguage();
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -289,7 +291,7 @@ export default function MessagesScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.title}>Messages</Text>
+        <Text style={styles.title}>{t.messages.title}</Text>
         <TouchableOpacity onPress={openCompose} hitSlop={12}>
           <Ionicons name="create-outline" size={24} color={colors.primary} />
         </TouchableOpacity>
@@ -303,7 +305,7 @@ export default function MessagesScreen() {
         <ScrollView showsVerticalScrollIndicator={false} alwaysBounceVertical refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.text} colors={[colors.primary]} progressBackgroundColor={colors.cardBg} />}>
           {followers.length === 0 ? (
             <Text style={styles.emptyText}>
-              Your conversations will appear here. Start a chat from a profile or from your followers.
+              {t.messages.noConversationsLong}
             </Text>
           ) : (
             [...followers].sort((a, b) => {
@@ -312,7 +314,7 @@ export default function MessagesScreen() {
               return bTime.localeCompare(aTime);
             }).map((f) => {
               const meta = conversationByUser[f.user_id];
-              const preview = meta?.latestBody ?? (f.username ? `@${f.username}` : 'Tap to message');
+              const preview = meta?.latestBody ?? (f.username ? `@${f.username}` : t.messages.tapToMessage);
               const unread = Boolean(
                 meta?.latestFromOther &&
                 meta?.latestCreatedAt &&
@@ -363,7 +365,7 @@ export default function MessagesScreen() {
           <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setComposeOpen(false)} />
           <View style={styles.composeSheet}>
             <View style={styles.composeHeader}>
-              <Text style={styles.composeTitle}>New Message</Text>
+              <Text style={styles.composeTitle}>{t.messages.newMessage}</Text>
               <TouchableOpacity onPress={() => setComposeOpen(false)} hitSlop={12}>
                 <Ionicons name="close" size={24} color={colors.textSecondary} />
               </TouchableOpacity>
@@ -371,7 +373,7 @@ export default function MessagesScreen() {
             {composeLoading ? (
               <ActivityIndicator size="large" color={colors.primary} style={{ padding: spacing.xl }} />
             ) : composeFollowing.length === 0 ? (
-              <Text style={styles.composeEmpty}>Follow someone to start a conversation.</Text>
+              <Text style={styles.composeEmpty}>{t.messages.followSomeone}</Text>
             ) : (
               <FlatList
                 data={composeFollowing}

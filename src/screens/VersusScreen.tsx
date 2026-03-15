@@ -6,6 +6,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
+import { useLanguage } from '../i18n/LanguageContext';
 import { supabase } from '../lib/supabase';
 import NewMatchModal from '../components/NewMatchModal';
 import { useMembership } from '../hooks/useMembership';
@@ -227,6 +228,7 @@ const MEMBERSHIP_LOCK_MESSAGE =
 
 export default function VersusScreen() {
   const { colors } = useTheme();
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { hasMembership } = useMembership();
@@ -303,7 +305,7 @@ export default function VersusScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.lg }]}>
       <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>Versus</Text>
+        <Text style={styles.pageTitle}>{t.versus.title}</Text>
       </View>
       <ScrollView
         style={styles.scroll}
@@ -315,13 +317,13 @@ export default function VersusScreen() {
         {/* Header content — inside ScrollView so pull-to-refresh works from the top */}
         <View style={styles.header}>
         <Text style={styles.subtitle}>
-          Choose your sport, see your rank, then find someone to play.
+          {t.versus.subtitle}
         </Text>
 
         {/* Sport dropdown button */}
         <TouchableOpacity ref={sportBtnRef} style={styles.sportDropdownBtn} onPress={openSportDropdown} activeOpacity={0.85}>
           <View style={styles.sportDropdownLeft}>
-            <Text style={styles.sportDropdownLabel}>Sport</Text>
+            <Text style={styles.sportDropdownLabel}>{t.versus.sport}</Text>
             <Text style={styles.sportDropdownValue}>{sportLabel(sport)}</Text>
           </View>
           <Ionicons name={sportDropdownOpen ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textSecondary} />
@@ -336,7 +338,7 @@ export default function VersusScreen() {
                 keyExtractor={(item) => item}
                 renderItem={({ item: s }) => {
                   const rating = sportRatings[s];
-                  const ratingLabel = rating ? `${rating.rank_tier ?? 'Unranked'} · ${rating.vp} VP` : 'Unranked';
+                  const ratingLabel = rating ? `${rating.rank_tier ?? t.common.unranked} · ${rating.vp} VP` : t.common.unranked;
                   const isSelected = s === sport;
                   return (
                     <TouchableOpacity
@@ -358,7 +360,7 @@ export default function VersusScreen() {
         </Modal>
         <View style={styles.rankRow}>
           <View style={styles.rankCard}>
-            <Text style={styles.rankLabel}>Your ranking in</Text>
+            <Text style={styles.rankLabel}>{t.versus.yourRankingIn}</Text>
             <Text style={styles.rankSport} numberOfLines={1}>{sport}</Text>
             <Text numberOfLines={1}>
               <Text style={[styles.rankValue, { color: tierColor(currentRating?.rank_tier ?? null) }]}>{rankTierDisplay}</Text>
@@ -371,8 +373,8 @@ export default function VersusScreen() {
             activeOpacity={0.85}
           >
             <Ionicons name="trophy" size={18} color={colors.primary} />
-            <Text style={styles.leaderboardTitle}>Leaderboards</Text>
-            <Text style={styles.leaderboardLabel}>Top players</Text>
+            <Text style={styles.leaderboardTitle}>{t.versus.leaderboards}</Text>
+            <Text style={styles.leaderboardLabel}>{t.versus.topPlayers}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -386,10 +388,24 @@ export default function VersusScreen() {
             <Ionicons name="person-add-outline" size={28} color={colors.textOnPrimary} />
           </View>
           <Text style={styles.primaryButtonTitle}>
-            New Match
+            {t.versus.newMatch}
           </Text>
           <Text style={styles.primaryButtonSub}>
-            Set up with someone in person. Choose ranked or casual, pick settings, and send an invite.
+            {t.versus.newMatchSub}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.primaryButton, styles.casualButton]}
+          onPress={() => Alert.alert('Coming soon', 'Tournaments will be available in a future update.')}
+          activeOpacity={0.85}
+        >
+          <View style={styles.buttonIconWrap}>
+            <Ionicons name="ribbon-outline" size={28} color={colors.text} />
+          </View>
+          <Text style={[styles.primaryButtonTitle, styles.casualTitle]}>{t.versus.newTournament}</Text>
+          <Text style={[styles.primaryButtonSub, styles.casualSub]}>
+            {t.common.comingSoon}
           </Text>
         </TouchableOpacity>
 
@@ -401,9 +417,9 @@ export default function VersusScreen() {
           <View style={styles.buttonIconWrap}>
             <Ionicons name="trophy" size={28} color={colors.text} />
           </View>
-          <Text style={[styles.primaryButtonTitle, styles.casualTitle]}>Find ranked match</Text>
+          <Text style={[styles.primaryButtonTitle, styles.casualTitle]}>{t.versus.findRankedMatch}</Text>
           <Text style={[styles.primaryButtonSub, styles.casualSub]}>
-            Coming soon
+            {t.common.comingSoon}
           </Text>
         </TouchableOpacity>
 
@@ -416,10 +432,10 @@ export default function VersusScreen() {
             <Ionicons name="happy-outline" size={28} color={colors.text} />
           </View>
           <Text style={[styles.primaryButtonTitle, styles.casualTitle]}>
-            Find casual match
+            {t.versus.findCasualMatch}
           </Text>
           <Text style={[styles.primaryButtonSub, styles.casualSub]}>
-            Coming soon
+            {t.common.comingSoon}
           </Text>
         </TouchableOpacity>
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 import {
   View,
   Text,
@@ -144,6 +145,7 @@ function makeStyles(c: ThemeColors) {
 }
 
 export default function EditMatchModal({ visible, onClose, onSaved, colors, match, currentUserId }: Props) {
+  const { t } = useLanguage();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [location, setLocation] = useState('');
@@ -429,7 +431,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
           <TouchableOpacity style={styles.backdropHit} activeOpacity={1} onPress={onClose} />
           <View style={styles.card}>
             <View style={styles.header}>
-              <Text style={styles.title}>{canEdit || canEditLimited ? 'Edit match' : 'Match options'}</Text>
+              <Text style={styles.title}>{canEdit || canEditLimited ? t.editMatch.title : t.editMatch.options}</Text>
               <TouchableOpacity onPress={onClose} hitSlop={12}>
                 <Ionicons name="close" size={24} color={colors.textSecondary} />
               </TouchableOpacity>
@@ -437,20 +439,20 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
               {canEditLimited && (
                 <>
-                  <Text style={styles.label}>Visibility</Text>
+                  <Text style={styles.label}>{t.newMatch.visibility}</Text>
                   <View style={styles.matchTypeRow}>
                     <TouchableOpacity style={[styles.matchTypeChip, isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(true)} activeOpacity={0.8}>
                       <Ionicons name="globe-outline" size={16} color={isPublic ? colors.textOnPrimary : colors.textSecondary} />
-                      <Text style={[styles.matchTypeLbl, isPublic && styles.matchTypeLblSel]}>Public</Text>
+                      <Text style={[styles.matchTypeLbl, isPublic && styles.matchTypeLblSel]}>{t.common.public}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={[styles.matchTypeChip, !isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(false)} activeOpacity={0.8}>
                       <Ionicons name="lock-closed-outline" size={16} color={!isPublic ? colors.textOnPrimary : colors.textSecondary} />
-                      <Text style={[styles.matchTypeLbl, !isPublic && styles.matchTypeLblSel]}>Private</Text>
+                      <Text style={[styles.matchTypeLbl, !isPublic && styles.matchTypeLblSel]}>{t.common.private}</Text>
                     </TouchableOpacity>
                   </View>
 
-                  <Text style={styles.label}>Location</Text>
-                  <TextInput style={styles.input} placeholder="Court or gym name" placeholderTextColor={colors.textSecondary} value={location} onChangeText={(t) => { setLocation(t); if (!t.trim()) { setLocationLat(null); setLocationLng(null); } }} />
+                  <Text style={styles.label}>{t.newMatch.location}</Text>
+                  <TextInput style={styles.input} placeholder={t.editMatch.courtOrGym} placeholderTextColor={colors.textSecondary} value={location} onChangeText={(v) => { setLocation(v); if (!v.trim()) { setLocationLat(null); setLocationLng(null); } }} />
                   <TouchableOpacity
                     style={[styles.timeBtn, { marginBottom: spacing.md }]}
                     onPress={() => setLocationPicker(true)}
@@ -458,12 +460,12 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                   >
                     <Ionicons name="map-outline" size={18} color={colors.primary} />
                     <Text style={styles.timeText}>
-                      {locationLat != null ? 'Change pin on map' : 'Pick on map'}
+                      {locationLat != null ? t.editMatch.changePin : t.editMatch.pickOnMap}
                     </Text>
                   </TouchableOpacity>
 
-                  <Text style={styles.label}>Notes</Text>
-                  <TextInput style={[styles.input, styles.notesInput]} placeholder="Notes and comments..." placeholderTextColor={colors.textSecondary} value={notes} onChangeText={setNotes} multiline />
+                  <Text style={styles.label}>{t.newMatch.notes}</Text>
+                  <TextInput style={[styles.input, styles.notesInput]} placeholder={t.editMatch.notesAndComments} placeholderTextColor={colors.textSecondary} value={notes} onChangeText={setNotes} multiline />
 
                   <TouchableOpacity
                     style={[styles.cta, saving && styles.ctaDisabled]}
@@ -473,7 +475,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                     {saving ? (
                       <ActivityIndicator color={colors.textOnPrimary} />
                     ) : (
-                      <Text style={styles.ctaText}>Save changes</Text>
+                      <Text style={styles.ctaText}>{t.editMatch.saveChanges}</Text>
                     )}
                   </TouchableOpacity>
                 </>
@@ -481,21 +483,21 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
 
               {canEdit && (
                 <>
-                  <Text style={styles.label}>Visibility</Text>
+                  <Text style={styles.label}>{t.newMatch.visibility}</Text>
                   <View style={styles.matchTypeRow}>
                     <TouchableOpacity style={[styles.matchTypeChip, isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(true)} activeOpacity={0.8}>
                       <Ionicons name="globe-outline" size={16} color={isPublic ? colors.textOnPrimary : colors.textSecondary} />
-                      <Text style={[styles.matchTypeLbl, isPublic && styles.matchTypeLblSel]}>Public</Text>
+                      <Text style={[styles.matchTypeLbl, isPublic && styles.matchTypeLblSel]}>{t.common.public}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={[styles.matchTypeChip, !isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(false)} activeOpacity={0.8}>
                       <Ionicons name="lock-closed-outline" size={16} color={!isPublic ? colors.textOnPrimary : colors.textSecondary} />
-                      <Text style={[styles.matchTypeLbl, !isPublic && styles.matchTypeLblSel]}>Private</Text>
+                      <Text style={[styles.matchTypeLbl, !isPublic && styles.matchTypeLblSel]}>{t.common.private}</Text>
                     </TouchableOpacity>
                   </View>
 
                   {canEditFormat && supports2v2 && !only2v2 && (
                     <>
-                      <Text style={styles.label}>Format</Text>
+                      <Text style={styles.label}>{t.newMatch.format}</Text>
                       <View style={styles.matchTypeRow}>
                         {(['1v1', '2v2'] as const).map((f) => (
                           <TouchableOpacity key={f} style={[styles.matchTypeChip, matchFormat === f && styles.matchTypeChipSel]} onPress={() => setMatchFormat(f)} activeOpacity={0.8}>
@@ -508,7 +510,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
 
                   {scheduledAt && match.status !== 'in_progress' && match.status !== 'completed' && (
                     <>
-                      <Text style={styles.label}>Scheduled date & time</Text>
+                      <Text style={styles.label}>{t.editMatch.scheduledDateTime}</Text>
                       <View style={styles.timeRow}>
                         <TouchableOpacity style={styles.timeBtn} onPress={() => setDatePicker(true)} activeOpacity={0.8}>
                           <Ionicons name="calendar-outline" size={18} color={colors.primary} />

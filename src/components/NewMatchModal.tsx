@@ -6,6 +6,8 @@ import {
   ScrollView,
   TouchableOpacity,
   Modal,
+  Pressable,
+  FlatList,
   TextInput,
   ActivityIndicator,
   Alert,
@@ -18,7 +20,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { supabase, resolveAvatarUrl } from '../lib/supabase';
-import { SPORTS, SPORTS_2V2, SPORTS_2V2_ONLY, SPORTS_3V3, sportLabel, SPORT_EMOJI } from '../constants/sports';
+import { SPORTS, SPORTS_2V2, SPORTS_2V2_ONLY, SPORTS_3V3, SPORTS_NO_RANKED, sportLabel, SPORT_EMOJI } from '../constants/sports';
+import { useLanguage } from '../i18n/LanguageContext';
 import UserSearch from './UserSearch';
 import type { SearchedUser } from './UserSearch';
 import LocationPickerModal from './LocationPickerModal';
@@ -82,7 +85,7 @@ function makeStyles(c: ThemeColors) {
     matchTypeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
     matchTypeChip: {
       flex: 1,
-      height: 36,
+      paddingVertical: spacing.sm,
       borderRadius: borderRadius.md,
       borderWidth: 1,
       borderColor: c.border,
@@ -185,11 +188,36 @@ function makeStyles(c: ThemeColors) {
     },
     inviteChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, borderWidth: 1, borderColor: c.border, backgroundColor: c.background },
     inviteChipName: { ...typography.caption, color: c.text },
+    sportDropdownBtn: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      justifyContent: 'space-between' as const,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: c.primary,
+      backgroundColor: c.background,
+      marginBottom: spacing.md,
+    },
+    sportDropdownValue: { ...typography.label, color: c.text, fontSize: 15, fontWeight: '700' as const },
+    dropdownSportRow: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: c.border,
+    },
+    dropdownSportRowSelected: { backgroundColor: c.primary + '18' },
+    dropdownSportName: { ...typography.body, fontSize: 14, color: c.text, flex: 1 },
+    dropdownSportNameSelected: { color: c.primary, fontWeight: '700' as const },
   });
 }
 
 export default function NewMatchModal({ visible, onClose, onCreated, colors, initialSport, initialMatchType, initialDate, initialLocation, preferredSports = [] }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { t } = useLanguage();
 
   const [invitedUsers, setInvitedUsers] = useState<SearchedUser[]>([]);
   const [sport, setSport] = useState(initialSport ?? SPORTS[0]);
@@ -234,14 +262,18 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
     return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
   }, []);
 
+  const [sportDropdownOpen, setSportDropdownOpen] = useState(false);
+
   const orderedSports = useMemo(() => {
     if (preferredSports.length === 0) return SPORTS;
     const prefSet = new Set(preferredSports);
-    return SPORTS.filter((s) => prefSet.has(s)) as readonly string[];
+    const rest = SPORTS.filter((s) => !prefSet.has(s));
+    return [...preferredSports, ...rest] as readonly string[];
   }, [preferredSports]);
 
   useEffect(() => { if (initialSport) setSport(initialSport); }, [initialSport]);
   useEffect(() => { if (initialMatchType) setMatchType(initialMatchType as 'casual' | 'ranked' | 'practice'); }, [initialMatchType]);
+  useEffect(() => { if (SPORTS_NO_RANKED.includes(sport) && matchType === 'ranked') setMatchType('casual'); }, [sport]);
   useEffect(() => {
     if (initialLocation) {
       setLocation(initialLocation.name);
@@ -255,8 +287,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   useEffect(() => {
     if (supports3v3) setMatchFormat('2v2'); // volleyball defaults to 2v2
     else if (only2v2) setMatchFormat('2v2');
-    else if (!supports2v2) setMatchFormat('1v1');
-  }, [supports2v2, only2v2, supports3v3]);
+  }, [only2v2, supports3v3]);
 
   useEffect(() => {
     setInvitedUsers([]);
@@ -377,7 +408,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
 
   const handleSave = async () => {
     if (matchType === 'ranked' && invitedUsers.length === 0) {
-      Alert.alert('Ranked match requires opponent', 'Please invite at least one opponent to create a ranked match.');
+      Alert.alert(t.newMatch.rankedRequiresOpponent, t.newMatch.rankedRequiresOpponentMsg);
       return;
     }
     setSaving(true);
@@ -487,7 +518,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
           {/* Card sits outside the backdrop — no Pressable wrapping it */}
           <View style={styles.card}>
             <View style={styles.header}>
-              <Text style={styles.title}>New Match</Text>
+              <Text style={styles.title}>{t.newMatch.title}</Text>
               <TouchableOpacity onPress={onClose} hitSlop={12}>
                 <Ionicons name="close" size={24} color={colors.textSecondary} />
               </TouchableOpacity>
@@ -537,15 +568,61 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                 )}
               </View>
 
-              <Text style={[styles.label, { marginTop: spacing.md }]}>Match type</Text>
+              <Text style={[styles.label, { marginTop: spacing.md }]}>{t.newMatch.sport}</Text>
+              <TouchableOpacity style={styles.sportDropdownBtn} onPress={() => setSportDropdownOpen(true)} activeOpacity={0.85}>
+                <Text style={styles.sportDropdownValue}>{sportLabel(sport)}</Text>
+                <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+              </TouchableOpacity>
+
+              <Modal visible={sportDropdownOpen} transparent animationType="fade">
+                <View style={styles.tpOverlay}>
+                  <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setSportDropdownOpen(false)} />
+                  <View style={[styles.tpCard, { padding: 0, maxHeight: 420 }]}>
+                    <View style={[styles.tpHeader, { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.sm }]}>
+                      <Text style={styles.tpTitle}>Select Sport</Text>
+                      <TouchableOpacity onPress={() => setSportDropdownOpen(false)} hitSlop={12}>
+                        <Ionicons name="close" size={22} color={colors.textSecondary} />
+                      </TouchableOpacity>
+                    </View>
+                    <FlatList
+                      data={orderedSports as string[]}
+                      keyExtractor={(item) => item}
+                      renderItem={({ item: s }) => {
+                        const isSelected = s === sport;
+                        return (
+                          <TouchableOpacity
+                            style={[styles.dropdownSportRow, isSelected && styles.dropdownSportRowSelected]}
+                            onPress={() => { setSport(s); setSportDropdownOpen(false); }}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={[styles.dropdownSportName, isSelected && styles.dropdownSportNameSelected]}>{sportLabel(s)}</Text>
+                            {isSelected && <Ionicons name="checkmark" size={18} color={colors.primary} />}
+                          </TouchableOpacity>
+                        );
+                      }}
+                      showsVerticalScrollIndicator={false}
+                    />
+                  </View>
+                </View>
+              </Modal>
+
+              <Text style={styles.label}>{t.newMatch.matchType}</Text>
               <View style={styles.matchTypeRow}>
-                {(['casual', 'ranked', 'practice'] as const).map((t) => {
-                  const icon = t === 'casual' ? 'people-outline' : t === 'ranked' ? 'trophy-outline' : 'barbell-outline';
-                  const sel = matchType === t;
+                {(['casual', 'ranked', 'practice'] as const).map((mt) => {
+                  const icon = mt === 'casual' ? 'people-outline' : mt === 'ranked' ? 'trophy-outline' : 'barbell-outline';
+                  const sel = matchType === mt;
+                  const rankedDisabled = mt === 'ranked' && SPORTS_NO_RANKED.includes(sport);
                   return (
-                    <TouchableOpacity key={t} style={[styles.matchTypeChip, sel && styles.matchTypeChipSel]} onPress={() => setMatchType(t)} activeOpacity={0.8}>
+                    <TouchableOpacity
+                      key={mt}
+                      style={[styles.matchTypeChip, sel && styles.matchTypeChipSel, rankedDisabled && { opacity: 0.45 }]}
+                      onPress={() => { if (!rankedDisabled) setMatchType(mt); }}
+                      activeOpacity={rankedDisabled ? 1 : 0.8}
+                    >
                       <Ionicons name={icon as any} size={14} color={sel ? colors.textOnPrimary : colors.textSecondary} />
-                      <Text style={[styles.matchTypeLbl, sel && styles.matchTypeLblSel]}>{t === 'casual' ? 'Casual' : t === 'ranked' ? 'Ranked' : 'Practice'}</Text>
+                      <Text style={[styles.matchTypeLbl, sel && styles.matchTypeLblSel]}>
+                        {mt === 'casual' ? t.matchType.casual : mt === 'ranked' ? (rankedDisabled ? t.matchType.rankedSoon : t.matchType.ranked) : t.matchType.practice}
+                      </Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -556,41 +633,21 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                 </Text>
               )} */}
 
-              <Text style={styles.label}>Visibility</Text>
+              <Text style={styles.label}>{t.newMatch.visibility}</Text>
               <View style={styles.matchTypeRow}>
                 <TouchableOpacity style={[styles.matchTypeChip, isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(true)} activeOpacity={0.8}>
                   <Ionicons name="globe-outline" size={16} color={isPublic ? colors.textOnPrimary : colors.textSecondary} />
-                  <Text style={[styles.matchTypeLbl, isPublic && styles.matchTypeLblSel]}>Public</Text>
+                  <Text style={[styles.matchTypeLbl, isPublic && styles.matchTypeLblSel]}>{t.common.public}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.matchTypeChip, !isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(false)} activeOpacity={0.8}>
                   <Ionicons name="lock-closed-outline" size={16} color={!isPublic ? colors.textOnPrimary : colors.textSecondary} />
-                  <Text style={[styles.matchTypeLbl, !isPublic && styles.matchTypeLblSel]}>Private</Text>
+                  <Text style={[styles.matchTypeLbl, !isPublic && styles.matchTypeLblSel]}>{t.common.private}</Text>
                 </TouchableOpacity>
               </View>
 
-              <Text style={styles.label}>Sport</Text>
-              {orderedSports.length <= 3 ? (
-                <View style={[styles.matchTypeRow, { marginBottom: spacing.md }]}>
-                  {orderedSports.map((s) => (
-                    <TouchableOpacity key={s} style={[styles.sportCard, s === sport && styles.sportCardSel]} onPress={() => setSport(s)} activeOpacity={0.8}>
-                      <Text style={styles.sportEmoji}>{SPORT_EMOJI[s] ?? '🏆'}</Text>
-                      <Text style={[styles.sportCardName, s === sport && styles.sportCardNameSel]}>{s}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              ) : (
-                <View style={styles.sportsRow}>
-                  {orderedSports.map((s) => (
-                    <TouchableOpacity key={s} style={[styles.sportChip, s === sport && styles.sportChipSel]} onPress={() => setSport(s)} activeOpacity={0.8}>
-                      <Text style={[styles.sportChipLbl, s === sport && styles.sportChipLblSel]}>{sportLabel(s)}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-
-              {(supports2v2 || supports3v3) && !only2v2 && matchType !== 'practice' && (
+              {matchType !== 'practice' && !only2v2 && (
                 <>
-                  <Text style={styles.label}>Format</Text>
+                  <Text style={styles.label}>{t.newMatch.format}</Text>
                   <View style={styles.matchTypeRow}>
                     {(supports3v3 ? ['2v2', '3v3'] : ['1v1', '2v2']).map((f) => (
                       <TouchableOpacity key={f} style={[styles.matchTypeChip, matchFormat === f && styles.matchTypeChipSel]} onPress={() => setMatchFormat(f as '1v1' | '2v2' | '3v3')} activeOpacity={0.8}>
@@ -601,7 +658,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                 </>
               )}
 
-              <Text style={styles.label}>When</Text>
+              <Text style={styles.label}>{t.newMatch.when}</Text>
               <View style={styles.matchTypeRow}>
                 <TouchableOpacity
                   style={[styles.matchTypeChip, startNow && styles.matchTypeChipSel]}
@@ -609,7 +666,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                   activeOpacity={0.8}
                 >
                   <Ionicons name="flash" size={16} color={startNow ? colors.textOnPrimary : colors.textSecondary} />
-                  <Text style={[styles.matchTypeLbl, startNow && styles.matchTypeLblSel]}>Start now</Text>
+                  <Text style={[styles.matchTypeLbl, startNow && styles.matchTypeLblSel]}>{t.newMatch.startNow}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.matchTypeChip, !startNow && styles.matchTypeChipSel]}
@@ -617,20 +674,20 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                   activeOpacity={0.8}
                 >
                   <Ionicons name="calendar-outline" size={16} color={!startNow ? colors.textOnPrimary : colors.textSecondary} />
-                  <Text style={[styles.matchTypeLbl, !startNow && styles.matchTypeLblSel]}>Schedule</Text>
+                  <Text style={[styles.matchTypeLbl, !startNow && styles.matchTypeLblSel]}>{t.newMatch.schedule}</Text>
                 </TouchableOpacity>
               </View>
 
               {!startNow && (
                 <>
-                  <Text style={styles.label}>Date</Text>
+                  <Text style={styles.label}>{t.newMatch.date}</Text>
                   <View style={styles.timeRow}>
                     <TouchableOpacity style={styles.timeBtn} onPress={() => setDatePicker(true)} activeOpacity={0.8}>
                       <Ionicons name="calendar-outline" size={18} color={colors.primary} />
                       <Text style={styles.timeText}>{formatScheduleDate()}</Text>
                     </TouchableOpacity>
                   </View>
-                  <Text style={styles.label}>Time</Text>
+                  <Text style={styles.label}>{t.newMatch.time}</Text>
                   <View style={styles.timeRow}>
                     <TouchableOpacity style={styles.timeBtn} onPress={() => setTimePicker(true)} activeOpacity={0.8}>
                       <Ionicons name="time-outline" size={18} color={colors.primary} />
@@ -640,7 +697,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                 </>
               )}
 
-              <Text style={styles.label}>Location</Text>
+              <Text style={styles.label}>{t.newMatch.location}</Text>
               <TextInput
                 style={[styles.input, { marginBottom: showSuggestions ? 0 : spacing.md }]}
                 placeholder="Search for a place..."
@@ -676,8 +733,8 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                 </Text>
               </TouchableOpacity>
 
-              <Text style={styles.label}>Notes</Text>
-              <TextInput style={[styles.input, styles.notesInput]} placeholder="Notes and comments..." placeholderTextColor={colors.textSecondary} value={notes} onChangeText={setNotes} multiline />
+              <Text style={styles.label}>{t.newMatch.notes}</Text>
+              <TextInput style={[styles.input, styles.notesInput]} placeholder={t.newMatch.notesPlaceholder} placeholderTextColor={colors.textSecondary} value={notes} onChangeText={setNotes} multiline />
 
               <View style={styles.summaryRow}>
                 <Ionicons name={startNow ? 'flash' : 'calendar-outline'} size={18} color={colors.textSecondary} />

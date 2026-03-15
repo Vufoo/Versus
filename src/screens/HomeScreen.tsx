@@ -27,6 +27,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ThemeColors } from '../constants/theme';
+import { useLanguage } from '../i18n/LanguageContext';
+import type { Translations } from '../i18n/translations';
 import { sportLabel, SPORT_EMOJI, SPORT_SCORING, validateGameScore } from '../constants/sports';
 import { supabase } from '../lib/supabase';
 import { sendMatchInvitePush } from '../lib/pushNotifications';
@@ -265,6 +267,7 @@ function FeedCard({
   currentUserId,
   styles,
   colors,
+  t,
   onRefresh,
   updateFeedItem,
   onRemoveItem,
@@ -277,6 +280,7 @@ function FeedCard({
   currentUserId: string | null;
   styles: ReturnType<typeof createHomeStyles>;
   colors: ThemeColors;
+  t: Translations;
   onRefresh: () => void;
   updateFeedItem: (matchId: string, updater: (item: FeedMatch) => FeedMatch) => void;
   onRemoveItem: (matchId: string) => void;
@@ -1421,7 +1425,7 @@ function FeedCard({
   const vpChange =
     myVpDelta > 0 ? `+${myVpDelta}` : myVpDelta < 0 ? `${myVpDelta}` : '0';
 
-  const statusLabel = item.status === 'pending' ? 'Pending' : item.status === 'confirmed' ? 'Confirmed' : item.status === 'in_progress' ? 'In progress' : item.status === 'paused' ? 'Paused' : item.status === 'completed' ? 'Completed' : item.status;
+  const statusLabel = t.matchStatus[item.status as keyof typeof t.matchStatus] ?? item.status;
 
   const createdDate = new Date(item.created_at);
   const dateStr = createdDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -1523,7 +1527,7 @@ function FeedCard({
                     <Avatar initials="?" size={44} colors={colors} />
                   )}
                   <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>
-                    {teammate ? getName(teammate) : 'TBD'}
+                    {teammate ? getName(teammate) : t.common.tbd}
                   </Text>
                   {isRanked && teammate && (item.status === 'pending' || item.status === 'confirmed') && (
                     <Text style={[typography.caption, { fontSize: 9, color: isReady(teammate) ? colors.primary : colors.textSecondary }]}>{isReady(teammate) ? '✓' : '—'}</Text>
@@ -1563,13 +1567,13 @@ function FeedCard({
                 </Text>
               </TouchableOpacity>
               {p1 && currentUserId && (() => {
-                if (String(p1.user_id) === String(currentUserId)) return <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>You</Text>;
-                if (p2 && String(p2.user_id) === String(currentUserId)) return <Text style={[typography.caption, { fontSize: 11, color: colors.error, fontWeight: '500' }]}>Opponent</Text>;
+                if (String(p1.user_id) === String(currentUserId)) return <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>{t.common.you}</Text>;
+                if (p2 && String(p2.user_id) === String(currentUserId)) return <Text style={[typography.caption, { fontSize: 11, color: colors.error, fontWeight: '500' }]}>{t.home.opponent}</Text>;
                 return null;
               })()}
               {isRanked && p1 && (item.status === 'pending' || item.status === 'confirmed') && (
                 <Text style={[typography.caption, { fontSize: 12, fontWeight: '500', color: isReady(p1) ? colors.primary : colors.textSecondary }]}>
-                  {isReady(p1) ? 'Ready ✓' : 'Not ready'}
+                  {isReady(p1) ? t.home.ready : t.home.notReady}
                 </Text>
               )}
             </>
@@ -1589,7 +1593,7 @@ function FeedCard({
                   borderColor: colors.primary + '40',
                 }}>
                   <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary, letterSpacing: 0.2 }}>
-                    Practiced for {formatDurationDigital(durationMs)}
+                    {t.home.practicedFor} {formatDurationDigital(durationMs)}
                   </Text>
                 </View>
               ) : (isInProgress || isPaused) ? (
@@ -1597,15 +1601,15 @@ function FeedCard({
                   {formatDurationDigital(durationMs)}
                 </Text>
               ) : null}
-              <Text style={[styles.vsText, { fontSize: 9 }]}>{isCompleted ? (p2 ? 'PRACTICED WITH' : 'SOLO') : (p2 ? 'PRACTICE WITH' : 'SOLO')}</Text>
+              <Text style={[styles.vsText, { fontSize: 9 }]}>{isCompleted ? (p2 ? t.home.practicedWith : t.home.practiceSolo) : (p2 ? t.home.practiceWith : t.home.practiceSolo)}</Text>
             </View>
           ) : ((isCompleted || isInProgress || isPaused) && hasScore) || (isCompleted && !hasScore) ? (
             <View style={{ alignItems: 'center' }}>
               {isCompleted && participants.every((p) => p?.result === 'draw') ? (
                 <View style={{ alignItems: 'center' }}>
-                  <Text style={[styles.scoreText, { color: colors.textSecondary }]}>Draw</Text>
+                  <Text style={[styles.scoreText, { color: colors.textSecondary }]}>{t.common.draw}</Text>
                   {hasScore && displayScoreMain ? <Text style={[typography.caption, { fontSize: 12, color: colors.textSecondary, marginTop: 2 }]}>{displayScoreMain}</Text> : null}
-                  <Text style={styles.vsText}>VS</Text>
+                  <Text style={styles.vsText}>{t.common.vs}</Text>
                   {durationMs > 0 && (
                     <Text style={[typography.caption, { fontSize: 13, fontWeight: '600', color: '#1E3A8A', marginTop: spacing.xs }]}>
                       {formatDurationDigital(durationMs)}
@@ -1618,7 +1622,7 @@ function FeedCard({
                     const firstWinner = participants.find((p) => p?.result === 'win');
                     if (!firstWinner) return null;
                     const winLabel = is2v2
-                      ? (firstWinner.role === 'challenger' ? 'Team 1 Wins!' : 'Team 2 Wins!')
+                      ? (firstWinner.role === 'challenger' ? t.home.team1Wins : t.home.team2Wins)
                       : `${getName(firstWinner)} Wins!`;
                     return (
                       <Text style={{ fontSize: 15, fontWeight: '800', color: colors.primary, letterSpacing: 0.3, marginBottom: hasScore ? 4 : 2 }}>
@@ -1632,7 +1636,7 @@ function FeedCard({
                       {displayScoreSub}
                     </Text>
                   )}
-                  <Text style={styles.vsText}>VS</Text>
+                  <Text style={styles.vsText}>{t.common.vs}</Text>
                   {durationMs > 0 && (
                     <Text style={[typography.caption, { fontSize: 13, fontWeight: '600', color: '#1E3A8A', marginTop: spacing.xs }]}>
                       {formatDurationDigital(durationMs)}
@@ -1643,14 +1647,14 @@ function FeedCard({
             </View>
           ) : !isRanked && !p2 && (item.status === 'pending' || item.status === 'confirmed') ? (
             <View style={{ alignItems: 'center', gap: 2 }}>
-              <Text style={styles.vsText}>VS</Text>
+              <Text style={styles.vsText}>{t.common.vs}</Text>
               <Text style={[typography.caption, { fontSize: 11, color: colors.textSecondary, textAlign: 'center' }]}>
                 Waiting for{'\n'}opponent to accept
               </Text>
             </View>
           ) : isRanked && (item.status === 'pending' || item.status === 'confirmed') ? (
             <View style={{ alignItems: 'center', gap: 2 }}>
-              <Text style={styles.vsText}>VS</Text>
+              <Text style={styles.vsText}>{t.common.vs}</Text>
               <Text style={[typography.caption, { fontSize: 11, color: colors.textSecondary, fontWeight: '600' }]}>Ready {readyCount}/{requiredParticipants}</Text>
               {participants.filter((p) => isReady(p)).map((p) => (
                 <Text key={p.user_id} style={[typography.caption, { fontSize: 10, color: colors.primary }]}>{getName(p)} ✓</Text>
@@ -1689,7 +1693,7 @@ function FeedCard({
           ) : (
             <View style={{ alignItems: 'center' }}>
               <Text style={[styles.scoreText, { fontSize: 12, color: colors.textSecondary }]}>{statusLabel}</Text>
-              <Text style={styles.vsText}>VS</Text>
+              <Text style={styles.vsText}>{t.common.vs}</Text>
               {(isInProgress || isPaused) && durationMs > 0 && (
                 <Text
                   style={[
@@ -1790,7 +1794,7 @@ function FeedCard({
                     <Avatar initials="?" size={44} colors={colors} />
                   )}
                   <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>
-                    {p2 ? getName(p2) : 'TBD'}
+                    {p2 ? getName(p2) : t.common.tbd}
                   </Text>
                   {isRanked && p2 && (item.status === 'pending' || item.status === 'confirmed') && (
                     <Text style={[typography.caption, { fontSize: 9, color: isReady(p2) ? colors.primary : colors.textSecondary }]}>{isReady(p2) ? '✓' : '—'}</Text>
@@ -1815,7 +1819,7 @@ function FeedCard({
                     <Avatar initials="?" size={44} colors={colors} />
                   )}
                   <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>
-                    {opponent2 ? getName(opponent2) : 'TBD'}
+                    {opponent2 ? getName(opponent2) : t.common.tbd}
                   </Text>
                   {isRanked && opponent2 && (item.status === 'pending' || item.status === 'confirmed') && (
                     <Text style={[typography.caption, { fontSize: 9, color: isReady(opponent2) ? colors.primary : colors.textSecondary }]}>{isReady(opponent2) ? '✓' : '—'}</Text>
@@ -1854,13 +1858,13 @@ function FeedCard({
                 </Text>
               </TouchableOpacity>
               {p2 && currentUserId && (() => {
-                if (String(p2.user_id) === String(currentUserId)) return <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>You</Text>;
-                if (p1 && String(p1.user_id) === String(currentUserId)) return <Text style={[typography.caption, { fontSize: 11, color: colors.error, fontWeight: '500' }]}>Opponent</Text>;
+                if (String(p2.user_id) === String(currentUserId)) return <Text style={[typography.caption, { fontSize: 11, color: colors.primary, fontWeight: '500' }]}>{t.common.you}</Text>;
+                if (p1 && String(p1.user_id) === String(currentUserId)) return <Text style={[typography.caption, { fontSize: 11, color: colors.error, fontWeight: '500' }]}>{t.home.opponent}</Text>;
                 return null;
               })()}
               {isRanked && p2 && (item.status === 'pending' || item.status === 'confirmed') && (
                 <Text style={[typography.caption, { fontSize: 12, fontWeight: '500', color: isReady(p2) ? colors.primary : colors.textSecondary }]}>
-                  {isReady(p2) ? 'Ready ✓' : 'Not ready'}
+                  {isReady(p2) ? t.home.ready : t.home.notReady}
                 </Text>
               )}
             </>
@@ -1879,12 +1883,12 @@ function FeedCard({
                       <Ionicons name="person-add" size={12} color={colors.textOnPrimary} />
                     </View>
                   </View>
-                  <Text style={styles.playerName}>Invite</Text>
+                  <Text style={styles.playerName}>{t.common.invite}</Text>
                 </TouchableOpacity>
               ) : (
                 <>
                   <Avatar initials="?" size={46} colors={colors} />
-                  <Text style={styles.playerName}>TBD</Text>
+                  <Text style={styles.playerName}>{t.common.tbd}</Text>
                 </>
               )}
             </>
@@ -1897,12 +1901,12 @@ function FeedCard({
           {item.match_type && (
             <View style={styles.detailItem}>
               <Ionicons name="trophy-outline" size={13} color={colors.textSecondary} />
-              <Text style={styles.detailText}>{(item.match_type || 'casual').charAt(0).toUpperCase() + (item.match_type || 'casual').slice(1)}</Text>
+              <Text style={styles.detailText}>{t.matchType[(item.match_type || 'casual') as keyof typeof t.matchType] ?? item.match_type}</Text>
             </View>
           )}
           <View style={styles.detailItem}>
             <Ionicons name={item.is_public !== false ? 'globe-outline' : 'lock-closed-outline'} size={13} color={colors.textSecondary} />
-            <Text style={styles.detailText}>{item.is_public !== false ? 'Public' : 'Private'}</Text>
+            <Text style={styles.detailText}>{item.is_public !== false ? t.common.public : t.common.private}</Text>
           </View>
           <View style={styles.detailItem}>
             <Ionicons name="people-outline" size={13} color={colors.textSecondary} />
@@ -1928,7 +1932,7 @@ function FeedCard({
                 activeOpacity={0.8}
               >
                 <Ionicons name="play" size={12} color={colors.primary} />
-                <Text style={styles.startButtonText}>{item.match_type === 'practice' ? 'Start Practice' : 'Start Match'}</Text>
+                <Text style={styles.startButtonText}>{item.match_type === 'practice' ? t.home.startPractice : t.home.startMatch}</Text>
               </TouchableOpacity>
             )}
             {item.status === 'in_progress' && (
@@ -1940,7 +1944,7 @@ function FeedCard({
                   activeOpacity={0.8}
                 >
                   <Ionicons name="pause" size={12} color={colors.error} />
-                  <Text style={styles.pauseButtonText}>Pause</Text>
+                  <Text style={styles.pauseButtonText}>{t.home.pause}</Text>
                 </TouchableOpacity>
                 {isPractice ? (
                   <TouchableOpacity
@@ -1950,7 +1954,7 @@ function FeedCard({
                     activeOpacity={0.8}
                   >
                     <Ionicons name="flag" size={12} color={colors.primary} />
-                    <Text style={styles.startButtonText}>Finish</Text>
+                    <Text style={styles.startButtonText}>{t.home.finish}</Text>
                   </TouchableOpacity>
                 ) : isRanked && (() => {
                   const myFinishRequested = myParticipant?.finish_requested === true;
@@ -1962,7 +1966,7 @@ function FeedCard({
                     return (
                       <View style={{ alignItems: 'center', gap: 2 }}>
                         <Text style={[typography.caption, { fontSize: 10, color: colors.textSecondary }]}>
-                          Finish {finishCount}/2 confirmed
+                          {t.home.finish} {finishCount}/2 {t.home.finishProgress}
                         </Text>
                         <TouchableOpacity
                           style={[styles.deleteButton, startStopLoading && { opacity: 0.6 }]}
@@ -1971,7 +1975,7 @@ function FeedCard({
                           activeOpacity={0.8}
                         >
                           <Ionicons name="close-circle" size={12} color={colors.error} />
-                          <Text style={styles.deleteButtonText}>Cancel finish</Text>
+                          <Text style={styles.deleteButtonText}>{t.home.cancelFinish}</Text>
                         </TouchableOpacity>
                       </View>
                     );
@@ -1985,7 +1989,7 @@ function FeedCard({
                     >
                       <Ionicons name="flag" size={12} color={colors.primary} />
                       <Text style={styles.startButtonText}>
-                        {finishCount > 0 ? `Finish (${finishCount}/2)` : 'Finish'}
+                        {finishCount > 0 ? `${t.home.finish} (${finishCount}/2)` : t.home.finish}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -2001,7 +2005,7 @@ function FeedCard({
                   activeOpacity={0.8}
                 >
                   <Ionicons name="play" size={12} color={colors.success} />
-                  <Text style={styles.resumeButtonText}>Resume</Text>
+                  <Text style={styles.resumeButtonText}>{t.home.resume}</Text>
                 </TouchableOpacity>
                 {isRanked && !isPractice ? (() => {
                   const myFinishRequested = myParticipant?.finish_requested === true;
@@ -2013,7 +2017,7 @@ function FeedCard({
                     return (
                       <View style={{ alignItems: 'center', gap: 2 }}>
                         <Text style={[typography.caption, { fontSize: 10, color: colors.textSecondary }]}>
-                          Finish {finishCount}/2 confirmed
+                          {t.home.finish} {finishCount}/2 {t.home.finishProgress}
                         </Text>
                         <TouchableOpacity
                           style={[styles.deleteButton, startStopLoading && { opacity: 0.6 }]}
@@ -2022,7 +2026,7 @@ function FeedCard({
                           activeOpacity={0.8}
                         >
                           <Ionicons name="close-circle" size={12} color={colors.error} />
-                          <Text style={styles.deleteButtonText}>Cancel finish</Text>
+                          <Text style={styles.deleteButtonText}>{t.home.cancelFinish}</Text>
                         </TouchableOpacity>
                       </View>
                     );
@@ -2036,7 +2040,7 @@ function FeedCard({
                     >
                       <Ionicons name="flag" size={12} color={colors.primary} />
                       <Text style={styles.startButtonText}>
-                        {finishCount > 0 ? `Finish (${finishCount}/2)` : 'Finish'}
+                        {finishCount > 0 ? `${t.home.finish} (${finishCount}/2)` : t.home.finish}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -2048,7 +2052,7 @@ function FeedCard({
                     activeOpacity={0.8}
                   >
                     <Ionicons name="flag" size={12} color={colors.primary} />
-                    <Text style={styles.startButtonText}>Finish</Text>
+                    <Text style={styles.startButtonText}>{t.home.finish}</Text>
                   </TouchableOpacity>
                 )}
               </>
@@ -2062,7 +2066,7 @@ function FeedCard({
                 return (
                   <View style={{ alignItems: 'center', gap: 2 }}>
                     <Text style={[typography.caption, { fontSize: 10, color: colors.textSecondary }]}>
-                      Delete {deleteCount}/{totalParticipants} confirmed
+                      {t.common.delete} {deleteCount}/{totalParticipants} {t.home.finishProgress}
                     </Text>
                     {participants.filter((p) => p.delete_requested === true).map((p) => (
                       <Text key={p.user_id} style={[typography.caption, { fontSize: 10, color: colors.error }]}>{getName(p)} ✓</Text>
@@ -2074,7 +2078,7 @@ function FeedCard({
                       activeOpacity={0.8}
                     >
                       <Ionicons name="close-circle" size={12} color={colors.error} />
-                      <Text style={styles.deleteButtonText}>Cancel delete</Text>
+                      <Text style={styles.deleteButtonText}>{t.home.cancelDelete}</Text>
                     </TouchableOpacity>
                   </View>
                 );
@@ -2083,8 +2087,8 @@ function FeedCard({
               const isPendingState = item.status === 'pending' || item.status === 'confirmed';
               const cancelBtnIcon = isPendingState ? 'close-outline' : 'trash-outline';
               const cancelBtnLabel = isPendingState
-                ? (isRanked && deleteCount > 0 ? `Cancel (${deleteCount}/${totalParticipants})` : 'Cancel')
-                : (isRanked && deleteCount > 0 ? `Delete (${deleteCount}/${totalParticipants})` : 'Delete');
+                ? (isRanked && deleteCount > 0 ? `${t.common.cancel} (${deleteCount}/${totalParticipants})` : t.common.cancel)
+                : (isRanked && deleteCount > 0 ? `${t.common.delete} (${deleteCount}/${totalParticipants})` : t.common.delete);
 
               return (
                 <TouchableOpacity
@@ -2106,7 +2110,7 @@ function FeedCard({
                 activeOpacity={0.8}
               >
                 <Ionicons name="exit-outline" size={12} color={colors.error} />
-                <Text style={styles.deleteButtonText}>Leave</Text>
+                <Text style={styles.deleteButtonText}>{t.home.leave}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -2114,9 +2118,9 @@ function FeedCard({
             <View style={styles.gamesEditSection}>
                 {/* Player name header — aligns above each input column */}
                 <View style={styles.scoreHeaderRow}>
-                  <Text style={styles.scoreHeaderName} numberOfLines={1}>{p1 ? getName(p1) : 'Challenger'}</Text>
+                  <Text style={styles.scoreHeaderName} numberOfLines={1}>{p1 ? getName(p1) : t.home.challenger}</Text>
                   <View style={{ width: 20 }} />
-                  <Text style={styles.scoreHeaderName} numberOfLines={1}>{p2 ? getName(p2) : 'Opponent'}</Text>
+                  <Text style={styles.scoreHeaderName} numberOfLines={1}>{p2 ? getName(p2) : t.home.opponent}</Text>
                 </View>
                 {localGames.map((game, idx) => (
                   <View key={idx} style={styles.gameRow}>
@@ -2276,7 +2280,7 @@ function FeedCard({
               </Text>
             </TouchableOpacity>
           ) : (
-            <Text style={[styles.actionLabel, liked && { color: colors.primary, fontWeight: '600' }]}>Like</Text>
+            <Text style={[styles.actionLabel, liked && { color: colors.primary, fontWeight: '600' }]}>{t.home.like}</Text>
           )}
         </TouchableOpacity>
         <TouchableOpacity
@@ -2285,11 +2289,11 @@ function FeedCard({
           activeOpacity={0.8}
         >
           <Ionicons name="chatbubble-outline" size={17} color={colors.textSecondary} />
-          <Text style={styles.actionLabel}>{commentsCount > 0 ? `${commentsCount} ` : ''}{commentsCount === 1 ? 'Comment' : 'Comments'}</Text>
+          <Text style={styles.actionLabel}>{commentsCount > 0 ? `${commentsCount} ` : ''}{commentsCount === 1 ? t.home.comment : t.home.comments}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionBtn} onPress={handleShare} activeOpacity={0.8}>
           <Ionicons name="share-outline" size={17} color={colors.textSecondary} />
-          <Text style={styles.actionLabel}>Share</Text>
+          <Text style={styles.actionLabel}>{t.common.share}</Text>
         </TouchableOpacity>
       </View>
 
@@ -2344,7 +2348,7 @@ function FeedCard({
             <View style={styles.commentInputRow}>
               <TextInput
                 style={styles.commentInput}
-                placeholder="Add a comment..."
+                placeholder={t.home.addComment}
                 placeholderTextColor={colors.textSecondary}
                 value={commentBody}
                 onChangeText={setCommentBody}
@@ -2434,9 +2438,9 @@ function FeedCard({
                       {teammate && <Avatar initials={getInitials(teammate)} avatarUrl={partner2AvatarUrl ?? teammate.avatar_url} size={32} colors={colors} isWinner={winnerSelection === p1.user_id} />}
                     </View>
                     <Text style={[styles.winnerPickerName, winnerSelection === p1.user_id && { color: colors.primary }]}>
-                      {currentUserId && team1.some((p) => p.user_id === currentUserId) ? 'Your team' : 'Team 1'}
+                      {currentUserId && team1.some((p) => p.user_id === currentUserId) ? t.home.yourTeam : t.home.challengers}
                     </Text>
-                    <Text style={styles.winnerPickerRole}>Challengers</Text>
+                    <Text style={styles.winnerPickerRole}>{t.home.challengers}</Text>
                   </TouchableOpacity>
                 )}
                 {p2 && (
@@ -2450,9 +2454,9 @@ function FeedCard({
                       {opponent2 && <Avatar initials={getInitials(opponent2)} avatarUrl={partner3AvatarUrl ?? opponent2.avatar_url} size={32} colors={colors} isWinner={winnerSelection === p2.user_id} />}
                     </View>
                     <Text style={[styles.winnerPickerName, winnerSelection === p2.user_id && { color: colors.primary }]}>
-                      {currentUserId && team2.some((p) => p.user_id === currentUserId) ? 'Your team' : 'Other team'}
+                      {currentUserId && team2.some((p) => p.user_id === currentUserId) ? t.home.yourTeam : t.home.opponentTeam}
                     </Text>
-                    <Text style={styles.winnerPickerRole}>Opponents</Text>
+                    <Text style={styles.winnerPickerRole}>{t.home.opponents}</Text>
                   </TouchableOpacity>
                 )}
               </>
@@ -2475,7 +2479,7 @@ function FeedCard({
                       )}
                     </View>
                     <Text style={[styles.winnerPickerName, winnerSelection === p1.user_id && { color: colors.primary }]}>{getName(p1)}</Text>
-                    <Text style={styles.winnerPickerRole}>Challenger</Text>
+                    <Text style={styles.winnerPickerRole}>{t.home.challenger}</Text>
                   </TouchableOpacity>
                 )}
                 {p2 && (
@@ -2494,7 +2498,7 @@ function FeedCard({
                       )}
                     </View>
                     <Text style={[styles.winnerPickerName, winnerSelection === p2.user_id && { color: colors.primary }]}>{getName(p2)}</Text>
-                    <Text style={styles.winnerPickerRole}>Opponent</Text>
+                    <Text style={styles.winnerPickerRole}>{t.home.opponent}</Text>
                   </TouchableOpacity>
                 )}
               </>
@@ -2507,15 +2511,15 @@ function FeedCard({
               <View style={[styles.winnerPickerAvatarWrap, styles.winnerPickerDrawWrap, winnerSelection === null && { borderColor: colors.primary }]}>
                 <Ionicons name="remove-circle-outline" size={36} color={winnerSelection === null ? colors.primary : colors.textSecondary} />
               </View>
-              <Text style={[styles.winnerPickerName, winnerSelection === null && { color: colors.primary }]}>Draw</Text>
-              <Text style={styles.winnerPickerRole}>Tie</Text>
+              <Text style={[styles.winnerPickerName, winnerSelection === null && { color: colors.primary }]}>{t.common.draw}</Text>
+              <Text style={styles.winnerPickerRole}>{t.home.tie}</Text>
             </TouchableOpacity>
           </View>
           <TouchableOpacity style={styles.winnerPickerConfirm} onPress={confirmWinner} activeOpacity={0.8}>
-            <Text style={styles.winnerPickerConfirmText}>Confirm</Text>
+            <Text style={styles.winnerPickerConfirmText}>{t.common.confirm}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.winnerPickerCancel} onPress={() => setWinnerPickerVisible(false)}>
-            <Text style={[styles.winnerPickerCancelText, { color: colors.textSecondary }]}>Cancel</Text>
+            <Text style={[styles.winnerPickerCancelText, { color: colors.textSecondary }]}>{t.common.cancel}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -3279,6 +3283,7 @@ function timeAgo(dateStr: string): string {
 
 export default function HomeScreen() {
   const { colors, mode: themeMode } = useTheme();
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const route = useRoute<RouteProp<TabParamList, 'Home'>>();
@@ -4107,7 +4112,7 @@ export default function HomeScreen() {
             color={feedMode === 'my' ? colors.textOnPrimary : colors.textSecondary}
           />
           <Text style={[styles.switcherLabel, feedMode === 'my' && styles.switcherLabelActive]}>
-            My feed
+            {t.home.myFeed}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -4121,7 +4126,7 @@ export default function HomeScreen() {
             color={feedMode === 'public' ? colors.textOnPrimary : colors.textSecondary}
           />
           <Text style={[styles.switcherLabel, feedMode === 'public' && styles.switcherLabelActive]}>
-            Public
+            {t.home.publicLabel}
           </Text>
         </TouchableOpacity>
       </View>
@@ -4155,9 +4160,7 @@ export default function HomeScreen() {
           }
           ListEmptyComponent={
             <Text style={styles.emptyFeed}>
-              {feedMode === 'my'
-                ? 'No matches yet. Create one from the Plan tab!'
-                : 'No public matches yet.'}
+              {feedMode === 'my' ? t.home.noMatchesCreate : t.home.noPublicMatchesYet}
             </Text>
           }
           renderItem={({ item }) => (
@@ -4166,6 +4169,7 @@ export default function HomeScreen() {
               currentUserId={currentUserId}
               styles={styles}
               colors={colors}
+              t={t}
               onRefresh={loadFeed}
               updateFeedItem={updateFeedItem}
               onRemoveItem={removeFeedItem}
@@ -4210,7 +4214,7 @@ export default function HomeScreen() {
           <Pressable style={StyleSheet.absoluteFillObject} onPress={() => { setInviteOpponentMatch(null); setSelectedInviteUser(null); }} />
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{inviteSlot === 'teammate' ? 'Invite teammate' : 'Invite opponent'}</Text>
+              <Text style={styles.modalTitle}>{inviteSlot === 'teammate' ? t.home.inviteTeammate : t.home.inviteOpponent}</Text>
               <TouchableOpacity onPress={() => { setInviteOpponentMatch(null); setSelectedInviteUser(null); }} hitSlop={12}>
                 <Ionicons name="close" size={24} color={colors.textSecondary} />
               </TouchableOpacity>
@@ -4253,7 +4257,7 @@ export default function HomeScreen() {
                   }}
                   activeOpacity={0.85}
                 >
-                  <Text style={{ color: colors.textOnPrimary, fontWeight: '600', fontSize: 13 }}>Send Invite</Text>
+                  <Text style={{ color: colors.textOnPrimary, fontWeight: '600', fontSize: 13 }}>{t.home.sendInvite}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -4276,7 +4280,7 @@ export default function HomeScreen() {
             onStartShouldSetResponder={() => true}
           >
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Notifications</Text>
+              <Text style={styles.modalTitle}>{t.home.notifications}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
                 {notifications.some((n) => n.read) && currentUserId && (
                   <TouchableOpacity
@@ -4288,7 +4292,7 @@ export default function HomeScreen() {
                     }}
                     hitSlop={8}
                   >
-                    <Text style={{ ...typography.label, color: colors.primary, fontSize: 14 }}>Clear read</Text>
+                    <Text style={{ ...typography.label, color: colors.primary, fontSize: 14 }}>{t.home.clearRead}</Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity onPress={closeNotifications} hitSlop={12}>
@@ -4298,7 +4302,7 @@ export default function HomeScreen() {
             </View>
             <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled>
               {notifications.length === 0 && (
-                <Text style={styles.emptyText}>No notifications yet.</Text>
+                <Text style={styles.emptyText}>{t.home.noNotifications}</Text>
               )}
               {notifications.map((n) => {
                 const icon = notifIcon(n.type);
@@ -4324,7 +4328,7 @@ export default function HomeScreen() {
                             onPress={() => handleAcceptInvite(n)}
                           >
                             <Ionicons name="checkmark" size={16} color={colors.textOnPrimary} />
-                            <Text style={styles.notifAcceptText}>Accept</Text>
+                            <Text style={styles.notifAcceptText}>{t.common.accept}</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={styles.notifDecline}
@@ -4332,7 +4336,7 @@ export default function HomeScreen() {
                             onPress={() => handleDeclineInvite(n)}
                           >
                             <Ionicons name="close" size={16} color={colors.error} />
-                            <Text style={styles.notifDeclineText}>Decline</Text>
+                            <Text style={styles.notifDeclineText}>{t.common.decline}</Text>
                           </TouchableOpacity>
                         </View>
                       )}
@@ -4344,7 +4348,7 @@ export default function HomeScreen() {
                             onPress={() => handleAcceptFollow(n)}
                           >
                             <Ionicons name="checkmark" size={16} color={colors.textOnPrimary} />
-                            <Text style={styles.notifAcceptText}>Accept</Text>
+                            <Text style={styles.notifAcceptText}>{t.common.accept}</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={styles.notifDecline}
@@ -4352,7 +4356,7 @@ export default function HomeScreen() {
                             onPress={() => handleIgnoreFollow(n)}
                           >
                             <Ionicons name="close" size={16} color={colors.error} />
-                            <Text style={styles.notifDeclineText}>Ignore</Text>
+                            <Text style={styles.notifDeclineText}>{t.common.ignore}</Text>
                           </TouchableOpacity>
                         </View>
                       )}
@@ -4364,7 +4368,7 @@ export default function HomeScreen() {
                             onPress={() => handleAcceptJoinRequest(n)}
                           >
                             <Ionicons name="checkmark" size={16} color={colors.textOnPrimary} />
-                            <Text style={styles.notifAcceptText}>Accept</Text>
+                            <Text style={styles.notifAcceptText}>{t.common.accept}</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={styles.notifDecline}
@@ -4372,7 +4376,7 @@ export default function HomeScreen() {
                             onPress={() => handleDenyJoinRequest(n)}
                           >
                             <Ionicons name="close" size={16} color={colors.error} />
-                            <Text style={styles.notifDeclineText}>Deny</Text>
+                            <Text style={styles.notifDeclineText}>{t.common.deny}</Text>
                           </TouchableOpacity>
                         </View>
                       )}
@@ -4383,7 +4387,7 @@ export default function HomeScreen() {
                             activeOpacity={0.8}
                             onPress={() => handleFollowBack(n)}
                           >
-                            <Text style={styles.notifAcceptText}>Follow back</Text>
+                            <Text style={styles.notifAcceptText}>{t.home.followBack}</Text>
                           </TouchableOpacity>
                         </View>
                       )}
@@ -4406,13 +4410,13 @@ export default function HomeScreen() {
           />
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Choose your team</Text>
+              <Text style={styles.modalTitle}>{t.home.chooseYourTeam}</Text>
               <TouchableOpacity onPress={() => setTeamPickInvite(null)} hitSlop={12}>
                 <Ionicons name="close" size={24} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
             <Text style={[typography.caption, { color: colors.textSecondary, marginBottom: spacing.md }]}>
-              Which team would you like to join for this 2v2 match?
+              {t.home.teamPickSubtitle}
             </Text>
             <View style={{ flexDirection: 'row', gap: spacing.md }}>
               <TouchableOpacity
@@ -4425,7 +4429,7 @@ export default function HomeScreen() {
                   handleAcceptInvite(notif, 'challenger');
                 }}
               >
-                <Text style={styles.notifAcceptText}>Creator's team</Text>
+                <Text style={styles.notifAcceptText}>{t.home.creatorsTeam}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.notifDecline, { flex: 1, borderWidth: 0 }]}
@@ -4437,7 +4441,7 @@ export default function HomeScreen() {
                   handleAcceptInvite(notif, 'opponent');
                 }}
               >
-                <Text style={[styles.notifDeclineText, { color: colors.text }]}>Other team</Text>
+                <Text style={[styles.notifDeclineText, { color: colors.text }]}>{t.home.otherTeam}</Text>
               </TouchableOpacity>
             </View>
           </View>

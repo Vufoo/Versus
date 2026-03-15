@@ -1,4 +1,5 @@
 import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 import {
   View,
   Text,
@@ -312,6 +313,7 @@ function createStyles(colors: ThemeColors) {
 
 export default function MapScreen() {
   const { colors } = useTheme();
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const isFocused = useIsFocused();
@@ -323,7 +325,6 @@ export default function MapScreen() {
   const [nearbyMatches, setNearbyMatches] = useState<NearbyMatch[]>([]);
   const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
   const [nearbyPlace, setNearbyPlace] = useState<string | null>(null);
-  const [showMatches, setShowMatches] = useState(true);
   const [requestedMatchIds, setRequestedMatchIds] = useState<Set<string>>(new Set());
   const [deniedMatchIds, setDeniedMatchIds] = useState<Set<string>>(new Set());
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -753,7 +754,7 @@ export default function MapScreen() {
     >
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>Map</Text>
+          <Text style={styles.title}>{t.map.title}</Text>
           <Text style={styles.subtitle}>
             Your location · Nearby players and open matches
           </Text>
@@ -864,7 +865,7 @@ export default function MapScreen() {
             );
           })}
 
-          {showMatches && nearbyMatches.map((m) => {
+          {nearbyMatches.map((m) => {
             const maxSlots = m.match_format === '2v2' ? 4 : 2;
             const isFull = m.participant_count >= maxSlots;
             const canJoin = m.is_public && !m.isCurrentUserParticipant && m.status !== 'completed';
@@ -983,16 +984,6 @@ export default function MapScreen() {
         </MapView>
 
         <View style={styles.filterRow}>
-          <View style={styles.filterChipRow}>
-            <TouchableOpacity
-              style={[styles.filterChip, showMatches && styles.filterChipActive]}
-              onPress={() => setShowMatches((p) => !p)}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="trophy" size={14} color={showMatches ? colors.textOnPrimary : colors.textSecondary} />
-              <Text style={[styles.filterChipText, showMatches && styles.filterChipTextActive]}>Matches</Text>
-            </TouchableOpacity>
-          </View>
           <View style={styles.filterChipRow}>
             {([2, 5, 10, 20] as const).map((mi) => (
               <TouchableOpacity

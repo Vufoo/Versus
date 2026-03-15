@@ -14,6 +14,7 @@ import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
+import { useLanguage } from '../i18n/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { sportLabel } from '../constants/sports';
 import NewMatchModal from '../components/NewMatchModal';
@@ -249,6 +250,7 @@ function createPlanStyles(colors: ThemeColors) {
 
 export default function PlanMatchScreen() {
   const { colors } = useTheme();
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const isFocused = useIsFocused();
@@ -368,10 +370,10 @@ export default function PlanMatchScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.lg }]}>
       <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>Plan</Text>
+        <Text style={styles.pageTitle}>{t.plan.title}</Text>
         {selectedDayId !== todayStr && (
           <TouchableOpacity style={styles.todayBtn} onPress={goToToday} activeOpacity={0.8}>
-            <Text style={styles.todayBtnText}>Today</Text>
+            <Text style={styles.todayBtnText}>{t.common.today}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -449,12 +451,12 @@ export default function PlanMatchScreen() {
 
       <View style={styles.sectionHeader}>
         <View>
-          <Text style={styles.sectionTitle}>Matches</Text>
+          <Text style={styles.sectionTitle}>{t.plan.matches}</Text>
           <Text style={styles.sectionDate}>{selectedDateLabel}</Text>
         </View>
         <TouchableOpacity style={styles.createBtn} onPress={() => setModalVisible(true)} activeOpacity={0.85}>
           <Ionicons name="add" size={18} color={colors.textOnPrimary} />
-          <Text style={styles.createBtnText}>New Match</Text>
+          <Text style={styles.createBtnText}>{t.plan.newMatch}</Text>
         </TouchableOpacity>
       </View>
 

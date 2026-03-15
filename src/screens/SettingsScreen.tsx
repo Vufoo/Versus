@@ -17,6 +17,8 @@ import { useTheme } from '../theme/ThemeProvider';
 import type { ThemeColors } from '../constants/theme';
 import { supabase } from '../lib/supabase';
 import { useMembership } from '../hooks/useMembership';
+import { useLanguage } from '../i18n/LanguageContext';
+import { LANGUAGE_CONFIG } from '../i18n/translations';
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
@@ -131,8 +133,12 @@ function createStyles(colors: ThemeColors) {
   });
 }
 
+// Module-level cache — survives tab switches so email/username show instantly
+let _settingsCache: { email: string | null; username: string | null } | null = null;
+
 export default function SettingsScreen() {
   const { colors, mode, setMode, setSignedIn } = useTheme();
+  const { t, language, setLanguage } = useLanguage();
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { hasMembership, isAdmin } = useMembership();
@@ -140,18 +146,28 @@ export default function SettingsScreen() {
   const [emailNotifs, setEmailNotifs] = useState(true);
   const [pushNotifs, setPushNotifs] = useState(true);
   const [pushLoading, setPushLoading] = useState(false);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [profile, setProfile] = useState<{ username: string | null } | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(_settingsCache?.email ?? null);
+  const [profile, setProfile] = useState<{ username: string | null } | null>(
+    _settingsCache ? { username: _settingsCache.username } : null
+  );
   const [locationVisibility, setLocationVisibility] = useState<'public' | 'private'>('private');
   const [profileVisibility, setProfileVisibility] = useState<'public' | 'private'>('public');
 
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      setUserEmail(user.email ?? null);
-      const { data: p } = await supabase.from('profiles').select('username, location_visibility, profile_visibility, push_notifications_enabled').eq('user_id', user.id).maybeSingle();
-      setProfile(p ? { username: p.username } : null);
+      // getSession() reads from local storage — no network call, instant
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
+      const email = session?.user?.email ?? null;
+      if (!userId) return;
+      setUserEmail(email);
+
+      const { data: p } = await supabase.from('profiles').select('username, location_visibility, profile_visibility, push_notifications_enabled').eq('user_id', userId).maybeSingle();
+      const username = p?.username ?? null;
+
+      _settingsCache = { email, username };
+
+      setProfile({ username });
       setLocationVisibility((p as any)?.location_visibility === 'public' ? 'public' : 'private');
       setProfileVisibility((p as any)?.profile_visibility === 'private' ? 'private' : 'public');
       setPushNotifs((p as any)?.push_notifications_enabled !== false);
@@ -207,11 +223,11 @@ export default function SettingsScreen() {
       navigation.goBack();
     };
     if (Platform.OS === 'web') {
-      if (window.confirm('Are you sure you want to sign out?')) doSignOut();
+      if (window.confirm(t.settings.signOutConfirm)) doSignOut();
     } else {
-      Alert.alert('Sign out', 'Are you sure you want to sign out?', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Sign out', style: 'destructive', onPress: doSignOut },
+      Alert.alert(t.common.signOut, t.settings.signOutConfirm, [
+        { text: t.common.cancel, style: 'cancel' },
+        { text: t.common.signOut, style: 'destructive', onPress: doSignOut },
       ]);
     }
   };
@@ -222,13 +238,13 @@ export default function SettingsScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.title}>Settings</Text>
+        <Text style={styles.title}>{t.settings.title}</Text>
         <View style={{ width: 24 }} />
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingTop: spacing.lg }}>
         <View style={styles.settingSection}>
-          <Text style={styles.settingSectionTitle}>Membership</Text>
+          <Text style={styles.settingSectionTitle}>{t.settings.membership}</Text>
           <View style={styles.membershipCard}>
             {(hasMembership || isAdmin) && (
               <View style={styles.membershipBadge}>
@@ -236,33 +252,31 @@ export default function SettingsScreen() {
               </View>
             )}
             <Text style={styles.membershipTitle}>
-              {hasMembership ? 'You have Versus membership' : 'Get Versus membership'}
+              {hasMembership ? t.settings.hasMembership : t.settings.getMembership}
             </Text>
             <Text style={styles.membershipSub}>
-              {hasMembership
-                ? 'Unlock Find ranked match and Find casual match. Enjoy full access to all features.'
-                : 'Upgrade to unlock Find ranked match and Find casual match. Get matched with opponents and practice partners.'}
+              {hasMembership ? t.settings.membershipSubHas : t.settings.membershipSubGet}
             </Text>
             {!hasMembership && (
               <TouchableOpacity
                 style={styles.membershipBtn}
-                onPress={() => Alert.alert('Coming soon', 'Membership subscriptions will be available soon. Stay tuned!')}
+                onPress={() => Alert.alert(t.common.comingSoon, 'Membership subscriptions will be available soon. Stay tuned!')}
                 activeOpacity={0.8}
               >
                 <Ionicons name="diamond-outline" size={20} color={colors.textOnPrimary} />
-                <Text style={styles.membershipBtnText}>Get membership</Text>
+                <Text style={styles.membershipBtnText}>{t.settings.getMembershipBtn}</Text>
               </TouchableOpacity>
             )}
           </View>
         </View>
 
         <View style={styles.settingSection}>
-          <Text style={styles.settingSectionTitle}>Account</Text>
+          <Text style={styles.settingSectionTitle}>{t.settings.account}</Text>
           <View style={styles.settingRow}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="mail-outline" size={20} color={colors.textSecondary} />
               <View>
-                <Text style={styles.settingLabel}>Email</Text>
+                <Text style={styles.settingLabel}>{t.settings.email}</Text>
                 <Text style={styles.settingValue}>{userEmail ?? '—'}</Text>
               </View>
             </View>
@@ -271,20 +285,20 @@ export default function SettingsScreen() {
             <View style={styles.settingRowLeft}>
               <Ionicons name="person-outline" size={20} color={colors.textSecondary} />
               <View>
-                <Text style={styles.settingLabel}>Username</Text>
+                <Text style={styles.settingLabel}>{t.settings.username}</Text>
                 <Text style={styles.settingValue}>@{profile?.username ?? '—'}</Text>
               </View>
             </View>
           </View>
           <TouchableOpacity style={styles.settingRow} onPress={async () => {
-            if (!userEmail) { Alert.alert('Error', 'No email found for this account.'); return; }
+            if (!userEmail) { Alert.alert(t.common.error, 'No email found for this account.'); return; }
             const { error: resetErr } = await supabase.auth.resetPasswordForEmail(userEmail);
-            if (resetErr) { Alert.alert('Error', resetErr.message); }
+            if (resetErr) { Alert.alert(t.common.error, resetErr.message); }
             else { Alert.alert('Check your email', `A password reset link has been sent to ${userEmail}.`); }
           }} activeOpacity={0.7}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="key-outline" size={20} color={colors.textSecondary} />
-              <Text style={styles.settingLabel}>Change password</Text>
+              <Text style={styles.settingLabel}>{t.settings.changePassword}</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
@@ -297,70 +311,90 @@ export default function SettingsScreen() {
                 setSignedIn(false);
                 navigation.goBack();
               } catch (e: any) {
-                Alert.alert('Error', e?.message ?? 'Failed to delete account. Please try again.');
+                Alert.alert(t.common.error, e?.message ?? 'Failed to delete account. Please try again.');
               }
             };
             if (Platform.OS === 'web') {
-              if (window.confirm('Are you sure? This will permanently delete your account and all data. This cannot be undone.')) doDelete();
+              if (window.confirm(t.settings.deleteAccountConfirm)) doDelete();
             } else {
-              Alert.alert('Delete account', 'Are you sure? This will permanently delete your account and all data. This cannot be undone.', [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Delete', style: 'destructive', onPress: doDelete },
+              Alert.alert(t.settings.deleteAccount, t.settings.deleteAccountConfirm, [
+                { text: t.common.cancel, style: 'cancel' },
+                { text: t.common.delete, style: 'destructive', onPress: doDelete },
               ]);
             }
           }} activeOpacity={0.7}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="trash-outline" size={20} color={colors.error} />
-              <Text style={[styles.settingLabel, { color: colors.error }]}>Delete account</Text>
+              <Text style={[styles.settingLabel, { color: colors.error }]}>{t.settings.deleteAccount}</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
         </View>
 
         <View style={styles.settingSection}>
-          <Text style={styles.settingSectionTitle}>Appearance</Text>
+          <Text style={styles.settingSectionTitle}>{t.settings.appearance}</Text>
           <View style={styles.settingRow}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="color-palette-outline" size={20} color={colors.textSecondary} />
-              <Text style={styles.settingLabel}>Theme</Text>
+              <Text style={styles.settingLabel}>{t.settings.theme}</Text>
             </View>
             <View style={styles.themeChips}>
               <TouchableOpacity style={[styles.themeChip, mode === 'light' && styles.themeChipSelected]} activeOpacity={0.8} onPress={() => setMode('light')}>
                 <Ionicons name="sunny-outline" size={14} color={mode === 'light' ? colors.textOnPrimary : colors.textSecondary} />
-                <Text style={[styles.themeChipText, mode === 'light' && styles.themeChipTextSelected]}>Light</Text>
+                <Text style={[styles.themeChipText, mode === 'light' && styles.themeChipTextSelected]}>{t.settings.light}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.themeChip, mode === 'dark' && styles.themeChipSelected]} activeOpacity={0.8} onPress={() => setMode('dark')}>
                 <Ionicons name="moon-outline" size={14} color={mode === 'dark' ? colors.textOnPrimary : colors.textSecondary} />
-                <Text style={[styles.themeChipText, mode === 'dark' && styles.themeChipTextSelected]}>Dark</Text>
+                <Text style={[styles.themeChipText, mode === 'dark' && styles.themeChipTextSelected]}>{t.settings.dark}</Text>
               </TouchableOpacity>
+            </View>
+          </View>
+          <View style={styles.settingRow}>
+            <View style={styles.settingRowLeft}>
+              <Ionicons name="language-outline" size={20} color={colors.textSecondary} />
+              <Text style={styles.settingLabel}>{t.settings.language}</Text>
+            </View>
+            <View style={styles.themeChips}>
+              {LANGUAGE_CONFIG.map((lang) => (
+                <TouchableOpacity
+                  key={lang.code}
+                  style={[styles.themeChip, language === lang.code && styles.themeChipSelected]}
+                  activeOpacity={0.8}
+                  onPress={() => setLanguage(lang.code)}
+                >
+                  <Text style={[styles.themeChipText, language === lang.code && styles.themeChipTextSelected]}>
+                    {lang.code.toUpperCase()}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
           </View>
         </View>
 
         <View style={styles.settingSection}>
-          <Text style={styles.settingSectionTitle}>Notifications</Text>
+          <Text style={styles.settingSectionTitle}>{t.settings.notifications}</Text>
           <View style={styles.settingRow}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="mail-unread-outline" size={20} color={colors.textSecondary} />
-              <Text style={styles.settingLabel}>Email notifications</Text>
+              <Text style={styles.settingLabel}>{t.settings.emailNotifs}</Text>
             </View>
             <Switch value={emailNotifs} onValueChange={setEmailNotifs} trackColor={{ false: colors.border, true: colors.primary }} thumbColor="#FFF" />
           </View>
           <View style={styles.settingRow}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="notifications-outline" size={20} color={colors.textSecondary} />
-              <Text style={styles.settingLabel}>Push notifications</Text>
+              <Text style={styles.settingLabel}>{t.settings.pushNotifs}</Text>
             </View>
             <Switch value={pushNotifs} onValueChange={updatePushNotifs} disabled={pushLoading} trackColor={{ false: colors.border, true: colors.primary }} thumbColor="#FFF" />
           </View>
         </View>
 
         <View style={styles.settingSection}>
-          <Text style={styles.settingSectionTitle}>Privacy & Security</Text>
+          <Text style={styles.settingSectionTitle}>{t.settings.privacy}</Text>
           <View style={styles.settingRow}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="location-outline" size={20} color={colors.textSecondary} />
-              <Text style={styles.settingLabel}>Location</Text>
+              <Text style={styles.settingLabel}>{t.settings.location}</Text>
             </View>
             <View style={styles.themeChips}>
               <TouchableOpacity
@@ -369,7 +403,7 @@ export default function SettingsScreen() {
                 onPress={() => updateLocationVisibility('private')}
               >
                 <Ionicons name="lock-closed-outline" size={11} color={locationVisibility === 'private' ? colors.textOnPrimary : colors.textSecondary} />
-                <Text style={[styles.themeChipSmText, locationVisibility === 'private' && styles.themeChipTextSelected]}>Private</Text>
+                <Text style={[styles.themeChipSmText, locationVisibility === 'private' && styles.themeChipTextSelected]}>{t.common.private}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.themeChipSm, locationVisibility === 'public' && styles.themeChipSelected]}
@@ -377,7 +411,7 @@ export default function SettingsScreen() {
                 onPress={() => updateLocationVisibility('public')}
               >
                 <Ionicons name="globe-outline" size={11} color={locationVisibility === 'public' ? colors.textOnPrimary : colors.textSecondary} />
-                <Text style={[styles.themeChipSmText, locationVisibility === 'public' && styles.themeChipTextSelected]}>Public</Text>
+                <Text style={[styles.themeChipSmText, locationVisibility === 'public' && styles.themeChipTextSelected]}>{t.common.public}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -392,9 +426,9 @@ export default function SettingsScreen() {
             <View style={styles.settingRowLeft}>
               <Ionicons name="eye-outline" size={20} color={colors.textSecondary} />
               <View style={styles.settingRowTextBlock}>
-                <Text style={styles.settingLabel}>Profile visibility</Text>
+                <Text style={styles.settingLabel}>{t.settings.profileVisibility}</Text>
                 <Text style={styles.settingValue}>
-                  {profileVisibility === 'private' ? 'Match history hidden' : 'Match history visible'}
+                  {profileVisibility === 'private' ? t.settings.matchHistoryHidden : t.settings.matchHistoryVisible}
                 </Text>
               </View>
             </View>
@@ -405,7 +439,7 @@ export default function SettingsScreen() {
                 onPress={() => updateProfileVisibility('private')}
               >
                 <Ionicons name="lock-closed-outline" size={11} color={profileVisibility === 'private' ? colors.textOnPrimary : colors.textSecondary} />
-                <Text style={[styles.themeChipSmText, profileVisibility === 'private' && styles.themeChipTextSelected]}>Private</Text>
+                <Text style={[styles.themeChipSmText, profileVisibility === 'private' && styles.themeChipTextSelected]}>{t.common.private}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.themeChipSm, profileVisibility === 'public' && styles.themeChipSelected]}
@@ -413,7 +447,7 @@ export default function SettingsScreen() {
                 onPress={() => updateProfileVisibility('public')}
               >
                 <Ionicons name="globe-outline" size={11} color={profileVisibility === 'public' ? colors.textOnPrimary : colors.textSecondary} />
-                <Text style={[styles.themeChipSmText, profileVisibility === 'public' && styles.themeChipTextSelected]}>Public</Text>
+                <Text style={[styles.themeChipSmText, profileVisibility === 'public' && styles.themeChipTextSelected]}>{t.common.public}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -431,61 +465,61 @@ export default function SettingsScreen() {
         </View> */}
 
         <View style={styles.settingSection}>
-          <Text style={styles.settingSectionTitle}>Support</Text>
+          <Text style={styles.settingSectionTitle}>{t.settings.support}</Text>
           <TouchableOpacity style={styles.settingRow} onPress={() => navigation.navigate('FAQ')} activeOpacity={0.7}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="book-outline" size={20} color={colors.textSecondary} />
-              <Text style={styles.settingLabel}>FAQ</Text>
+              <Text style={styles.settingLabel}>{t.settings.faq}</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Help', 'Visit versus.app/help for support.')} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert(t.settings.helpCenter, 'Visit versus.app/help for support.')} activeOpacity={0.7}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="help-circle-outline" size={20} color={colors.textSecondary} />
-              <Text style={styles.settingLabel}>Help center</Text>
+              <Text style={styles.settingLabel}>{t.settings.helpCenter}</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Contact', 'Email support@versus.app for assistance.')} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert(t.settings.contactSupport, 'Email support@versus.app for assistance.')} activeOpacity={0.7}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="mail-outline" size={20} color={colors.textSecondary} />
-              <Text style={styles.settingLabel}>Contact support</Text>
+              <Text style={styles.settingLabel}>{t.settings.contactSupport}</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Report', 'Thank you for helping keep Versus safe. Reports are reviewed promptly.')} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert(t.settings.reportProblem, 'Thank you for helping keep Versus safe. Reports are reviewed promptly.')} activeOpacity={0.7}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="flag-outline" size={20} color={colors.textSecondary} />
-              <Text style={styles.settingLabel}>Report a problem</Text>
+              <Text style={styles.settingLabel}>{t.settings.reportProblem}</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
         </View>
 
         <View style={styles.settingSection}>
-          <Text style={styles.settingSectionTitle}>Legal</Text>
-          <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Terms', 'View our Terms of Service at versus.app/terms')} activeOpacity={0.7}>
+          <Text style={styles.settingSectionTitle}>{t.settings.legal}</Text>
+          <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert(t.settings.termsOfService, 'View our Terms of Service at versus.app/terms')} activeOpacity={0.7}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="document-text-outline" size={20} color={colors.textSecondary} />
-              <Text style={styles.settingLabel}>Terms of Service</Text>
+              <Text style={styles.settingLabel}>{t.settings.termsOfService}</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Privacy', 'View our Privacy Policy at versus.app/privacy')} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert(t.settings.privacyPolicy, 'View our Privacy Policy at versus.app/privacy')} activeOpacity={0.7}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="shield-checkmark-outline" size={20} color={colors.textSecondary} />
-              <Text style={styles.settingLabel}>Privacy Policy</Text>
+              <Text style={styles.settingLabel}>{t.settings.privacyPolicy}</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
         </View>
 
         <View style={styles.settingSection}>
-          <Text style={styles.settingSectionTitle}>About</Text>
+          <Text style={styles.settingSectionTitle}>{t.settings.about}</Text>
           <View style={styles.settingRow}>
             <View style={styles.settingRowLeft}>
               <Ionicons name="information-circle-outline" size={20} color={colors.textSecondary} />
-              <Text style={styles.settingLabel}>Version</Text>
+              <Text style={styles.settingLabel}>{t.settings.version}</Text>
             </View>
             <Text style={styles.settingValue}>1.0.1</Text>
           </View>
@@ -493,7 +527,7 @@ export default function SettingsScreen() {
 
         <TouchableOpacity style={styles.signOutBtn} activeOpacity={0.8} onPress={handleSignOut}>
           <Ionicons name="log-out-outline" size={20} color={colors.error} />
-          <Text style={styles.signOutText}>Sign out</Text>
+          <Text style={styles.signOutText}>{t.common.signOut}</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>

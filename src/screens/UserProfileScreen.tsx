@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 import {
   View,
   Text,
@@ -190,6 +191,7 @@ function createStyles(colors: ThemeColors) {
 
 export default function UserProfileScreen() {
   const { colors } = useTheme();
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<RootStackParamList, 'UserProfile'>>();
@@ -397,7 +399,7 @@ export default function UserProfileScreen() {
   if (!targetUserId) {
     return (
       <View style={[styles.container, { paddingTop: insets.top, justifyContent: 'center', alignItems: 'center' }]}>
-        <Text style={styles.placeholder}>User not found</Text>
+        <Text style={styles.placeholder}>{t.profile.userNotFound}</Text>
         <TouchableOpacity style={{ marginTop: spacing.md }} onPress={() => navigation.goBack()}>
           <Text style={{ color: colors.primary }}>Go back</Text>
         </TouchableOpacity>
@@ -411,7 +413,7 @@ export default function UserProfileScreen() {
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{profile?.full_name || profile?.username || 'Profile'}</Text>
+        <Text style={styles.headerTitle}>{profile?.full_name || profile?.username || t.profile.title}</Text>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
@@ -435,15 +437,15 @@ export default function UserProfileScreen() {
               <View style={styles.socialRow}>
                 <View style={styles.socialItem}>
                   <Text style={styles.socialValue}>{profile?.vp_total ?? 0}</Text>
-                  <Text style={styles.socialLabel}>Total VP</Text>
+                  <Text style={styles.socialLabel}>{t.profile.totalVP}</Text>
                 </View>
                 <TouchableOpacity style={styles.socialItem} onPress={() => navigation.navigate('FollowList', { userId: targetUserId, initialTab: 'following' })} activeOpacity={0.8}>
                   <Text style={styles.socialValue}>{followingCount}</Text>
-                  <Text style={styles.socialLabel}>Following</Text>
+                  <Text style={styles.socialLabel}>{t.profile.following}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.socialItem} onPress={() => navigation.navigate('FollowList', { userId: targetUserId, initialTab: 'followers' })} activeOpacity={0.8}>
                   <Text style={styles.socialValue}>{followerCount}</Text>
-                  <Text style={styles.socialLabel}>Followers</Text>
+                  <Text style={styles.socialLabel}>{t.profile.followers}</Text>
                 </TouchableOpacity>
               </View>
               {!isOwnProfile && currentUserId && (
@@ -457,7 +459,7 @@ export default function UserProfileScreen() {
                       <ActivityIndicator size="small" color={followState !== 'none' ? colors.text : colors.textOnPrimary} />
                     ) : (
                       <Text style={[styles.followBtnText, (followState === 'pending' || followState === 'accepted') && styles.followBtnTextMuted]}>
-                        {followState === 'accepted' ? 'Following' : followState === 'pending' ? 'Pending' : 'Follow'}
+                        {followState === 'accepted' ? t.profile.followingLabel : followState === 'pending' ? t.profile.pending : t.profile.followUser}
                       </Text>
                     )}
                   </TouchableOpacity>
@@ -468,7 +470,7 @@ export default function UserProfileScreen() {
                       activeOpacity={0.8}
                     >
                       <Ionicons name="chatbubble-outline" size={18} color={colors.primary} />
-                      <Text style={styles.messageBtnText}>Message</Text>
+                      <Text style={styles.messageBtnText}>{t.profile.message}</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -479,23 +481,23 @@ export default function UserProfileScreen() {
 
         <View style={styles.tabRow}>
           <TouchableOpacity style={[styles.tab, tab === 'overview' && styles.tabActive]} onPress={() => setTab('overview')} activeOpacity={0.8}>
-            <Text style={[styles.tabText, tab === 'overview' && styles.tabTextActive]}>Overview</Text>
+            <Text style={[styles.tabText, tab === 'overview' && styles.tabTextActive]}>{t.profile.overview}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.tab, tab === 'rankings' && styles.tabActive]} onPress={() => setTab('rankings')} activeOpacity={0.8}>
-            <Text style={[styles.tabText, tab === 'rankings' && styles.tabTextActive]}>Rankings</Text>
+            <Text style={[styles.tabText, tab === 'rankings' && styles.tabTextActive]}>{t.profile.rankings}</Text>
           </TouchableOpacity>
         </View>
 
         {tab === 'overview' && (
           <>
             <View style={styles.ranksSection}>
-              <Text style={styles.ranksSectionTitle}>Sport Ranks</Text>
+              <Text style={styles.ranksSectionTitle}>{t.profile.sportRanks}</Text>
               <View style={styles.ranksGrid}>
                 {top3Rankings.map((item) => (
                   <View key={item.sport} style={styles.rankCard}>
                     <Text style={styles.rankCardEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
                     <Text style={styles.rankCardSport} numberOfLines={1}>{item.sport}</Text>
-                    <Text style={[styles.rankCardTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}</Text>
+                    <Text style={[styles.rankCardTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : t.common.unranked}</Text>
                     <Text style={styles.rankCardVp}>{item.vp}</Text>
                     <Text style={styles.rankCardVpLabel}>VP</Text>
                     <View style={styles.rankCardStats}>
@@ -508,18 +510,18 @@ export default function UserProfileScreen() {
             </View>
 
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Match history</Text>
+              <Text style={styles.cardTitle}>{t.profile.matchHistory}</Text>
               {!isOwnProfile && targetProfileVisibility === 'private' ? (
-                <Text style={styles.placeholder}>This user's match history is private.</Text>
+                <Text style={styles.placeholder}>{t.profile.matchHistoryPrivate}</Text>
               ) : matchHistory.length === 0 ? (
-                <Text style={styles.placeholder}>No matches yet.</Text>
+                <Text style={styles.placeholder}>{t.profile.noMatchesYet}</Text>
               ) : (
                 matchHistory.map((m, idx) => {
                   const theirPart = (m.participants ?? []).find((p: { user_id?: string }) => String(p?.user_id) === String(targetUserId));
                   const others = (m.participants ?? []).filter((p: { user_id?: string }) => String(p?.user_id) !== String(targetUserId));
                   const opponentNames = others.map((p: { full_name?: string | null; username?: string | null }) => p?.full_name || p?.username || 'Opponent').join(', ');
                   const statusFallback = m.status === 'in_progress' ? 'In Progress' : (m.status as string).charAt(0).toUpperCase() + (m.status as string).slice(1);
-                  const result = theirPart?.result === 'win' ? 'Win' : theirPart?.result === 'loss' ? 'Loss' : theirPart?.result === 'draw' ? 'Draw' : m.status === 'completed' ? '—' : statusFallback;
+                  const result = theirPart?.result === 'win' ? t.common.win : theirPart?.result === 'loss' ? t.common.loss : theirPart?.result === 'draw' ? t.common.draw : m.status === 'completed' ? '—' : statusFallback;
                   const games = (m.games ?? []).filter((g: { score_challenger: number; score_opponent: number }) => g.score_challenger > 0 || g.score_opponent > 0);
                   const scoreStr = games.length > 0 ? games.map((g: { score_challenger: number; score_opponent: number }) => `${g.score_challenger}-${g.score_opponent}`).join(', ') : null;
                   const dateStr = new Date(m.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -569,11 +571,11 @@ export default function UserProfileScreen() {
                   <View style={styles.rankPageInner}>
                     <Text style={styles.rankEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
                     <Text style={styles.rankSport}>{item.sport}</Text>
-                    <Text style={[styles.rankTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}</Text>
+                    <Text style={[styles.rankTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : t.common.unranked}</Text>
                     <View style={styles.rankStatRow}>
                       <View style={styles.rankStat}><Text style={[styles.rankStatValue, { color: '#2563EB' }]}>{item.vp}</Text><Text style={styles.rankStatLabel}>VP</Text></View>
-                      <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.wins}</Text><Text style={styles.rankStatLabel}>Wins</Text></View>
-                      <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.losses}</Text><Text style={styles.rankStatLabel}>Losses</Text></View>
+                      <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.wins}</Text><Text style={styles.rankStatLabel}>{t.common.wins}</Text></View>
+                      <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.losses}</Text><Text style={styles.rankStatLabel}>{t.common.losses}</Text></View>
                     </View>
                     <Text style={styles.rankHint}>Play ranked matches in {item.sport} to earn VP and climb the ranks.</Text>
                   </View>

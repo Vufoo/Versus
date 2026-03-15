@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 import {
   View,
   Text,
@@ -99,6 +100,7 @@ function createStyles(colors: ThemeColors) {
 
 export default function FollowListScreen() {
   const { colors } = useTheme();
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<RootStackParamList, 'FollowList'>>();
@@ -271,7 +273,7 @@ export default function FollowListScreen() {
 
   const renderUser = ({ item }: { item: FollowUser }) => {
     const state = followStates[item.user_id] ?? 'none';
-    const label = state === 'accepted' ? 'Following' : state === 'pending' ? 'Pending' : 'Follow';
+    const label = state === 'accepted' ? t.searchScreen.following : state === 'pending' ? t.searchScreen.pending : t.searchScreen.follow;
     const isMuted = state !== 'none';
     const showFollowBtn = (isOwnProfile && tab === 'following') || (!isOwnProfile && currentUserId && item.user_id !== currentUserId);
 
@@ -319,7 +321,7 @@ export default function FollowListScreen() {
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.title}>{tab === 'followers' ? 'Followers' : 'Following'}</Text>
+        <Text style={styles.title}>{tab === 'followers' ? t.profile.followers : t.profile.following}</Text>
       </View>
 
       <View style={styles.tabRow}>
@@ -328,14 +330,14 @@ export default function FollowListScreen() {
           onPress={() => setTab('followers')}
           activeOpacity={0.8}
         >
-          <Text style={[styles.tabText, tab === 'followers' && styles.tabTextActive]}>Followers</Text>
+          <Text style={[styles.tabText, tab === 'followers' && styles.tabTextActive]}>{t.profile.followers}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.tab, tab === 'following' && styles.tabActive]}
           onPress={() => setTab('following')}
           activeOpacity={0.8}
         >
-          <Text style={[styles.tabText, tab === 'following' && styles.tabTextActive]}>Following</Text>
+          <Text style={[styles.tabText, tab === 'following' && styles.tabTextActive]}>{t.profile.following}</Text>
         </TouchableOpacity>
       </View>
 
@@ -351,7 +353,7 @@ export default function FollowListScreen() {
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <Text style={styles.empty}>
-              {tab === 'followers' ? 'No followers yet.' : 'Not following anyone yet.'}
+              {tab === 'followers' ? t.profile.noFollowers : t.profile.notFollowing}
             </Text>
           }
         />

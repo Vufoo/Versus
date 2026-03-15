@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 import {
   View,
   Text,
@@ -128,6 +129,7 @@ function createSearchStyles(colors: ThemeColors) {
 
 export default function SearchScreen() {
   const { colors } = useTheme();
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const styles = createSearchStyles(colors);
@@ -251,7 +253,7 @@ export default function SearchScreen() {
 
   const renderFollowBtn = (user: SearchedUser) => {
     const state = followStates[user.user_id] ?? 'none';
-    const label = state === 'accepted' ? 'Following' : state === 'pending' ? 'Pending' : 'Follow';
+    const label = state === 'accepted' ? t.searchScreen.following : state === 'pending' ? t.searchScreen.pending : t.searchScreen.follow;
     const isMuted = state !== 'none';
     return (
       <TouchableOpacity
@@ -298,15 +300,15 @@ export default function SearchScreen() {
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.title}>Find people</Text>
+        <Text style={styles.title}>{t.searchScreen.findPeople}</Text>
         <View style={{ width: 40 }} />
       </View>
       <View style={styles.content}>
-        <Text style={styles.hint}>Search by username or name</Text>
+        <Text style={styles.hint}>{t.searchScreen.hint}</Text>
         <UserSearch
           colors={colors}
           excludeUserId={currentUserId ?? undefined}
-          placeholder="Search by username or name..."
+          placeholder={t.searchScreen.placeholder}
           onSelect={(user) => navigation.navigate('UserProfile', { userId: user.user_id })}
           onQueryChange={setSearchQuery}
           renderAction={(user) => renderFollowBtn(user)}
@@ -319,14 +321,14 @@ export default function SearchScreen() {
               <View style={styles.contactsBanner}>
                 <View style={styles.contactsBannerHeader}>
                   <Ionicons name="people-outline" size={16} color={colors.primary} />
-                  <Text style={styles.contactsBannerTitle}>Find friends from your contacts</Text>
+                  <Text style={styles.contactsBannerTitle}>{t.searchScreen.findFriendsContacts}</Text>
                   <TouchableOpacity onPress={handleDismissBanner} hitSlop={10} activeOpacity={0.7}>
                     <Ionicons name="close" size={16} color={colors.textSecondary} />
                   </TouchableOpacity>
                 </View>
-                <Text style={styles.contactsBannerSub}>See which of your contacts are already on Versus</Text>
+                <Text style={styles.contactsBannerSub}>{t.searchScreen.contactsSubtitle}</Text>
                 <TouchableOpacity style={styles.contactsBannerAllow} onPress={handleAllowContacts} activeOpacity={0.8}>
-                  <Text style={styles.contactsBannerAllowText}>Connect contacts</Text>
+                  <Text style={styles.contactsBannerAllowText}>{t.searchScreen.connectContacts}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -334,7 +336,7 @@ export default function SearchScreen() {
             {/* From your contacts section */}
             {(contactsGranted && (contactsLoading || contactUsers.length > 0)) && (
               <View style={styles.recSection}>
-                <Text style={styles.recTitle}>From your contacts</Text>
+                <Text style={styles.recTitle}>{t.searchScreen.fromYourContacts}</Text>
                 {contactsLoading ? (
                   <View style={styles.recLoader}><ActivityIndicator color={colors.primary} /></View>
                 ) : (
@@ -356,7 +358,7 @@ export default function SearchScreen() {
                         </View>
                         <View style={styles.info}>
                           <Text style={styles.name} numberOfLines={1}>{item.full_name ?? item.username ?? 'Unknown'}</Text>
-                          <Text style={styles.contactSubLabel}>In your contacts</Text>
+                          <Text style={styles.contactSubLabel}>{t.searchScreen.inYourContacts}</Text>
                         </View>
                         {renderFollowBtn(item)}
                       </TouchableOpacity>
@@ -369,7 +371,7 @@ export default function SearchScreen() {
 
             {/* Suggested for you section */}
             <View style={styles.recSection}>
-              <Text style={styles.recTitle}>Suggested for you</Text>
+              <Text style={styles.recTitle}>{t.searchScreen.suggestedForYou}</Text>
               {recLoading ? (
                 <View style={styles.recLoader}><ActivityIndicator color={colors.primary} /></View>
               ) : (

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 import {
   View,
   Text,
@@ -202,6 +203,7 @@ function makeStyles(c: ThemeColors) {
 
 export default function LeaderboardScreen() {
   const { colors } = useTheme();
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -332,7 +334,7 @@ export default function LeaderboardScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Leaderboards</Text>
+        <Text style={styles.headerTitle}>{t.versus.leaderboards}</Text>
       </View>
 
       <ScrollView
@@ -360,7 +362,7 @@ export default function LeaderboardScreen() {
                 {/* Compact sport header */}
                 <View style={styles.sportHeader}>
                   <Text style={styles.sportEmoji}>{SPORT_EMOJI[sportName] ?? '🏆'}</Text>
-                  <Text style={styles.sportTitle}>{sportName} Rankings</Text>
+                  <Text style={styles.sportTitle}>{sportName} {t.leaderboard.rankings}</Text>
                 </View>
 
                 {/* Your rank — top of page */}
@@ -370,7 +372,7 @@ export default function LeaderboardScreen() {
                       <Ionicons name="person" size={18} color={colors.primary} />
                     </View>
                     <View style={styles.myRankTextBlock}>
-                      <Text style={styles.myRankLabel}>Your Rank</Text>
+                      <Text style={styles.myRankLabel}>{t.leaderboard.yourRank}</Text>
                       {myRating && myRating.vp > 0 ? (
                         <>
                           <Text style={styles.myRankValue}>
@@ -382,11 +384,11 @@ export default function LeaderboardScreen() {
                           </Text>
                           <Text style={styles.myRankSub}>
                             <Text style={{ color: '#2563EB', fontWeight: '700' }}>{myRating.vp} VP</Text>
-                            {' · '}{data.totalCount} players total
+                            {' · '}{data.totalCount} {t.leaderboard.playersTotal}
                           </Text>
                         </>
                       ) : (
-                        <Text style={styles.myRankValue}>Unranked</Text>
+                        <Text style={styles.myRankValue}>{t.common.unranked}</Text>
                       )}
                     </View>
                   </View>
@@ -398,9 +400,9 @@ export default function LeaderboardScreen() {
                   {/* Column headers */}
                   <View style={styles.colHeader}>
                     <Text style={styles.colHeaderRank}>#</Text>
-                    <Text style={[styles.colHeaderPlayer, { marginLeft: 36 + spacing.sm }]}>Player</Text>
-                    <Text style={styles.colHeaderDiv}>Rank</Text>
-                    <Text style={styles.colHeaderVP}>VP</Text>
+                    <Text style={[styles.colHeaderPlayer, { marginLeft: 36 + spacing.sm }]}>{t.leaderboard.player}</Text>
+                    <Text style={styles.colHeaderDiv}>{t.leaderboard.rank}</Text>
+                    <Text style={styles.colHeaderVP}>{t.leaderboard.vp}</Text>
                   </View>
 
                   {!data ? (
@@ -458,7 +460,7 @@ export default function LeaderboardScreen() {
                             {entry ? (
                               <>
                                 <Text style={[styles.name, isMe && styles.nameMe]} numberOfLines={1}>
-                                  {entry.full_name ?? entry.username ?? 'Unknown'}{isMe ? ' (You)' : ''}
+                                  {entry.full_name ?? entry.username ?? 'Unknown'}{isMe ? ` (${t.common.you})` : ''}
                                 </Text>
                                 {entry.username ? <Text style={styles.handle}>@{entry.username}</Text> : null}
                               </>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 import {
   View,
   Text,
@@ -144,6 +145,7 @@ function createStyles(colors: ThemeColors, isDark: boolean) {
 
 export default function ChatScreen() {
   const { colors, mode } = useTheme();
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<RootStackParamList, 'Chat'>>();
@@ -366,9 +368,9 @@ export default function ChatScreen() {
   if (!otherUserId) {
     return (
       <View style={[styles.container, { paddingTop: insets.top, justifyContent: 'center', alignItems: 'center' }]}>
-        <Text style={styles.empty}>Select someone to message</Text>
+        <Text style={styles.empty}>{t.messages.selectSomeone}</Text>
         <TouchableOpacity style={{ marginTop: spacing.md }} onPress={() => navigation.goBack()}>
-          <Text style={{ color: colors.primary }}>Go back</Text>
+          <Text style={{ color: colors.primary }}>{t.common.back}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -399,7 +401,7 @@ export default function ChatScreen() {
             data={listData}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
-            ListEmptyComponent={<Text style={styles.empty}>No messages yet. Say hi!</Text>}
+            ListEmptyComponent={<Text style={styles.empty}>{t.messages.noMessages}</Text>}
             renderItem={({ item }) => {
               if ('type' in item && item.type === 'date-header') {
                 return (
@@ -437,7 +439,7 @@ export default function ChatScreen() {
         <View style={styles.inputRow}>
           <TextInput
             style={styles.input}
-            placeholder="Message..."
+            placeholder={t.messages.messagePlaceholder}
             placeholderTextColor={colors.textSecondary}
             value={body}
             onChangeText={setBody}

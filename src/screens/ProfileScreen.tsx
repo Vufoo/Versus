@@ -22,6 +22,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
+import { useLanguage } from '../i18n/LanguageContext';
 import type { ThemeColors } from '../constants/theme';
 import { supabase, resolveAvatarUrl } from '../lib/supabase';
 import { normalizePhone, hashPhone } from '../lib/contacts';
@@ -60,6 +61,18 @@ type MatchHistoryItem = {
 const SCREEN_W = Dimensions.get('window').width;
 const MAX_PREFERRED = 3;
 const GENDER_OPTIONS = ['Male', 'Female', 'Other'];
+
+// Module-level cache — survives tab switches without re-fetching
+type ProfileCache = {
+  profile: { username: string | null; full_name: string | null; vp_total: number; preferred_sports: string[]; avatar_url: string | null; date_of_birth: string | null; gender: string | null; location: string | null; bio: string | null } | null;
+  avatarUri: string | null;
+  followingCount: number;
+  followerCount: number;
+  sportRatings: SportRating[];
+  matchHistory: MatchHistoryItem[];
+  phoneHashSet: boolean;
+};
+let _profileCache: ProfileCache | null = null;
 
 type SportRating = {
   sport: string;
@@ -402,6 +415,7 @@ function createStyles(colors: ThemeColors) {
 
 export default function ProfileScreen() {
   const { colors } = useTheme();
+  const { t } = useLanguage();
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -419,7 +433,7 @@ export default function ProfileScreen() {
     gender: string | null;
     location: string | null;
     bio: string | null;
-  } | null>(null);
+  } | null>(_profileCache?.profile ?? null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editName, setEditName] = useState('');
   const [editDob, setEditDob] = useState('');
@@ -428,17 +442,17 @@ export default function ProfileScreen() {
   const [editState, setEditState] = useState('');
   const [editBio, setEditBio] = useState('');
   const [editPhone, setEditPhone] = useState('');
-  const [phoneHashSet, setPhoneHashSet] = useState(false);
+  const [phoneHashSet, setPhoneHashSet] = useState(_profileCache?.phoneHashSet ?? false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [followingCount, setFollowingCount] = useState(0);
-  const [followerCount, setFollowerCount] = useState(0);
-  const [loadingProfile, setLoadingProfile] = useState(true);
-  const [sportRatings, setSportRatings] = useState<SportRating[]>([]);
+  const [followingCount, setFollowingCount] = useState(_profileCache?.followingCount ?? 0);
+  const [followerCount, setFollowerCount] = useState(_profileCache?.followerCount ?? 0);
+  const [loadingProfile, setLoadingProfile] = useState(_profileCache === null);
+  const [sportRatings, setSportRatings] = useState<SportRating[]>(_profileCache?.sportRatings ?? []);
   const [savingPrefs, setSavingPrefs] = useState(false);
-  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [avatarUri, setAvatarUri] = useState<string | null>(_profileCache?.avatarUri ?? null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [matchHistory, setMatchHistory] = useState<MatchHistoryItem[]>([]);
+  const [matchHistory, setMatchHistory] = useState<MatchHistoryItem[]>(_profileCache?.matchHistory ?? []);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -544,8 +558,30 @@ export default function ProfileScreen() {
           : Promise.resolve({ data: [] as any[] }),
       ]);
 
+      const resolvedAvatarFinal = resolvedAvatar ?? null;
+      const matchHistoryFinal = (feedRes.data ?? []) as MatchHistoryItem[];
+      const profileFinal = {
+        username: p?.username ?? null, full_name: p?.full_name ?? null, vp_total: p?.vp_total ?? 0,
+        preferred_sports: p?.preferred_sports ?? [], avatar_url: p?.avatar_url ?? null,
+        date_of_birth: p?.date_of_birth ?? null, gender: p?.gender ?? null,
+        location: p?.location ?? null, bio: p?.bio ?? null,
+      };
+      const ratingsFinal: SportRating[] = ratingsRes.data
+        ? (ratingsRes.data as any[]).map((r) => ({ sport: r.sports?.name ?? '?', rank_tier: r.rank_tier, rank_div: r.rank_div, vp: r.vp, wins: r.wins, losses: r.losses }))
+        : [];
+
+      _profileCache = {
+        profile: profileFinal,
+        avatarUri: resolvedAvatarFinal,
+        followingCount: fingRes.count ?? 0,
+        followerCount: fersRes.count ?? 0,
+        sportRatings: ratingsFinal,
+        matchHistory: matchHistoryFinal,
+        phoneHashSet: !!(p as any)?.phone_hash,
+      };
+
       if (resolvedAvatar) setAvatarUri(resolvedAvatar);
-      setMatchHistory((feedRes.data ?? []) as MatchHistoryItem[]);
+      setMatchHistory(matchHistoryFinal);
     } catch { /* swallow */ } finally { setLoadingProfile(false); }
   }, []);
 
@@ -721,7 +757,7 @@ export default function ProfileScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>Profile</Text>
+        <Text style={styles.pageTitle}>{t.profile.title}</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.headerActionBtn} activeOpacity={0.8} onPress={shareProfile}>
             <Ionicons name="share-outline" size={20} color={colors.text} />
@@ -771,7 +807,7 @@ export default function ProfileScreen() {
               <View style={styles.socialRow}>
                 <View style={styles.socialItem}>
                   <Text style={styles.socialValue}>{profile?.vp_total ?? 0}</Text>
-                  <Text style={styles.socialLabel}>Total VP</Text>
+                  <Text style={styles.socialLabel}>{t.profile.totalVP}</Text>
                 </View>
                 <TouchableOpacity
                   style={styles.socialItem}
@@ -779,7 +815,7 @@ export default function ProfileScreen() {
                   activeOpacity={0.8}
                 >
                   <Text style={styles.socialValue}>{followingCount}</Text>
-                  <Text style={styles.socialLabel}>Following</Text>
+                  <Text style={styles.socialLabel}>{t.profile.following}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.socialItem}
@@ -787,7 +823,7 @@ export default function ProfileScreen() {
                   activeOpacity={0.8}
                 >
                   <Text style={styles.socialValue}>{followerCount}</Text>
-                  <Text style={styles.socialLabel}>Followers</Text>
+                  <Text style={styles.socialLabel}>{t.profile.followers}</Text>
                 </TouchableOpacity>
               </View>
             </>
@@ -797,10 +833,10 @@ export default function ProfileScreen() {
         {/* Tab switcher */}
         <View style={styles.tabRow}>
           <TouchableOpacity style={[styles.tab, tab === 'overview' && styles.tabActive]} onPress={() => setTab('overview')} activeOpacity={0.8}>
-            <Text style={[styles.tabText, tab === 'overview' && styles.tabTextActive]}>Overview</Text>
+            <Text style={[styles.tabText, tab === 'overview' && styles.tabTextActive]}>{t.profile.overview}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.tab, tab === 'rankings' && styles.tabActive]} onPress={() => setTab('rankings')} activeOpacity={0.8}>
-            <Text style={[styles.tabText, tab === 'rankings' && styles.tabTextActive]}>Rankings</Text>
+            <Text style={[styles.tabText, tab === 'rankings' && styles.tabTextActive]}>{t.profile.rankings}</Text>
           </TouchableOpacity>
         </View>
 
@@ -808,7 +844,7 @@ export default function ProfileScreen() {
         {tab === 'overview' && (
           <>
             <View style={styles.ranksSection}>
-              <Text style={styles.ranksSectionTitle}>Sport Ranks</Text>
+              <Text style={styles.ranksSectionTitle}>{t.profile.sportRanks}</Text>
               <View style={styles.ranksGrid}>
                 {top3Rankings.map((item) => (
                   <View key={item.sport} style={styles.rankCard}>
@@ -837,7 +873,7 @@ export default function ProfileScreen() {
             </View>
 
             <View style={styles.sectionHeader}>
-              <Text style={styles.ranksSectionTitle}>Preferred Sports</Text>
+              <Text style={styles.ranksSectionTitle}>{t.profile.preferredSports}</Text>
               <Text style={styles.sectionSubtitle}>Select up to {MAX_PREFERRED} sports you play the most.</Text>
             </View>
             <View style={styles.card}>
@@ -861,7 +897,7 @@ export default function ProfileScreen() {
             </View>
 
             <View style={styles.sectionHeader}>
-              <Text style={styles.ranksSectionTitle}>Match History</Text>
+              <Text style={styles.ranksSectionTitle}>{t.profile.matchHistory}</Text>
             </View>
             {matchHistory.length === 0 ? (
               <View style={styles.card}>
@@ -934,9 +970,9 @@ export default function ProfileScreen() {
                     <Text style={styles.rankSport}>{item.sport}</Text>
                     <Text style={[styles.rankTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}</Text>
                     <View style={styles.rankStatRow}>
-                      <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.wins}</Text><Text style={styles.rankStatLabel}>Wins</Text></View>
+                      <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.wins}</Text><Text style={styles.rankStatLabel}>{t.common.wins}</Text></View>
                       <View style={styles.rankStat}><Text style={[styles.rankStatValue, { color: '#2563EB' }]}>{item.vp}</Text><Text style={styles.rankStatLabel}>VP</Text></View>
-                      <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.losses}</Text><Text style={styles.rankStatLabel}>Losses</Text></View>
+                      <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.losses}</Text><Text style={styles.rankStatLabel}>{t.common.losses}</Text></View>
                     </View>
                     <Text style={styles.rankHint}>Play ranked matches in {item.sport} to earn VP and climb the ranks.</Text>
                   </View>
@@ -958,14 +994,14 @@ export default function ProfileScreen() {
           <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setShowEditModal(false)}>
             <TouchableOpacity style={styles.modalCard} activeOpacity={1} onPress={() => {}}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Edit Profile</Text>
+                <Text style={styles.modalTitle}>{t.profile.editProfile}</Text>
                 <TouchableOpacity onPress={() => setShowEditModal(false)} activeOpacity={0.8}>
                   <Ionicons name="close" size={24} color={colors.text} />
                 </TouchableOpacity>
               </View>
 
               <ScrollView showsVerticalScrollIndicator={false}>
-                <Text style={styles.editLabel}>Name</Text>
+                <Text style={styles.editLabel}>{t.profile.name}</Text>
                 <TextInput
                   style={styles.editInput}
                   value={editName}
@@ -975,7 +1011,7 @@ export default function ProfileScreen() {
                   autoCapitalize="words"
                 />
 
-                <Text style={styles.editLabel}>Birthday</Text>
+                <Text style={styles.editLabel}>{t.profile.birthday}</Text>
                 <TextInput
                   style={styles.editInput}
                   value={editDob}
@@ -986,7 +1022,7 @@ export default function ProfileScreen() {
                   maxLength={10}
                 />
 
-                <Text style={styles.editLabel}>Gender</Text>
+                <Text style={styles.editLabel}>{t.profile.gender}</Text>
                 <View style={styles.genderRow}>
                   {GENDER_OPTIONS.map((g) => (
                     <TouchableOpacity
@@ -1000,7 +1036,7 @@ export default function ProfileScreen() {
                   ))}
                 </View>
 
-                <Text style={styles.editLabel}>City <Text style={{ fontWeight: '400', color: colors.textSecondary }}></Text></Text>
+                <Text style={styles.editLabel}>{t.profile.city} <Text style={{ fontWeight: '400', color: colors.textSecondary }}></Text></Text>
                 <TextInput
                   style={styles.editInput}
                   value={editCity}
@@ -1010,7 +1046,7 @@ export default function ProfileScreen() {
                   autoCapitalize="words"
                 />
 
-                <Text style={styles.editLabel}>State <Text style={{ fontWeight: '400', color: colors.textSecondary }}></Text></Text>
+                <Text style={styles.editLabel}>{t.profile.state} <Text style={{ fontWeight: '400', color: colors.textSecondary }}></Text></Text>
                 <TextInput
                   style={styles.editInput}
                   value={editState}
@@ -1021,7 +1057,7 @@ export default function ProfileScreen() {
                   maxLength={50}
                 />
 
-                <Text style={styles.editLabel}>Bio</Text>
+                <Text style={styles.editLabel}>{t.profile.bio}</Text>
                 <TextInput
                   style={[styles.editInput, { height: 80, paddingTop: 10, textAlignVertical: 'top' }]}
                   value={editBio}
@@ -1057,7 +1093,7 @@ export default function ProfileScreen() {
                   {savingEdit ? (
                     <ActivityIndicator size="small" color={colors.textOnPrimary} />
                   ) : (
-                    <Text style={styles.saveEditBtnText}>Save</Text>
+                    <Text style={styles.saveEditBtnText}>{t.common.save}</Text>
                   )}
                 </TouchableOpacity>
               </ScrollView>

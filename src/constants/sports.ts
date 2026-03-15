@@ -33,6 +33,9 @@ export const SPORTS_2V2_ONLY: readonly string[] = [];
 /** Sports that support 3v3 format (and default to 2v2, no 1v1) */
 export const SPORTS_3V3: readonly string[] = ['Volleyball'];
 
+/** Sports that do not support ranked matches yet */
+export const SPORTS_NO_RANKED: readonly string[] = ['Volleyball'];
+
 export function sportLabel(name: string): string {
   return `${SPORT_EMOJI[name] ?? '\u{1F3C6}'} ${name}`;
 }

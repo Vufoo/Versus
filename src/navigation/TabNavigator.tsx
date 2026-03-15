@@ -3,6 +3,7 @@ import { Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { typography } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
+import { useLanguage } from '../i18n/LanguageContext';
 import HomeScreen from '../screens/HomeScreen';
 import PlanMatchScreen from '../screens/PlanMatchScreen';
 import VersusScreen from '../screens/VersusScreen';
@@ -42,6 +43,7 @@ function TabLabel({
 
 export default function TabNavigator() {
   const { colors } = useTheme();
+  const { t } = useLanguage();
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -56,9 +58,16 @@ export default function TabNavigator() {
         },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textSecondary,
-        tabBarLabel: ({ focused }) => (
-          <TabLabel focused={focused} label={route.name} colors={colors} />
-        ),
+        tabBarLabel: ({ focused }) => {
+          const labelMap: Record<string, string> = {
+            Home: t.tabs.feed,
+            Plan: t.tabs.plan,
+            Versus: t.tabs.versus,
+            Map: t.tabs.map,
+            Profile: t.tabs.profile,
+          };
+          return <TabLabel focused={focused} label={labelMap[route.name] ?? route.name} colors={colors} />;
+        },
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: keyof typeof Ionicons.glyphMap = 'home-outline';
           if (route.name === 'Home') iconName = focused ? 'home' : 'home-outline';
@@ -73,27 +82,27 @@ export default function TabNavigator() {
       <Tab.Screen
         name="Home"
         component={HomeScreen}
-        options={{ title: 'Feed', headerShown: false }}
+        options={{ title: t.tabs.feed, headerShown: false }}
       />
       <Tab.Screen
         name="Plan"
         component={PlanMatchScreen}
-        options={{ title: 'Plan', headerShown: false }}
+        options={{ title: t.tabs.plan, headerShown: false }}
       />
       <Tab.Screen
         name="Versus"
         component={VersusScreen}
-        options={{ title: 'Versus', headerShown: false }}
+        options={{ title: t.tabs.versus, headerShown: false }}
       />
       <Tab.Screen
         name="Map"
         component={MapScreen}
-        options={{ title: 'Map', headerShown: false }}
+        options={{ title: t.tabs.map, headerShown: false }}
       />
       <Tab.Screen
         name="Profile"
         component={ProfileScreen}
-        options={{ title: 'Profile', headerShown: false }}
+        options={{ title: t.tabs.profile, headerShown: false }}
       />
     </Tab.Navigator>
   );
