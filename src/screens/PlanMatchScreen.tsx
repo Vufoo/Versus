@@ -325,7 +325,6 @@ export default function PlanMatchScreen() {
     for (let i = 0; i < 365; i++) {
       const d = new Date(now);
       d.setDate(now.getDate() - i);
-      if (d > now) continue;
       if (matchDayIds.has(localDateStr(d))) count++;
       else break;
     }

@@ -16,6 +16,9 @@ module.exports = ({ config }) => ({
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.vufoo.versus',
+    entitlements: {
+      'aps-environment': 'production',
+    },
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
       NSLocationWhenInUseUsageDescription:
@@ -37,6 +40,14 @@ module.exports = ({ config }) => ({
     permissions: ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION', 'READ_CONTACTS'],
   },
   plugins: [
+    [
+      'expo-notifications',
+      {
+        icon: './assets/icon_blue.png',
+        color: '#1e3a8a',
+        sounds: [],
+      },
+    ],
     [
       '@react-native-google-signin/google-signin',
       {

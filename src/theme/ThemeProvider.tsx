@@ -1,5 +1,6 @@
 import React, {
   createContext,
+  useCallback,
   useContext,
   useMemo,
   useState,
@@ -45,18 +46,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const setMode = (m: ThemeMode) => {
+  const setMode = useCallback((m: ThemeMode) => {
     setModeState(m);
     AsyncStorage.setItem(THEME_STORAGE_KEY, m);
-  };
+  }, []);
 
-  const toggleMode = () => {
+  const toggleMode = useCallback(() => {
     setModeState((prev) => {
       const next = prev === 'light' ? 'dark' : 'light';
       AsyncStorage.setItem(THEME_STORAGE_KEY, next);
       return next;
     });
-  };
+  }, []);
 
   const value = useMemo<ThemeContextValue>(
     () => ({
@@ -70,7 +71,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       isSignedIn,
       setSignedIn,
     }),
-    [mode, isSignedIn],
+    [mode, isSignedIn, setMode, toggleMode],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

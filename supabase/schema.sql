@@ -709,6 +709,14 @@ begin
   end if;
 end $$;
 
+-- Migration: add paused_at to matches for stable paused-timer display
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'matches' and column_name = 'paused_at') then
+    alter table public.matches add column paused_at timestamptz;
+  end if;
+end $$;
+
 -- Index on match location coordinates for spatial queries on the map
 create index if not exists matches_location_idx
   on public.matches (location_lat, location_lng)
@@ -725,6 +733,7 @@ select
   m.scheduled_at,
   m.started_at,
   m.ended_at,
+  m.paused_at,
   m.match_type,
   m.status,
   m.is_public,

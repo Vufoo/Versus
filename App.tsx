@@ -10,7 +10,7 @@ import LoginScreen from './src/screens/LoginScreen';
 import SignupScreen from './src/screens/SignupScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
 import { supabase } from './src/lib/supabase';
-import { registerPushToken } from './src/lib/pushNotifications';
+import { registerPushToken, configureNotificationHandler } from './src/lib/pushNotifications';
 import { lightColors } from './src/constants/theme';
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -26,6 +26,14 @@ function AppShell() {
       if (session) setSignedIn(true);
       setAuthChecked(true);
     });
+  }, [setSignedIn]);
+
+  // Listen for auth state changes so session expiry or remote sign-out is handled automatically.
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') setSignedIn(false);
+    });
+    return () => subscription.unsubscribe();
   }, [setSignedIn]);
 
   const navTheme = useMemo(
@@ -105,7 +113,12 @@ function AppShell() {
     };
   }, [isSignedIn]);
 
-  // Register for iOS push notifications whenever the user is signed in
+  // Configure foreground notification display once on mount
+  useEffect(() => {
+    configureNotificationHandler();
+  }, []);
+
+  // Register device token whenever the user signs in
   useEffect(() => {
     if (isSignedIn) registerPushToken();
   }, [isSignedIn]);

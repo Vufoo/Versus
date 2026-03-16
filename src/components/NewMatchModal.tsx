@@ -273,7 +273,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
 
   useEffect(() => { if (initialSport) setSport(initialSport); }, [initialSport]);
   useEffect(() => { if (initialMatchType) setMatchType(initialMatchType as 'casual' | 'ranked' | 'practice'); }, [initialMatchType]);
-  useEffect(() => { if (SPORTS_NO_RANKED.includes(sport) && matchType === 'ranked') setMatchType('casual'); }, [sport]);
+  useEffect(() => { if (SPORTS_NO_RANKED.includes(sport) && matchType === 'ranked') setMatchType('casual'); }, [sport, matchType]);
   useEffect(() => {
     if (initialLocation) {
       setLocation(initialLocation.name);
@@ -318,19 +318,11 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
       const { data: p } = await supabase.from('profiles').select('username').eq('user_id', user.id).maybeSingle();
       if (p?.username) setCurrentUsername(p.username);
 
-      // Users you follow (accepted)
-      const { data: outRows } = await supabase
-        .from('follows')
-        .select('followed_id')
-        .eq('follower_id', user.id)
-        .eq('status', 'accepted');
-
-      // Users who follow you (accepted)
-      const { data: inRows } = await supabase
-        .from('follows')
-        .select('follower_id')
-        .eq('followed_id', user.id)
-        .eq('status', 'accepted');
+      // Fetch both follow directions in parallel
+      const [{ data: outRows }, { data: inRows }] = await Promise.all([
+        supabase.from('follows').select('followed_id').eq('follower_id', user.id).eq('status', 'accepted'),
+        supabase.from('follows').select('follower_id').eq('followed_id', user.id).eq('status', 'accepted'),
+      ]);
 
       const followingIds = (outRows ?? []).map((r: any) => r.followed_id as string);
       const followerIds = (inRows ?? []).map((r: any) => r.follower_id as string);

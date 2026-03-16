@@ -176,38 +176,52 @@ function createStyles(colors: ThemeColors) {
     /* ---- Ranks overview grid ---- */
     ranksSection: {
       marginHorizontal: spacing.lg,
-      marginBottom: spacing.lg,
+      marginBottom: spacing.xs,
     },
     ranksSectionTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.xs },
     ranksGrid: {
       flexDirection: 'row',
-      gap: spacing.md,
-      justifyContent: 'center',
+      gap: spacing.sm,
+      marginHorizontal: spacing.lg,
+      marginBottom: spacing.md,
     },
     rankCard: {
       flex: 1,
       minWidth: 0,
       backgroundColor: colors.cardBg,
-      borderRadius: borderRadius.lg,
-      padding: spacing.sm,
+      borderRadius: borderRadius.md,
+      paddingVertical: 6,
+      paddingHorizontal: spacing.xs,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: colors.primary + '30',
       alignItems: 'center',
+      gap: 1,
     },
-    rankCardEmoji: { fontSize: 20, marginBottom: 2 },
-    rankCardSport: { ...typography.label, fontSize: 12, color: colors.text, textAlign: 'center' },
-    rankCardTier: { ...typography.caption, color: colors.primary, fontWeight: '600', fontSize: 10, textAlign: 'center', marginBottom: spacing.xs },
+    rankCardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+    },
+    rankCardEmoji: { fontSize: 12 },
+    rankCardSport: { ...typography.label, fontSize: 11, color: colors.text, flexShrink: 1 },
+    rankCardTier: { ...typography.caption, color: colors.primary, fontWeight: '700', fontSize: 10 },
     rankCardBottomRow: {
       flexDirection: 'row',
-      justifyContent: 'space-around',
       alignItems: 'center',
+      marginTop: 3,
+      paddingTop: 3,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
       alignSelf: 'stretch',
+      justifyContent: 'center',
+      gap: 3,
     },
-    rankCardVp: { ...typography.heading, fontSize: 16, color: '#2563EB' },
+    rankCardVp: { ...typography.heading, fontSize: 12, color: colors.primary },
     rankCardVpLabel: { ...typography.caption, color: colors.textSecondary, fontSize: 9 },
-    rankCardStat: { alignItems: 'center' },
-    rankCardStatValue: { ...typography.label, fontSize: 12, color: colors.text },
+    rankCardStat: { alignItems: 'center', flexDirection: 'row', gap: 2 },
+    rankCardStatValue: { ...typography.label, fontSize: 11, color: colors.text },
     rankCardStatLabel: { ...typography.caption, fontSize: 9, color: colors.textSecondary },
+    rankCardDot: { width: 2, height: 2, borderRadius: 1, backgroundColor: colors.border },
     dotsRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.xs, marginTop: spacing.sm },
     dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.border },
     dotActive: { backgroundColor: colors.primary },
@@ -220,7 +234,7 @@ function createStyles(colors: ThemeColors) {
       padding: spacing.lg,
       marginBottom: spacing.md,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: colors.primary + '30',
     },
     cardTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.sm },
     cardSubtitle: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md },
@@ -236,7 +250,7 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.background,
     },
     sportChipSelected: { backgroundColor: colors.primary, borderColor: colors.primaryDark },
-    sportChipLabel: { ...typography.label, color: colors.textSecondary },
+    sportChipLabel: { ...typography.label, color: colors.text },
     sportChipLabelSelected: { color: colors.textOnPrimary },
     savingRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm },
     savingText: { ...typography.caption, color: colors.textSecondary },
@@ -332,10 +346,10 @@ function createStyles(colors: ThemeColors) {
     sectionSubtitle: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
     matchHistoryList: {
       marginHorizontal: spacing.lg,
-      backgroundColor: colors.cardBg,
+      backgroundColor: colors.primary + '05',
       borderRadius: borderRadius.lg,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: colors.primary + '30',
       overflow: 'hidden',
       marginBottom: spacing.md,
     },
@@ -845,31 +859,35 @@ export default function ProfileScreen() {
           <>
             <View style={styles.ranksSection}>
               <Text style={styles.ranksSectionTitle}>{t.profile.sportRanks}</Text>
-              <View style={styles.ranksGrid}>
-                {top3Rankings.map((item) => (
-                  <View key={item.sport} style={styles.rankCard}>
+            </View>
+            <View style={styles.ranksGrid}>
+              {top3Rankings.map((item) => (
+                <View key={item.sport} style={styles.rankCard}>
+                  <View style={styles.rankCardHeader}>
                     <Text style={styles.rankCardEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
                     <Text style={styles.rankCardSport} numberOfLines={1}>{item.sport}</Text>
-                    <Text style={[styles.rankCardTier, { color: tierColor(item.rank_tier) }]}>
-                      {item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}
-                    </Text>
-                    <View style={styles.rankCardBottomRow}>
-                      <View style={styles.rankCardStat}>
-                        <Text style={styles.rankCardStatValue}>{item.wins}</Text>
-                        <Text style={styles.rankCardStatLabel}>W</Text>
-                      </View>
-                      <View style={styles.rankCardStat}>
-                        <Text style={styles.rankCardVp}>{item.vp}</Text>
-                        <Text style={styles.rankCardVpLabel}>VP</Text>
-                      </View>
-                      <View style={styles.rankCardStat}>
-                        <Text style={styles.rankCardStatValue}>{item.losses}</Text>
-                        <Text style={styles.rankCardStatLabel}>L</Text>
-                      </View>
+                  </View>
+                  <Text style={[styles.rankCardTier, { color: tierColor(item.rank_tier) }]}>
+                    {item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : t.common.unranked}
+                  </Text>
+                  <View style={styles.rankCardBottomRow}>
+                    <View style={styles.rankCardStat}>
+                      <Text style={styles.rankCardStatValue}>{item.wins}</Text>
+                      <Text style={styles.rankCardStatLabel}>W</Text>
+                    </View>
+                    <View style={styles.rankCardDot} />
+                    <View style={styles.rankCardStat}>
+                      <Text style={styles.rankCardVp}>{item.vp}</Text>
+                      <Text style={styles.rankCardVpLabel}>VP</Text>
+                    </View>
+                    <View style={styles.rankCardDot} />
+                    <View style={styles.rankCardStat}>
+                      <Text style={styles.rankCardStatValue}>{item.losses}</Text>
+                      <Text style={styles.rankCardStatLabel}>L</Text>
                     </View>
                   </View>
-                ))}
-              </View>
+                </View>
+              ))}
             </View>
 
             <View style={styles.sectionHeader}>

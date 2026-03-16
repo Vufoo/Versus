@@ -66,6 +66,7 @@ type FeedMatch = {
   scheduled_at: string | null;
   started_at: string | null;
   ended_at: string | null;
+  paused_at: string | null;
   updated_at?: string | null;
   match_type: string;
   status: string;
@@ -583,7 +584,8 @@ function FeedCard({
   const durationMs = item.ended_at && item.started_at
     ? new Date(item.ended_at).getTime() - new Date(item.started_at).getTime()
     : isInProgress ? elapsedMs
-    : isPaused && item.started_at ? Date.now() - new Date(item.started_at).getTime()
+    : isPaused && item.paused_at && item.started_at
+      ? new Date(item.paused_at).getTime() - new Date(item.started_at).getTime()
     : 0;
 
   const isRanked = String(item.match_type || '').toLowerCase() === 'ranked';
@@ -683,12 +685,13 @@ function FeedCard({
     if (!currentUserId || startStopLoading) return;
     setStartStopLoading(true);
     try {
-      const { data } = await supabase.from('matches').update({ status: 'paused' })
+      const pausedAt = new Date().toISOString();
+      const { data } = await supabase.from('matches').update({ status: 'paused', paused_at: pausedAt })
         .eq('id', item.id)
         .eq('status', 'in_progress')
         .select('id');
       if (data && data.length > 0) {
-        updateFeedItem(item.id, (m) => ({ ...m, status: 'paused' }));
+        updateFeedItem(item.id, (m) => ({ ...m, status: 'paused', paused_at: pausedAt }));
         onNotifyUpdate?.();
       }
     } catch { /* swallow */ }
@@ -699,12 +702,12 @@ function FeedCard({
     if (!currentUserId || startStopLoading) return;
     setStartStopLoading(true);
     try {
-      const { data } = await supabase.from('matches').update({ status: 'in_progress' })
+      const { data } = await supabase.from('matches').update({ status: 'in_progress', paused_at: null })
         .eq('id', item.id)
         .eq('status', 'paused')
         .select('id');
       if (data && data.length > 0) {
-        updateFeedItem(item.id, (m) => ({ ...m, status: 'in_progress' }));
+        updateFeedItem(item.id, (m) => ({ ...m, status: 'in_progress', paused_at: null }));
         onNotifyUpdate?.();
       }
     } catch { /* swallow */ }
@@ -2839,7 +2842,7 @@ function createHomeStyles(colors: ThemeColors) {
       justifyContent: 'center',
       gap: 3,
       backgroundColor: 'transparent',
-      borderWidth: 1.5,
+      borderWidth: 1,
       borderColor: colors.primary,
       paddingHorizontal: 9,
       paddingVertical: 4,
@@ -2887,7 +2890,7 @@ function createHomeStyles(colors: ThemeColors) {
       justifyContent: 'center',
       gap: 3,
       backgroundColor: 'transparent',
-      borderWidth: 1.5,
+      borderWidth: 1,
       borderColor: colors.error,
       paddingHorizontal: 9,
       paddingVertical: 4,
@@ -2901,7 +2904,7 @@ function createHomeStyles(colors: ThemeColors) {
       justifyContent: 'center',
       gap: 3,
       backgroundColor: 'transparent',
-      borderWidth: 1.5,
+      borderWidth: 1,
       borderColor: colors.success,
       paddingHorizontal: 9,
       paddingVertical: 4,
@@ -2948,7 +2951,7 @@ function createHomeStyles(colors: ThemeColors) {
       paddingHorizontal: 9,
       paddingVertical: 4,
       backgroundColor: 'transparent',
-      borderWidth: 1.5,
+      borderWidth: 1,
       borderColor: colors.error,
       borderRadius: borderRadius.sm,
       minWidth: 72,
