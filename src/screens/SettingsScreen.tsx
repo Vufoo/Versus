@@ -218,6 +218,14 @@ export default function SettingsScreen() {
       } catch {
         // native module not available or user didn't sign in with Google — skip
       }
+      // Clear push token before signing out so this device stops receiving
+      // notifications for this account after another user logs in.
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from('profiles').update({ push_token: null }).eq('user_id', user.id);
+        }
+      } catch { /* non-critical */ }
       await supabase.auth.signOut();
       setSignedIn(false);
       navigation.goBack();

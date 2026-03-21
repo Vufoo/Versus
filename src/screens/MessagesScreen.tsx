@@ -314,7 +314,7 @@ export default function MessagesScreen() {
               return bTime.localeCompare(aTime);
             }).map((f) => {
               const meta = conversationByUser[f.user_id];
-              const preview = meta?.latestBody ?? (f.username ? `@${f.username}` : t.messages.tapToMessage);
+              const preview = meta?.latestBody ?? '';
               const unread = Boolean(
                 meta?.latestFromOther &&
                 meta?.latestCreatedAt &&

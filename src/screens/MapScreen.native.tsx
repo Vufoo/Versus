@@ -10,12 +10,12 @@ import {
   Alert,
   Animated,
   ScrollView,
-  RefreshControl,
+  Modal,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker, Callout, CalloutSubview, Circle } from 'react-native-maps';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
@@ -91,6 +91,44 @@ type NearbyMatch = {
   isCurrentUserParticipant: boolean;
 };
 
+type MapMarker =
+  | { kind: 'user'; id: string; lat: number; lng: number; data: NearbyUser }
+  | { kind: 'match'; id: string; lat: number; lng: number; data: NearbyMatch };
+
+type MarkerGroup = { centerLat: number; centerLng: number; items: MapMarker[] };
+
+function groupMapMarkers(
+  markers: MapMarker[],
+  latDelta: number,
+  lngDelta: number,
+  mapW: number,
+  mapH: number,
+  thresholdPx = 44,
+): MarkerGroup[] {
+  const pxPerLat = mapH / latDelta;
+  const pxPerLng = mapW / lngDelta;
+  const used = new Set<number>();
+  const groups: MarkerGroup[] = [];
+  for (let i = 0; i < markers.length; i++) {
+    if (used.has(i)) continue;
+    const group: MapMarker[] = [markers[i]];
+    used.add(i);
+    for (let j = i + 1; j < markers.length; j++) {
+      if (used.has(j)) continue;
+      const dy = (markers[i].lat - markers[j].lat) * pxPerLat;
+      const dx = (markers[i].lng - markers[j].lng) * pxPerLng;
+      if (Math.sqrt(dx * dx + dy * dy) < thresholdPx) {
+        group.push(markers[j]);
+        used.add(j);
+      }
+    }
+    const centerLat = group.reduce((s, m) => s + m.lat, 0) / group.length;
+    const centerLng = group.reduce((s, m) => s + m.lng, 0) / group.length;
+    groups.push({ centerLat, centerLng, items: group });
+  }
+  return groups;
+}
+
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
@@ -142,9 +180,9 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: spacing.sm + 2,
       paddingVertical: 4,
       borderRadius: borderRadius.full,
-      backgroundColor: 'rgba(255,255,255,0.92)',
+      backgroundColor: colors.cardBg,
       borderWidth: 1,
-      borderColor: 'rgba(0,0,0,0.1)',
+      borderColor: colors.border,
     },
     radiusChipActive: {
       backgroundColor: colors.primary,
@@ -308,11 +346,75 @@ function createStyles(colors: ThemeColors) {
     droppedPinCancel: {
       padding: spacing.sm,
     },
+    clusterBadge: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 2.5,
+      borderColor: '#fff',
+      shadowColor: '#000',
+      shadowOpacity: 0.3,
+      shadowOffset: { width: 0, height: 2 },
+      shadowRadius: 4,
+      elevation: 5,
+    },
+    clusterBadgeText: { color: '#fff', fontSize: 14, fontWeight: '700' as const },
+    clusterOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.4)',
+      justifyContent: 'flex-end',
+    },
+    clusterSheet: {
+      backgroundColor: colors.surface,
+      borderTopLeftRadius: borderRadius.lg,
+      borderTopRightRadius: borderRadius.lg,
+      maxHeight: '65%',
+      paddingBottom: spacing.xl,
+    },
+    clusterHandle: {
+      width: 40,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.border,
+      alignSelf: 'center',
+      marginTop: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    clusterSheetTitle: {
+      ...typography.label,
+      color: colors.text,
+      fontSize: 15,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    clusterItem: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    clusterItemTitle: { ...typography.label, color: colors.text, fontSize: 14, marginBottom: 2 },
+    clusterItemSub: { ...typography.caption, color: colors.textSecondary, fontSize: 12, marginBottom: 2 },
+    clusterItemAction: {
+      marginTop: spacing.sm,
+      backgroundColor: colors.primary,
+      paddingVertical: 6,
+      paddingHorizontal: spacing.md,
+      borderRadius: borderRadius.sm,
+      alignSelf: 'flex-start' as const,
+    },
+    clusterItemActionText: { ...typography.label, color: '#fff', fontSize: 12 },
+    clusterItemActionDisabled: { backgroundColor: '#6B7280' },
   });
 }
 
 export default function MapScreen() {
-  const { colors } = useTheme();
+  const { colors, mode } = useTheme();
   const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
@@ -331,6 +433,9 @@ export default function MapScreen() {
   const [currentUserProfile, setCurrentUserProfile] = useState<{ avatar_url: string | null; username: string | null; full_name: string | null } | null>(null);
   const [myAvatarUrl, setMyAvatarUrl] = useState<string | null>(null);
   const [joiningMatchId, setJoiningMatchId] = useState<string | null>(null);
+  const [mapRegion, setMapRegion] = useState(DEFAULT_REGION);
+  const [mapSize, setMapSize] = useState({ width: 375, height: 600 });
+  const [clusterModal, setClusterModal] = useState<{ visible: boolean; items: MapMarker[] }>({ visible: false, items: [] });
   const [radiusMiles, setRadiusMiles] = useState(5);
   const radiusRef = useRef(5);
 
@@ -371,6 +476,14 @@ export default function MapScreen() {
     }
     return DEFAULT_REGION;
   }, [coords]);
+
+  const markerGroups = useMemo(() => {
+    const all: MapMarker[] = [
+      ...nearbyUsers.map(u => ({ kind: 'user' as const, id: u.user_id, lat: u.last_lat, lng: u.last_lng, data: u })),
+      ...nearbyMatches.map(m => ({ kind: 'match' as const, id: m.id, lat: m.location_lat, lng: m.location_lng, data: m })),
+    ];
+    return groupMapMarkers(all, mapRegion.latitudeDelta, mapRegion.longitudeDelta, mapSize.width, mapSize.height);
+  }, [nearbyUsers, nearbyMatches, mapRegion, mapSize]);
 
   useEffect(() => {
     (async () => {
@@ -739,29 +852,11 @@ export default function MapScreen() {
   };
 
   return (
-    <ScrollView
-      style={[styles.container, { paddingTop: insets.top + spacing.lg }]}
-      contentContainerStyle={{ flexGrow: 1 }}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={handleRefresh}
-          tintColor={colors.text}
-          colors={[colors.primary]}
-          progressBackgroundColor={colors.cardBg}
-        />
-      }
-    >
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>{t.map.title}</Text>
-          <Text style={styles.subtitle}>
-            Your location · Nearby players and open matches
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.mapContainer}>
+    <View style={styles.container}>
+      <View
+        style={styles.mapContainer}
+        onLayout={(e) => setMapSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
+      >
         <MapView
           ref={mapRef}
           style={styles.map}
@@ -769,8 +864,10 @@ export default function MapScreen() {
           showsMyLocationButton={false}
           showsCompass
           mapType="standard"
+          userInterfaceStyle={mode === 'dark' ? 'dark' : 'light'}
           onLongPress={handleMapLongPress}
           onPress={() => { if (droppedPin) clearDroppedPin(); }}
+          onRegionChangeComplete={(r) => setMapRegion(r)}
         >
           {/* Current user's profile picture pin */}
           {coords && (
@@ -811,140 +908,100 @@ export default function MapScreen() {
             />
           )}
 
-          {nearbyUsers.map((u) => {
-            if (u.isFriend) {
-              // Friend: profile picture pin with callout
-              const initial = (u.full_name ?? u.username ?? '?')[0].toUpperCase();
-              return (
-                <Marker
-                  key={`user-${u.user_id}`}
-                  coordinate={{ latitude: u.last_lat, longitude: u.last_lng }}
-                >
-                  <View style={styles.profilePin}>
-                    {u.avatar_url ? (
-                      <Image source={{ uri: u.avatar_url }} style={styles.profilePinImage} />
-                    ) : (
-                      <View style={styles.profilePinFallback}>
-                        <Text style={styles.profilePinInitial}>{initial}</Text>
+          {markerGroups.map((group, i) => {
+            // Single marker — render as normal
+            if (group.items.length === 1) {
+              const item = group.items[0];
+              if (item.kind === 'user') {
+                const u = item.data;
+                if (u.isFriend) {
+                  const initial = (u.full_name ?? u.username ?? '?')[0].toUpperCase();
+                  return (
+                    <Marker key={`user-${u.user_id}`} coordinate={{ latitude: u.last_lat, longitude: u.last_lng }}>
+                      <View style={styles.profilePin}>
+                        {u.avatar_url ? (
+                          <Image source={{ uri: u.avatar_url }} style={styles.profilePinImage} />
+                        ) : (
+                          <View style={styles.profilePinFallback}>
+                            <Text style={styles.profilePinInitial}>{initial}</Text>
+                          </View>
+                        )}
                       </View>
-                    )}
-                  </View>
-                  <Callout tooltip={false}>
-                    <View style={styles.calloutContainer}>
-                      <Text style={styles.calloutTitle}>{u.full_name ?? u.username ?? 'Friend'}</Text>
-                      {u.username ? <Text style={styles.calloutSport}>@{u.username}</Text> : null}
-                      <CalloutSubview onPress={() => navigation.navigate('UserProfile', { userId: u.user_id })}>
-                        <View style={styles.calloutJoin}>
-                          <Text style={styles.calloutJoinText}>View profile</Text>
+                      <Callout tooltip={false}>
+                        <View style={styles.calloutContainer}>
+                          <Text style={styles.calloutTitle}>{u.full_name ?? u.username ?? 'Friend'}</Text>
+                          {u.username ? <Text style={styles.calloutSport}>@{u.username}</Text> : null}
+                          <CalloutSubview onPress={() => navigation.navigate('UserProfile', { userId: u.user_id })}>
+                            <View style={styles.calloutJoin}><Text style={styles.calloutJoinText}>View profile</Text></View>
+                          </CalloutSubview>
                         </View>
-                      </CalloutSubview>
+                      </Callout>
+                    </Marker>
+                  );
+                }
+                return (
+                  <Marker key={`user-${u.user_id}`} coordinate={{ latitude: u.last_lat, longitude: u.last_lng }} pinColor={colors.textSecondary}>
+                    <Callout tooltip={false}>
+                      <View style={styles.calloutContainer}>
+                        <Text style={styles.calloutTitle}>{u.full_name ?? u.username ?? 'Player'}</Text>
+                        {u.username ? <Text style={styles.calloutSport}>@{u.username}</Text> : null}
+                        <CalloutSubview onPress={() => navigation.navigate('UserProfile', { userId: u.user_id })}>
+                          <View style={styles.calloutJoin}><Text style={styles.calloutJoinText}>View profile</Text></View>
+                        </CalloutSubview>
+                      </View>
+                    </Callout>
+                  </Marker>
+                );
+              }
+              // Single match marker
+              const m = item.data;
+              const maxSlots = m.match_format === '2v2' ? 4 : 2;
+              const isFull = m.participant_count >= maxSlots;
+              const canJoin = m.is_public && !m.isCurrentUserParticipant && m.status !== 'completed';
+              const pinSize = m.isFriendMatch ? 42 : 36;
+              return (
+                <Marker key={`match-${m.id}`} coordinate={{ latitude: m.location_lat, longitude: m.location_lng }}>
+                  <View style={{ width: pinSize + 12, height: pinSize + 12, borderRadius: (pinSize + 12) / 2, backgroundColor: '#1E3A8A', borderWidth: 2.5, borderColor: '#1E3A8A', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.3, shadowOffset: { width: 0, height: 2 }, shadowRadius: 4, elevation: 4 }}>
+                    <Image source={versusPin} style={{ width: pinSize - 4, height: pinSize - 4, resizeMode: 'contain' }} />
+                  </View>
+                  <Callout tooltip={true}>
+                    <View style={styles.calloutContainer}>
+                      {m.isFriendMatch && <View style={styles.calloutFriendBadge}><Text style={styles.calloutFriendBadgeText}>Following</Text></View>}
+                      <Text style={styles.calloutTitle}>{sportLabel(m.sport_name)} {m.match_format}</Text>
+                      <Text style={styles.calloutSport}>{m.match_type.charAt(0).toUpperCase() + m.match_type.slice(1)} · {matchStatusLabel(m.status)}</Text>
+                      <Text style={styles.calloutDetail} numberOfLines={1}>{generalizeLocation(m.location_name)}</Text>
+                      <Text style={styles.calloutDetail}>By @{m.creator_username ?? 'unknown'} · {m.participant_count}/{maxSlots} players</Text>
+                      {m.scheduled_at && m.status !== 'completed' && (
+                        <Text style={styles.calloutDetail}>{new Date(m.scheduled_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</Text>
+                      )}
+                      {canJoin && !isFull && (
+                        <CalloutSubview onPress={() => handleRequestJoin(m)}>
+                          <View style={[styles.calloutJoin, (requestedMatchIds.has(m.id) || deniedMatchIds.has(m.id)) && { backgroundColor: '#6B7280' }]}>
+                            <Text style={styles.calloutJoinText}>{joiningMatchId === m.id ? 'Sending...' : deniedMatchIds.has(m.id) ? 'Request Denied' : requestedMatchIds.has(m.id) ? 'Requested' : 'Request to Join'}</Text>
+                          </View>
+                        </CalloutSubview>
+                      )}
+                      {canJoin && isFull && <View style={[styles.calloutJoin, { backgroundColor: '#888' }]}><Text style={styles.calloutJoinText}>Full ({m.participant_count}/{maxSlots})</Text></View>}
+                      {!m.is_public && <Text style={[styles.calloutDetail, { fontStyle: 'italic' }]}>Private match</Text>}
                     </View>
                   </Callout>
                 </Marker>
               );
             }
-            // Non-friend nearby user: grey dot pin with profile callout
-            return (
-              <Marker
-                key={`user-${u.user_id}`}
-                coordinate={{ latitude: u.last_lat, longitude: u.last_lng }}
-                pinColor={colors.textSecondary}
-              >
-                <Callout tooltip={false}>
-                  <View style={styles.calloutContainer}>
-                    <Text style={styles.calloutTitle}>{u.full_name ?? u.username ?? 'Player'}</Text>
-                    {u.username ? <Text style={styles.calloutSport}>@{u.username}</Text> : null}
-                    <CalloutSubview onPress={() => navigation.navigate('UserProfile', { userId: u.user_id })}>
-                      <View style={styles.calloutJoin}>
-                        <Text style={styles.calloutJoinText}>View profile</Text>
-                      </View>
-                    </CalloutSubview>
-                  </View>
-                </Callout>
-              </Marker>
-            );
-          })}
 
-          {nearbyMatches.map((m) => {
-            const maxSlots = m.match_format === '2v2' ? 4 : 2;
-            const isFull = m.participant_count >= maxSlots;
-            const canJoin = m.is_public && !m.isCurrentUserParticipant && m.status !== 'completed';
-            // Friend matches shown slightly larger so they stand out
-            const pinSize = m.isFriendMatch ? 42 : 36;
+            // Cluster marker — multiple overlapping items
+            const hasMatch = group.items.some(it => it.kind === 'match');
+            const hasUser = group.items.some(it => it.kind === 'user');
+            const badgeColor = hasMatch && hasUser ? '#7C3AED' : hasMatch ? '#1E3A8A' : '#6B7280';
             return (
               <Marker
-                key={`match-${m.id}`}
-                coordinate={{ latitude: m.location_lat, longitude: m.location_lng }}
+                key={`cluster-${i}`}
+                coordinate={{ latitude: group.centerLat, longitude: group.centerLng }}
+                onPress={() => setClusterModal({ visible: true, items: group.items })}
               >
-                <View style={{
-                  width: pinSize + 12,
-                  height: pinSize + 12,
-                  borderRadius: (pinSize + 12) / 2,
-                  backgroundColor: '#1E3A8A',
-                  borderWidth: 2.5,
-                  borderColor: '#1E3A8A',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  shadowColor: '#000',
-                  shadowOpacity: 0.3,
-                  shadowOffset: { width: 0, height: 2 },
-                  shadowRadius: 4,
-                  elevation: 4,
-                }}>
-                  <Image source={versusPin} style={{ width: pinSize - 4, height: pinSize - 4, resizeMode: 'contain' }} />
+                <View style={[styles.clusterBadge, { backgroundColor: badgeColor }]}>
+                  <Text style={styles.clusterBadgeText}>{group.items.length}</Text>
                 </View>
-                <Callout tooltip={true}>
-                  <View style={styles.calloutContainer}>
-                    {m.isFriendMatch && (
-                      <View style={styles.calloutFriendBadge}>
-                        <Text style={styles.calloutFriendBadgeText}>Following</Text>
-                      </View>
-                    )}
-                    <Text style={styles.calloutTitle}>
-                      {sportLabel(m.sport_name)} {m.match_format}
-                    </Text>
-                    <Text style={styles.calloutSport}>
-                      {m.match_type.charAt(0).toUpperCase() + m.match_type.slice(1)} · {matchStatusLabel(m.status)}
-                    </Text>
-                    <Text style={styles.calloutDetail} numberOfLines={1}>
-                      {generalizeLocation(m.location_name)}
-                    </Text>
-                    <Text style={styles.calloutDetail}>
-                      By @{m.creator_username ?? 'unknown'} · {m.participant_count}/{maxSlots} players
-                    </Text>
-                    {m.scheduled_at && m.status !== 'completed' && (
-                      <Text style={styles.calloutDetail}>
-                        {new Date(m.scheduled_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                      </Text>
-                    )}
-                    {canJoin && !isFull && (
-                      <CalloutSubview onPress={() => handleRequestJoin(m)}>
-                        <View style={[
-                          styles.calloutJoin,
-                          (requestedMatchIds.has(m.id) || deniedMatchIds.has(m.id)) && { backgroundColor: '#6B7280' },
-                        ]}>
-                          <Text style={styles.calloutJoinText}>
-                            {joiningMatchId === m.id
-                              ? 'Sending...'
-                              : deniedMatchIds.has(m.id)
-                              ? 'Request Denied'
-                              : requestedMatchIds.has(m.id)
-                              ? 'Requested'
-                              : 'Request to Join'}
-                          </Text>
-                        </View>
-                      </CalloutSubview>
-                    )}
-                    {canJoin && isFull && (
-                      <View style={[styles.calloutJoin, { backgroundColor: '#888' }]}>
-                        <Text style={styles.calloutJoinText}>Full ({m.participant_count}/{maxSlots})</Text>
-                      </View>
-                    )}
-                    {!m.is_public && (
-                      <Text style={[styles.calloutDetail, { fontStyle: 'italic' }]}>Private match</Text>
-                    )}
-                  </View>
-                </Callout>
               </Marker>
             );
           })}
@@ -983,7 +1040,7 @@ export default function MapScreen() {
           )}
         </MapView>
 
-        <View style={styles.filterRow}>
+        <View style={[styles.filterRow, { top: insets.top + spacing.sm }]}>
           <View style={styles.filterChipRow}>
             {([2, 5, 10, 20] as const).map((mi) => (
               <TouchableOpacity
@@ -1049,11 +1106,87 @@ export default function MapScreen() {
           )}
           {status === 'granted' && coords && (
             <Text style={styles.coordsValue} numberOfLines={1}>
-              {nearbyUsers.length} player{nearbyUsers.length !== 1 ? 's' : ''} · {nearbyMatches.length} match{nearbyMatches.length !== 1 ? 'es' : ''}{nearbyMatches.some(m => m.isFriendMatch) ? ` (${nearbyMatches.filter(m => m.isFriendMatch).length} friends)` : ''}{nearbyPlace ? ` · ${nearbyPlace}` : ''} · Hold to pin
+              {nearbyMatches.length} match{nearbyMatches.length !== 1 ? 'es' : ''} nearby{nearbyPlace ? ` · ${nearbyPlace}` : ''} · Hold to pin
             </Text>
           )}
         </View>
       )}
+
+      <Modal
+        visible={clusterModal.visible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setClusterModal({ visible: false, items: [] })}
+      >
+        <TouchableOpacity
+          style={styles.clusterOverlay}
+          activeOpacity={1}
+          onPress={() => setClusterModal({ visible: false, items: [] })}
+        >
+          <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+            <View style={styles.clusterSheet}>
+              <View style={styles.clusterHandle} />
+              <Text style={styles.clusterSheetTitle}>
+                {clusterModal.items.length} pins at this location
+              </Text>
+              <ScrollView>
+                {clusterModal.items.map((item) => {
+                  if (item.kind === 'user') {
+                    const u = item.data;
+                    return (
+                      <View key={`ci-user-${u.user_id}`} style={styles.clusterItem}>
+                        <Text style={styles.clusterItemTitle}>{u.full_name ?? u.username ?? 'Player'}</Text>
+                        {u.username ? <Text style={styles.clusterItemSub}>@{u.username}</Text> : null}
+                        {u.isFriend && <Text style={[styles.clusterItemSub, { color: colors.primary }]}>Following</Text>}
+                        <TouchableOpacity
+                          style={styles.clusterItemAction}
+                          onPress={() => { setClusterModal({ visible: false, items: [] }); navigation.navigate('UserProfile', { userId: u.user_id }); }}
+                        >
+                          <Text style={styles.clusterItemActionText}>View profile</Text>
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  }
+                  const m = item.data;
+                  const maxSlots = m.match_format === '2v2' ? 4 : 2;
+                  const isFull = m.participant_count >= maxSlots;
+                  const canJoin = m.is_public && !m.isCurrentUserParticipant && m.status !== 'completed';
+                  const isRequested = requestedMatchIds.has(m.id);
+                  const isDenied = deniedMatchIds.has(m.id);
+                  return (
+                    <View key={`ci-match-${m.id}`} style={styles.clusterItem}>
+                      {m.isFriendMatch && <Text style={[styles.clusterItemSub, { color: colors.primary }]}>Following</Text>}
+                      <Text style={styles.clusterItemTitle}>{sportLabel(m.sport_name)} {m.match_format}</Text>
+                      <Text style={styles.clusterItemSub}>{m.match_type.charAt(0).toUpperCase() + m.match_type.slice(1)} · {matchStatusLabel(m.status)}</Text>
+                      <Text style={styles.clusterItemSub} numberOfLines={1}>{generalizeLocation(m.location_name)}</Text>
+                      <Text style={styles.clusterItemSub}>By @{m.creator_username ?? 'unknown'} · {m.participant_count}/{maxSlots} players</Text>
+                      {m.scheduled_at && m.status !== 'completed' && (
+                        <Text style={styles.clusterItemSub}>{new Date(m.scheduled_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</Text>
+                      )}
+                      {!m.is_public && <Text style={[styles.clusterItemSub, { fontStyle: 'italic' }]}>Private match</Text>}
+                      {canJoin && (
+                        <TouchableOpacity
+                          style={[styles.clusterItemAction, (isFull || isRequested || isDenied) && styles.clusterItemActionDisabled]}
+                          onPress={() => {
+                            if (!isFull && !isRequested && !isDenied) {
+                              setClusterModal({ visible: false, items: [] });
+                              handleRequestJoin(m);
+                            }
+                          }}
+                        >
+                          <Text style={styles.clusterItemActionText}>
+                            {isFull ? `Full (${m.participant_count}/${maxSlots})` : isDenied ? 'Request Denied' : isRequested ? 'Requested' : 'Request to Join'}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       <NewMatchModal
         visible={showNewMatch}
@@ -1063,6 +1196,6 @@ export default function MapScreen() {
         initialLocation={droppedPin ? { latitude: droppedPin.latitude, longitude: droppedPin.longitude, name: droppedPinName } : null}
         preferredSports={preferredSports}
       />
-    </ScrollView>
+    </View>
   );
 }

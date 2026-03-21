@@ -1,5 +1,5 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text, StyleSheet } from 'react-native';
+import { Text, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { typography } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
@@ -69,10 +69,16 @@ export default function TabNavigator() {
           return <TabLabel focused={focused} label={labelMap[route.name] ?? route.name} colors={colors} />;
         },
         tabBarIcon: ({ focused, color, size }) => {
+          if (route.name === 'Versus') {
+            return (
+              <View style={[styles.versusBtn, { backgroundColor: colors.primary + '18' }]}>
+                <Ionicons name="flash" size={22} color={colors.primary} />
+              </View>
+            );
+          }
           let iconName: keyof typeof Ionicons.glyphMap = 'home-outline';
           if (route.name === 'Home') iconName = focused ? 'home' : 'home-outline';
           if (route.name === 'Plan') iconName = focused ? 'calendar' : 'calendar-outline';
-          if (route.name === 'Versus') iconName = focused ? 'flash' : 'flash-outline';
           if (route.name === 'Map') iconName = focused ? 'location' : 'location-outline';
           if (route.name === 'Profile') iconName = focused ? 'person' : 'person-outline';
           return <Ionicons name={iconName} size={size} color={color} />;
@@ -112,5 +118,12 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 11,
     fontWeight: '500',
+  },
+  versusBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

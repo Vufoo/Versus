@@ -27,7 +27,7 @@ const SCREEN_H = Dimensions.get('window').height;
 type Props = {
   visible: boolean;
   onClose: () => void;
-  onSaved?: () => void;
+  onSaved?: (update?: { winnerRole?: 'challenger' | 'opponent' | 'draw' }) => void;
   colors: ThemeColors;
   currentUserId?: string | null;
   match: {
@@ -284,7 +284,11 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
       }
 
       onClose();
-      onSaved?.();
+      if (isCasual && match.status === 'completed') {
+        onSaved?.({ winnerRole });
+      } else {
+        onSaved?.();
+      }
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Could not save changes.');
     } finally {

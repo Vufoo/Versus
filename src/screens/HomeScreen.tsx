@@ -105,12 +105,16 @@ function Avatar({
   size,
   colors,
   isWinner,
+  ring,
 }: {
   initials: string;
   avatarUrl?: string | null;
   size: number;
   colors: ThemeColors;
   isWinner?: boolean;
+  /** When true, reserves the same layout height as the winner ring (size+14) so
+   *  opposing avatars stay vertically aligned regardless of winner state. */
+  ring?: boolean;
 }) {
   const avatarContent = avatarUrl ? (
     <Image source={{ uri: avatarUrl }} style={{ width: size, height: size, borderRadius: size / 2 }} />
@@ -139,19 +143,20 @@ function Avatar({
 
   if (isWinner) {
     const gold = '#F59E0B';
+    // padding: 4, borderWidth: 3 → total wrapper = size+14; borderRadius = size/2+7 for perfect circle
     return (
-      <View style={{ alignItems: 'center', position: 'relative' }}>
+      <View style={{ alignItems: 'center' }}>
         <View
           style={{
             borderWidth: 3,
             borderColor: gold,
-            borderRadius: size / 2 + 4,
+            borderRadius: size / 2 + 7,
             padding: 4,
           }}
         >
           {avatarContent}
         </View>
-        <View style={{ position: 'absolute', top: -6, left: 0, right: 0, alignItems: 'center' }}>
+        <View style={{ position: 'absolute', top: -10, left: 0, right: 0, alignItems: 'center' }}>
           <View
             style={{
               width: 20,
@@ -168,6 +173,17 @@ function Avatar({
       </View>
     );
   }
+
+  // Non-winner: if ring spacing is reserved, wrap in a container matching the
+  // winner ring height so both sides of the match have identical layout height.
+  if (ring) {
+    return (
+      <View style={{ height: size + 14, alignItems: 'center', justifyContent: 'center' }}>
+        {avatarContent}
+      </View>
+    );
+  }
+
   return avatarContent;
 }
 
@@ -568,6 +584,14 @@ function FeedCard({
   const isParticipant = currentUserId != null &&
     participantsParsed.some((p) => p?.user_id === currentUserId);
   const canControl = isParticipant;
+  // Only render the controls row if at least one button would actually show
+  const hasControlButtons = canControl && item.status !== 'canceled' && (
+    (item.status !== 'in_progress' && item.status !== 'completed' && item.status !== 'paused') ||
+    item.status === 'in_progress' ||
+    item.status === 'paused' ||
+    ((isRanked ? isParticipant : item.created_by === currentUserId) && (item.status === 'pending' || item.status === 'confirmed' || item.status === 'completed')) ||
+    (!isRanked && !isPractice && isParticipant && item.created_by !== currentUserId && (item.status === 'pending' || item.status === 'confirmed' || item.status === 'paused'))
+  );
 
   useEffect(() => {
     if (isInProgress && item.started_at) {
@@ -1013,7 +1037,9 @@ function FeedCard({
     editingScoreRef.current = true;
     setLocalGames((prev) => {
       const next = [...prev];
-      next[idx] = { ...next[idx], [field]: value };
+      const num = parseInt(value, 10);
+      const capped = !isNaN(num) ? String(Math.min(num, 1000)) : value;
+      next[idx] = { ...next[idx], [field]: capped };
       return next;
     });
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
@@ -1027,6 +1053,7 @@ function FeedCard({
     setSaving(true);
     const games = localGamesRef.current;
     try {
+      let savedGames: MatchGame[] = [];
       if (isRanked && myParticipant) {
         // Ranked: update only the current user's score column per game row.
         // Uses ensure-row-exists + column-specific update to avoid overwriting
@@ -1070,7 +1097,7 @@ function FeedCard({
           .select('game_number, score_challenger, score_opponent')
           .eq('match_id', item.id)
           .order('game_number');
-        const savedGames: MatchGame[] = (freshGames ?? []).map((g) => ({
+        savedGames = (freshGames ?? []).map((g) => ({
           game_number: g.game_number,
           score_challenger: g.score_challenger,
           score_opponent: g.score_opponent,
@@ -1085,7 +1112,6 @@ function FeedCard({
       } else {
         // Casual: any participant can write all scores; last writer wins
         await supabase.from('match_games').delete().eq('match_id', item.id);
-        const savedGames: MatchGame[] = [];
         for (let i = 0; i < games.length; i++) {
           const sc = parseInt(games[i].score_challenger, 10) || 0;
           const so = parseInt(games[i].score_opponent, 10) || 0;
@@ -1104,6 +1130,40 @@ function FeedCard({
             if (p2 && p.user_id === p2.user_id) return { ...p, score: String(totalP2) };
             return p;
           }),
+        }));
+      }
+
+      // If match is already completed, re-derive winner from updated scores and sync results
+      if (item.status === 'completed') {
+        const rules = SPORT_SCORING[item.sport_name];
+        const isSetBased = rules === 'set';
+        const lowerWins = rules !== 'set' && !!(rules as { lowerWins?: boolean }).lowerWins;
+        let gamesP1 = 0, gamesP2 = 0;
+        for (const g of savedGames) {
+          const sc = g.score_challenger;
+          const so = g.score_opponent;
+          if (sc === 0 && so === 0) continue;
+          const p1Wins = isSetBased || !lowerWins ? sc > so : sc < so;
+          if (p1Wins) gamesP1++;
+          else if (isSetBased || !lowerWins ? so > sc : so < sc) gamesP2++;
+        }
+        const winner = gamesP1 > gamesP2 ? (p1?.user_id ?? null) : gamesP2 > gamesP1 ? (p2?.user_id ?? null) : null;
+        const winnerParticipant = winner ? (item.participants ?? []).find((p: Participant) => p.user_id === winner) : null;
+        const winningRole = winnerParticipant?.role;
+        const getResult = (p: Participant): string => {
+          if (winner === null) return 'draw';
+          if (is2v2 && winningRole) return p.role === winningRole ? 'win' : 'loss';
+          return winner === p.user_id ? 'win' : 'loss';
+        };
+        for (const p of (item.participants ?? []) as Participant[]) {
+          await supabase.from('match_participants')
+            .update({ result: getResult(p) })
+            .eq('match_id', item.id)
+            .eq('user_id', p.user_id);
+        }
+        updateFeedItem(item.id, (m) => ({
+          ...m,
+          participants: m.participants.map((p) => ({ ...p, result: getResult(p) })),
         }));
       }
     } catch { /* swallow */ }
@@ -1446,8 +1506,8 @@ function FeedCard({
   );
   const hasScore = gamesForDisplay.length > 0;
   const imagesList = (item.images ?? []) as MatchImage[];
-  const mediaRowWidth = Dimensions.get('window').width - 2 * spacing.lg;
-  const halfWidth = (mediaRowWidth - spacing.sm) / 2 - 18;
+  const mediaRowWidth = Dimensions.get('window').width - 2 * spacing.md;
+  const halfWidth = (mediaRowWidth - spacing.sm) / 2;
 
   return (
     <Animated.View style={{ opacity: cardAnim, transform: [{ scale: cardAnim.interpolate({ inputRange: [0, 1], outputRange: [0.93, 1] }) }] }}>
@@ -1504,7 +1564,7 @@ function FeedCard({
                 {/* Creator */}
                 <View style={{ alignItems: 'center', gap: 2, maxWidth: 58 }}>
                   <TouchableOpacity onPress={() => p1 && navigation.navigate('UserProfile', { userId: p1.user_id })} activeOpacity={0.7}>
-                    <Avatar initials={p1 ? getInitials(p1) : '?'} avatarUrl={p1AvatarUrl ?? p1?.avatar_url} size={44} colors={colors} isWinner={isCompleted && p1?.result === 'win'} />
+                    <Avatar initials={p1 ? getInitials(p1) : '?'} avatarUrl={p1AvatarUrl ?? p1?.avatar_url} size={44} colors={colors} isWinner={isCompleted && p1?.result === 'win'} ring={isCompleted} />
                   </TouchableOpacity>
                   <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>{p1 ? getName(p1) : '?'}</Text>
                   {isRanked && p1 && (item.status === 'pending' || item.status === 'confirmed') && (
@@ -1515,7 +1575,7 @@ function FeedCard({
                 <View style={{ alignItems: 'center', gap: 2, maxWidth: 58 }}>
                   {teammate ? (
                     <TouchableOpacity onPress={() => navigation.navigate('UserProfile', { userId: teammate.user_id })} activeOpacity={0.7}>
-                      <Avatar initials={getInitials(teammate)} avatarUrl={partner2AvatarUrl ?? teammate.avatar_url} size={44} colors={colors} isWinner={isCompleted && teammate.result === 'win'} />
+                      <Avatar initials={getInitials(teammate)} avatarUrl={partner2AvatarUrl ?? teammate.avatar_url} size={44} colors={colors} isWinner={isCompleted && teammate.result === 'win'} ring={isCompleted} />
                     </TouchableOpacity>
                   ) : item.status === 'pending' && onInviteOpponent && item.created_by === currentUserId ? (
                     <TouchableOpacity onPress={() => onInviteOpponent(item, 'teammate')} activeOpacity={0.8}>
@@ -1564,6 +1624,7 @@ function FeedCard({
                   size={46}
                   colors={colors}
                   isWinner={isCompleted && p1?.result === 'win'}
+                  ring={isCompleted}
                 />
                 <Text style={styles.playerName} numberOfLines={1}>
                   {getName(p1!)}
@@ -1628,7 +1689,7 @@ function FeedCard({
                       ? (firstWinner.role === 'challenger' ? t.home.team1Wins : t.home.team2Wins)
                       : `${getName(firstWinner)} Wins!`;
                     return (
-                      <Text style={{ fontSize: 15, fontWeight: '800', color: colors.primary, letterSpacing: 0.3, marginBottom: hasScore ? 4 : 2 }}>
+                      <Text style={{ fontSize: 17, fontWeight: '800', color: colors.primary, letterSpacing: 0.3, marginBottom: hasScore ? 4 : 2 }}>
                         {winLabel}
                       </Text>
                     );
@@ -1782,7 +1843,7 @@ function FeedCard({
                 <View style={{ alignItems: 'center', gap: 2, maxWidth: 58 }}>
                   {p2 ? (
                     <TouchableOpacity onPress={() => navigation.navigate('UserProfile', { userId: p2.user_id })} activeOpacity={0.7}>
-                      <Avatar initials={getInitials(p2)} avatarUrl={p2AvatarUrl ?? p2.avatar_url} size={44} colors={colors} isWinner={isCompleted && p2.result === 'win'} />
+                      <Avatar initials={getInitials(p2)} avatarUrl={p2AvatarUrl ?? p2.avatar_url} size={44} colors={colors} isWinner={isCompleted && p2.result === 'win'} ring={isCompleted} />
                     </TouchableOpacity>
                   ) : item.status === 'pending' && onInviteOpponent && item.created_by === currentUserId ? (
                     <TouchableOpacity onPress={() => onInviteOpponent(item, 'opponent')} activeOpacity={0.8}>
@@ -1807,7 +1868,7 @@ function FeedCard({
                 <View style={{ alignItems: 'center', gap: 2, maxWidth: 58 }}>
                   {opponent2 ? (
                     <TouchableOpacity onPress={() => navigation.navigate('UserProfile', { userId: opponent2.user_id })} activeOpacity={0.7}>
-                      <Avatar initials={getInitials(opponent2)} avatarUrl={partner3AvatarUrl ?? opponent2.avatar_url} size={44} colors={colors} isWinner={isCompleted && opponent2.result === 'win'} />
+                      <Avatar initials={getInitials(opponent2)} avatarUrl={partner3AvatarUrl ?? opponent2.avatar_url} size={44} colors={colors} isWinner={isCompleted && opponent2.result === 'win'} ring={isCompleted} />
                     </TouchableOpacity>
                   ) : item.status === 'pending' && onInviteOpponent && item.created_by === currentUserId ? (
                     <TouchableOpacity onPress={() => onInviteOpponent(item, 'opponent_2')} activeOpacity={0.8}>
@@ -1855,6 +1916,7 @@ function FeedCard({
                   size={46}
                   colors={colors}
                   isWinner={isCompleted && p2.result === 'win'}
+                  ring={isCompleted}
                 />
                 <Text style={styles.playerName} numberOfLines={1}>
                   {getName(p2)}
@@ -1878,7 +1940,7 @@ function FeedCard({
                 <TouchableOpacity
                   onPress={() => onInviteOpponent(item, 'opponent')}
                   activeOpacity={0.8}
-                  style={{ alignItems: 'center' }}
+                  style={{ alignItems: 'center', gap: spacing.xs }}
                 >
                   <View style={{ position: 'relative' }}>
                     <Avatar initials="?" size={46} colors={colors} />
@@ -1924,8 +1986,8 @@ function FeedCard({
       </View>
 
       {/* Start / Stop / Score editing / Delete */}
-      {canControl && item.status !== 'canceled' && (
-        <View style={styles.matchControlsRow}>
+      <View style={[styles.matchControlsRow, !hasControlButtons && { paddingTop: spacing.sm, paddingBottom: spacing.sm, marginBottom: 0 }]}>
+        {hasControlButtons && (
           <View style={styles.matchControlsButtonRow}>
             {item.status !== 'in_progress' && item.status !== 'completed' && item.status !== 'paused' && (
               <TouchableOpacity
@@ -2117,7 +2179,8 @@ function FeedCard({
               </TouchableOpacity>
             )}
           </View>
-          {(item.status === 'in_progress' || item.status === 'paused') && !isPractice && (
+        )}
+        {(item.status === 'in_progress' || item.status === 'paused') && !isPractice && (
             <View style={styles.gamesEditSection}>
                 {/* Player name header — aligns above each input column */}
                 <View style={styles.scoreHeaderRow}>
@@ -2180,7 +2243,6 @@ function FeedCard({
               </View>
           )}
         </View>
-      )}
 
       {/* Horizontal scrollable media row: location → photos → add photo */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm, marginHorizontal: -spacing.md }} contentContainerStyle={{ gap: spacing.sm, paddingHorizontal: spacing.md }}>
@@ -2275,7 +2337,7 @@ function FeedCard({
 
       <View style={styles.actionsRow}>
         <TouchableOpacity style={styles.actionBtn} onPress={handleToggleLike} activeOpacity={0.8}>
-          <Ionicons name={liked ? 'heart' : 'heart-outline'} size={18} color={liked ? colors.primary : colors.textSecondary} />
+          <Ionicons name={liked ? 'heart' : 'heart-outline'} size={20} color={liked ? colors.primary : colors.textSecondary} />
           {likesCount > 0 ? (
             <TouchableOpacity onPress={() => setLikersModalVisible(true)} activeOpacity={0.8}>
               <Text style={[styles.actionLabel, liked && { color: colors.primary, fontWeight: '600' }]}>
@@ -2291,11 +2353,11 @@ function FeedCard({
           onPress={() => setCommentsVisible((v) => !v)}
           activeOpacity={0.8}
         >
-          <Ionicons name="chatbubble-outline" size={17} color={colors.textSecondary} />
+          <Ionicons name="chatbubble-outline" size={19} color={colors.textSecondary} />
           <Text style={styles.actionLabel}>{commentsCount > 0 ? `${commentsCount} ` : ''}{commentsCount === 1 ? t.home.comment : t.home.comments}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionBtn} onPress={handleShare} activeOpacity={0.8}>
-          <Ionicons name="share-outline" size={17} color={colors.textSecondary} />
+          <Ionicons name="share-outline" size={19} color={colors.textSecondary} />
           <Text style={styles.actionLabel}>{t.common.share}</Text>
         </TouchableOpacity>
       </View>
@@ -2611,14 +2673,18 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: spacing.lg,
-      paddingTop: spacing.xs,
-      paddingBottom: 0,
+      paddingHorizontal: spacing.md,
+      paddingTop: 0,
+      paddingBottom: 4,
+      backgroundColor: colors.cardBg,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      marginBottom: 2,
     },
     topBarIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 34,
+      height: 34,
+      borderRadius: 17,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
@@ -2642,13 +2708,10 @@ function createHomeStyles(colors: ThemeColors) {
     badgeText: { fontSize: 10, fontWeight: '700', color: '#FFF' },
     switcherRow: {
       flexDirection: 'row',
-      backgroundColor: colors.surface,
-      borderRadius: borderRadius.lg,
-      padding: spacing.xs,
-      borderWidth: 1,
-      borderColor: colors.border,
-      marginHorizontal: spacing.lg,
-      marginBottom: spacing.sm,
+      marginBottom: 2,
+      backgroundColor: colors.cardBg,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
     },
     switcherTab: {
       flex: 1,
@@ -2657,29 +2720,30 @@ function createHomeStyles(colors: ThemeColors) {
       justifyContent: 'center',
       gap: spacing.sm,
       paddingVertical: spacing.sm,
-      borderRadius: borderRadius.md,
+      borderBottomWidth: 2,
+      borderBottomColor: 'transparent',
     },
-    switcherTabActive: { backgroundColor: colors.primary },
+    switcherTabActive: { borderBottomColor: colors.primary },
     switcherLabel: { ...typography.label, color: colors.textSecondary },
-    switcherLabelActive: { color: colors.textOnPrimary },
+    switcherLabelActive: { color: colors.primary },
     switcherHint: {
       ...typography.caption,
       color: colors.textSecondary,
       marginBottom: spacing.md,
-      marginHorizontal: spacing.lg,
+      marginHorizontal: spacing.sm,
     },
-    listContent: { paddingBottom: spacing.xxl, paddingHorizontal: spacing.lg },
+    listContent: { paddingBottom: spacing.xxl, paddingHorizontal: 0 },
     emptyFeed: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xl },
     loadingCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xxl },
 
     feedCard: {
       backgroundColor: colors.cardBg,
-      borderRadius: borderRadius.lg,
       paddingTop: spacing.md,
       paddingHorizontal: spacing.md,
+      paddingBottom: spacing.sm,
       marginBottom: spacing.sm,
-      borderWidth: 1,
-      borderColor: colors.border,
+      borderBottomWidth: 6,
+      borderBottomColor: colors.background,
     },
     stravaHeader: {
       flexDirection: 'row',
@@ -2696,7 +2760,7 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       gap: spacing.xs,
     },
-    creatorLabel: { ...typography.caption, fontSize: 14, lineHeight: 18, color: colors.textSecondary },
+    creatorLabel: { ...typography.caption, fontSize: 15, lineHeight: 19, color: colors.textSecondary },
     timestampsRow: {
       flexDirection: 'column',
       gap: spacing.xs,
@@ -2706,9 +2770,10 @@ function createHomeStyles(colors: ThemeColors) {
       borderBottomWidth: 1,
       borderBottomColor: colors.divider,
       width: '100%',
+      alignItems: 'center',
     },
-    timestampText: { ...typography.caption, fontSize: 15, color: colors.textSecondary },
-    timestampTextSingle: { ...typography.caption, fontSize: 13, color: colors.textSecondary },
+    timestampText: { ...typography.caption, fontSize: 15, color: colors.textSecondary, textAlign: 'center' },
+    timestampTextSingle: { ...typography.caption, fontSize: 14, color: colors.textSecondary, textAlign: 'center' },
     sportBadge: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -2769,13 +2834,13 @@ function createHomeStyles(colors: ThemeColors) {
     addGameBtnText: { ...typography.label, fontSize: 11, color: colors.primary },
     playersRow: {
       flexDirection: 'row',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       marginBottom: spacing.xl,
       marginTop: spacing.lg,
     },
-    playerCol: { flex: 1, alignItems: 'center', gap: spacing.xs },
-    playerName: { ...typography.label, fontSize: 14, color: colors.text, textAlign: 'center' },
-    vsCol: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
+    playerCol: { flex: 1, alignItems: 'center', gap: 8 },
+    playerName: { ...typography.label, fontSize: 15, color: colors.text, textAlign: 'center' },
+    vsCol: { alignItems: 'center', justifyContent: 'center', alignSelf: 'center', paddingHorizontal: spacing.md },
     vsText: {
       ...typography.caption,
       color: colors.text,
@@ -2810,12 +2875,12 @@ function createHomeStyles(colors: ThemeColors) {
     detailsRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      justifyContent: 'center',
       flexWrap: 'wrap',
       paddingTop: spacing.sm,
       marginBottom: spacing.sm,
     },
-    detailsLeft: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
+    detailsLeft: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, justifyContent: 'center' },
     detailItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
     detailText: { ...typography.caption, fontSize: 13, color: colors.textSecondary },
     readyUpReadyBtn: { backgroundColor: '#dcfce7' },
@@ -3032,14 +3097,14 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingTop: spacing.lg,
-      paddingBottom: spacing.lg,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.xs,
       borderTopWidth: 1,
       borderTopColor: colors.divider,
     },
     actionBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
     actionBtnCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
-    actionLabel: { ...typography.caption, fontSize: 13, color: colors.textSecondary },
+    actionLabel: { ...typography.caption, fontSize: 14, color: colors.textSecondary },
     commentsSection: {
       marginTop: spacing.sm,
       paddingTop: spacing.sm,
@@ -3334,6 +3399,7 @@ export default function HomeScreen() {
   const [selectedInviteUser, setSelectedInviteUser] = useState<SearchedUser | null>(null);
   const [editMatch, setEditMatch] = useState<FeedMatch | null>(null);
   const [followStates, setFollowStates] = useState<Record<string, 'none' | 'pending' | 'accepted'>>({});
+  const acceptingFollowIds = useRef<Set<string>>(new Set());
   const [teamPickInvite, setTeamPickInvite] = useState<{ notif: NotificationItem; matchId: string } | null>(null);
 
   const refreshFollowStates = useCallback(async (userId?: string) => {
@@ -3364,6 +3430,9 @@ export default function HomeScreen() {
   const handleAcceptFollow = async (notif: NotificationItem) => {
     const fromUserId = notif.data?.from_user_id;
     if (!fromUserId || !currentUserId) return;
+    // Guard against double-taps or duplicate notifications triggering two accepts
+    if (acceptingFollowIds.current.has(fromUserId)) return;
+    acceptingFollowIds.current.add(fromUserId);
     try {
       await supabase.from('follows').update({ status: 'accepted' }).eq('follower_id', fromUserId).eq('followed_id', currentUserId);
       await supabase.from('notifications').update({ read: true }).eq('id', notif.id);
@@ -3371,8 +3440,9 @@ export default function HomeScreen() {
       const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
       // Deduplicate: remove any existing follow_accepted from us before inserting
       await supabase.from('notifications').delete()
-        .match({ user_id: fromUserId, type: 'follow_accepted' })
-        .eq('data->>from_user_id', String(currentUserId));
+        .eq('user_id', fromUserId)
+        .eq('type', 'follow_accepted')
+        .filter('data->>from_user_id', 'eq', String(currentUserId));
       await supabase.from('notifications').insert({
         user_id: fromUserId,
         type: 'follow_accepted',
@@ -3382,6 +3452,7 @@ export default function HomeScreen() {
       });
       loadNotifications();
     } catch { /* swallow */ }
+    finally { acceptingFollowIds.current.delete(fromUserId); }
   };
 
   const handleIgnoreFollow = async (notif: NotificationItem) => {
@@ -3505,6 +3576,16 @@ export default function HomeScreen() {
         }
       }
 
+      // Deduplicate follow_accepted notifications — keep only the newest per from_user_id
+      const seenFollowAccepted = new Set<string>();
+      items = items.filter((n) => {
+        if (n.type !== 'follow_accepted') return true;
+        const key = String(n.data?.from_user_id ?? n.id);
+        if (seenFollowAccepted.has(key)) return false;
+        seenFollowAccepted.add(key);
+        return true;
+      });
+
       setNotifications(items);
       setUnreadCount(items.filter((n) => !n.read).length);
       // Refresh feed when we have match_accepted so ranked ready-up/start updates immediately
@@ -3568,6 +3649,12 @@ export default function HomeScreen() {
     notifDebounceTimerRef.current = setTimeout(() => loadNotifications(), 300);
   }, [loadNotifications]);
 
+  const dmDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadUnreadDmCountDebounced = useCallback(() => {
+    if (dmDebounceTimerRef.current) clearTimeout(dmDebounceTimerRef.current);
+    dmDebounceTimerRef.current = setTimeout(() => loadUnreadDmCount(), 300);
+  }, [loadUnreadDmCount]);
+
   const realtimeChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   useEffect(() => {
@@ -3589,11 +3676,15 @@ export default function HomeScreen() {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'notifications', filter: `user_id=eq.${currentUserId}` }, () => {
         loadNotificationsDebounced();
       })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dm_messages', filter: `sender_id=neq.${currentUserId}` }, () => {
+        loadUnreadDmCountDebounced();
+      })
       .subscribe();
     realtimeChannelRef.current = channel;
     return () => {
       if (feedDebounceTimerRef.current) clearTimeout(feedDebounceTimerRef.current);
       if (notifDebounceTimerRef.current) clearTimeout(notifDebounceTimerRef.current);
+      if (dmDebounceTimerRef.current) clearTimeout(dmDebounceTimerRef.current);
       realtimeChannelRef.current = null;
       supabase.removeChannel(channel);
     };
@@ -3670,10 +3761,14 @@ export default function HomeScreen() {
         if (m.created_by === currentUserId) return true;
         return (m.participants ?? []).some((p) => p.user_id === currentUserId);
       })
-      .sort((a, b) =>
-        new Date(b.updated_at ?? b.created_at).getTime() -
-        new Date(a.updated_at ?? a.created_at).getTime()
-      ),
+      .sort((a, b) => {
+        // In-progress matches always at the top
+        const aLive = a.status === 'in_progress' ? 0 : 1;
+        const bLive = b.status === 'in_progress' ? 0 : 1;
+        if (aLive !== bLive) return aLive - bLive;
+        // Otherwise: most recently created first
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }),
     [feedItems, currentUserId],
   );
   const publicFeed = useMemo(
@@ -3687,6 +3782,12 @@ export default function HomeScreen() {
     if (preferredSports.length === 0) return feed;
     const prefSet = new Set(preferredSports);
     return [...feed].sort((a, b) => {
+      // Always keep in-progress at the top for my feed
+      if (feedMode === 'my') {
+        const aLive = a.status === 'in_progress' ? 0 : 1;
+        const bLive = b.status === 'in_progress' ? 0 : 1;
+        if (aLive !== bLive) return aLive - bLive;
+      }
       const aP = prefSet.has(a.sport_name) ? 0 : 1;
       const bP = prefSet.has(b.sport_name) ? 0 : 1;
       return aP - bP;
@@ -4059,12 +4160,12 @@ export default function HomeScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* ---- Top bar ---- */}
-      <View style={styles.topBar}>
+    <View style={styles.container}>
+      {/* ---- Top bar (includes safe-area inset so cardBg fills behind status bar) ---- */}
+      <View style={[styles.topBar, { paddingTop: insets.top }]}>
         <Image
           source={themeMode === 'dark' ? require('../../assets/icon_dark.png') : require('../../assets/icon_blue_small.png')}
-          style={{ height: 75, width: 160, marginLeft: -10, marginBottom: -8 }}
+          style={{ height: 44, width: 120, marginLeft: -6, marginBottom: -2 }}
           resizeMode="contain"
         />
         <View style={styles.topBarRight}>
@@ -4073,14 +4174,14 @@ export default function HomeScreen() {
             activeOpacity={0.8}
             onPress={() => navigation.navigate('Search')}
           >
-            <Ionicons name="search" size={20} color={colors.text} />
+            <Ionicons name="search" size={17} color={colors.text} />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.topBarIcon}
             activeOpacity={0.8}
             onPress={openNotifs}
           >
-            <Ionicons name="notifications-outline" size={20} color={colors.text} />
+            <Ionicons name="notifications-outline" size={17} color={colors.text} />
             {unreadCount > 0 && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
@@ -4092,7 +4193,7 @@ export default function HomeScreen() {
             activeOpacity={0.8}
             onPress={() => navigation.navigate('Messages')}
           >
-            <Ionicons name="chatbubbles-outline" size={20} color={colors.text} />
+            <Ionicons name="chatbubbles-outline" size={17} color={colors.text} />
             {unreadDmCount > 0 && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{unreadDmCount > 99 ? '99+' : unreadDmCount}</Text>
@@ -4112,7 +4213,7 @@ export default function HomeScreen() {
           <Ionicons
             name="people"
             size={18}
-            color={feedMode === 'my' ? colors.textOnPrimary : colors.textSecondary}
+            color={feedMode === 'my' ? colors.primary : colors.textSecondary}
           />
           <Text style={[styles.switcherLabel, feedMode === 'my' && styles.switcherLabelActive]}>
             {t.home.myFeed}
@@ -4126,7 +4227,7 @@ export default function HomeScreen() {
           <Ionicons
             name="globe-outline"
             size={18}
-            color={feedMode === 'public' ? colors.textOnPrimary : colors.textSecondary}
+            color={feedMode === 'public' ? colors.primary : colors.textSecondary}
           />
           <Text style={[styles.switcherLabel, feedMode === 'public' && styles.switcherLabelActive]}>
             {t.home.publicLabel}
@@ -4191,7 +4292,31 @@ export default function HomeScreen() {
       <EditMatchModal
         visible={!!editMatch}
         onClose={() => setEditMatch(null)}
-        onSaved={() => { loadFeed(false); setEditMatch(null); }}
+        onSaved={(update) => {
+          const matchId = editMatch?.id;
+          setEditMatch(null);
+          if (!matchId) return;
+          if (update?.winnerRole !== undefined) {
+            // Direct synchronous update — no DB round-trip needed
+            const wr = update.winnerRole;
+            updateFeedItem(matchId, (m) => ({
+              ...m,
+              participants: m.participants.map((p) => ({
+                ...p,
+                result: wr === 'draw' ? 'draw' : p.role === wr ? 'win' : 'loss',
+              })),
+            }));
+          } else {
+            // Location/notes/format changes — re-fetch fresh data
+            supabase.from('match_feed').select('*').eq('id', matchId).maybeSingle().then(({ data }) => {
+              if (!data) return;
+              const pts: Participant[] = Array.isArray(data.participants)
+                ? data.participants
+                : (typeof data.participants === 'string' ? (() => { try { return JSON.parse(data.participants); } catch { return []; } })() : []);
+              updateFeedItem(matchId, () => ({ ...data, participants: pts } as FeedMatch));
+            });
+          }
+        }}
         colors={colors}
         currentUserId={currentUserId}
         match={editMatch ? {

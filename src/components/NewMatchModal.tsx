@@ -198,7 +198,7 @@ function makeStyles(c: ThemeColors) {
       borderWidth: 1,
       borderColor: c.primary,
       backgroundColor: c.background,
-      marginBottom: spacing.md,
+      marginBottom: spacing.xs,
     },
     sportDropdownValue: { ...typography.label, color: c.text, fontSize: 15, fontWeight: '700' as const },
     dropdownSportRow: {
@@ -522,45 +522,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
               keyboardShouldPersistTaps="handled"
               bounces={true}
             >
-              <View key={`${matchType}-${matchFormat}`}>
-                <Text style={styles.label}>
-                  {matchType === 'practice'
-                    ? 'Invite practice partners (optional, up to 3)'
-                    : matchFormat === '3v3'
-                      ? 'Invite players (up to 5) — teams chosen when they accept'
-                      : matchFormat === '2v2'
-                        ? 'Invite players (up to 3) — teams chosen when they accept'
-                        : 'Invite opponent (optional)'}
-                </Text>
-
-                {invitedUsers.length > 0 && (
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                    {invitedUsers.map(u => (
-                      <View key={u.user_id} style={styles.inviteChip}>
-                        <Text style={styles.inviteChipName}>{u.full_name ?? u.username}</Text>
-                        <TouchableOpacity onPress={() => setInvitedUsers(p => p.filter(x => x.user_id !== u.user_id))}>
-                          <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                {invitedUsers.length < maxInvites && (
-                  <UserSearch
-                    colors={colors}
-                    excludeUserId={currentUserId ?? undefined}
-                    excludeUserIds={invitedUsers.map(u => u.user_id)}
-                    allowedUserIds={allowedInviteUserIds ?? undefined}
-                    onSelect={u => setInvitedUsers(prev => [...prev, u])}
-                    placeholder="Search by username or name..."
-                    suggestions={friends.filter(f => !invitedUsers.some(u => u.user_id === f.user_id))}
-                    suggestionsTitle={friends.length > 0 ? 'Friends' : undefined}
-                  />
-                )}
-              </View>
-
-              <Text style={[styles.label, { marginTop: spacing.md }]}>{t.newMatch.sport}</Text>
+              <Text style={styles.label}>{t.newMatch.sport}</Text>
               <TouchableOpacity style={styles.sportDropdownBtn} onPress={() => setSportDropdownOpen(true)} activeOpacity={0.85}>
                 <Text style={styles.sportDropdownValue}>{sportLabel(sport)}</Text>
                 <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
@@ -598,7 +560,52 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                 </View>
               </Modal>
 
-              <Text style={styles.label}>{t.newMatch.matchType}</Text>
+              <View key={`${matchType}-${matchFormat}`}>
+                <Text style={[styles.label, { marginTop: spacing.md }]}>
+                  {matchType === 'practice'
+                    ? 'Invite practice partners (optional, up to 3)'
+                    : matchFormat === '3v3'
+                      ? 'Invite players (up to 5) — teams chosen when they accept'
+                      : matchFormat === '2v2'
+                        ? 'Invite players (up to 3) — teams chosen when they accept'
+                        : 'Invite opponent (optional)'}
+                </Text>
+
+                {invitedUsers.length > 0 && (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                    {invitedUsers.map(u => (
+                      <View key={u.user_id} style={styles.inviteChip}>
+                        {u.avatar_url ? (
+                          <Image source={{ uri: u.avatar_url }} style={{ width: 20, height: 20, borderRadius: 10 }} />
+                        ) : (
+                          <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
+                            <Text style={{ fontSize: 9, fontWeight: '700', color: colors.textOnPrimary }}>{getInitials(u)}</Text>
+                          </View>
+                        )}
+                        <Text style={styles.inviteChipName}>{u.full_name ?? u.username}</Text>
+                        <TouchableOpacity onPress={() => setInvitedUsers(p => p.filter(x => x.user_id !== u.user_id))}>
+                          <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {invitedUsers.length < maxInvites && (
+                  <UserSearch
+                    colors={colors}
+                    excludeUserId={currentUserId ?? undefined}
+                    excludeUserIds={invitedUsers.map(u => u.user_id)}
+                    allowedUserIds={allowedInviteUserIds ?? undefined}
+                    onSelect={u => setInvitedUsers(prev => [...prev, u])}
+                    placeholder="Search by username or name..."
+                    suggestions={friends.filter(f => !invitedUsers.some(u => u.user_id === f.user_id))}
+                    suggestionsTitle={friends.length > 0 ? 'Friends' : undefined}
+                  />
+                )}
+              </View>
+
+              <Text style={[styles.label, { marginTop: spacing.md }]}>{t.newMatch.matchType}</Text>
               <View style={styles.matchTypeRow}>
                 {(['casual', 'ranked', 'practice'] as const).map((mt) => {
                   const icon = mt === 'casual' ? 'people-outline' : mt === 'ranked' ? 'trophy-outline' : 'barbell-outline';
@@ -628,11 +635,11 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
               <Text style={styles.label}>{t.newMatch.visibility}</Text>
               <View style={styles.matchTypeRow}>
                 <TouchableOpacity style={[styles.matchTypeChip, isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(true)} activeOpacity={0.8}>
-                  <Ionicons name="globe-outline" size={16} color={isPublic ? colors.textOnPrimary : colors.textSecondary} />
+                  <Ionicons name="globe-outline" size={14} color={isPublic ? colors.textOnPrimary : colors.textSecondary} />
                   <Text style={[styles.matchTypeLbl, isPublic && styles.matchTypeLblSel]}>{t.common.public}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.matchTypeChip, !isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(false)} activeOpacity={0.8}>
-                  <Ionicons name="lock-closed-outline" size={16} color={!isPublic ? colors.textOnPrimary : colors.textSecondary} />
+                  <Ionicons name="lock-closed-outline" size={14} color={!isPublic ? colors.textOnPrimary : colors.textSecondary} />
                   <Text style={[styles.matchTypeLbl, !isPublic && styles.matchTypeLblSel]}>{t.common.private}</Text>
                 </TouchableOpacity>
               </View>
@@ -657,7 +664,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                   onPress={() => setStartNow(true)}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="flash" size={16} color={startNow ? colors.textOnPrimary : colors.textSecondary} />
+                  <Ionicons name="flash" size={14} color={startNow ? colors.textOnPrimary : colors.textSecondary} />
                   <Text style={[styles.matchTypeLbl, startNow && styles.matchTypeLblSel]}>{t.newMatch.startNow}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -665,7 +672,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                   onPress={() => setStartNow(false)}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="calendar-outline" size={16} color={!startNow ? colors.textOnPrimary : colors.textSecondary} />
+                  <Ionicons name="calendar-outline" size={14} color={!startNow ? colors.textOnPrimary : colors.textSecondary} />
                   <Text style={[styles.matchTypeLbl, !startNow && styles.matchTypeLblSel]}>{t.newMatch.schedule}</Text>
                 </TouchableOpacity>
               </View>

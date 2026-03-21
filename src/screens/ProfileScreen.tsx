@@ -94,9 +94,11 @@ function createStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: spacing.lg,
-      paddingTop: spacing.md,
-      paddingBottom: spacing.xs,
+      paddingHorizontal: spacing.sm,
+      paddingBottom: spacing.sm,
+      backgroundColor: colors.cardBg,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
     },
     pageTitle: { ...typography.heading, color: colors.text },
     headerActions: {
@@ -105,9 +107,19 @@ function createStyles(colors: ThemeColors) {
       gap: spacing.sm,
     },
     headerActionBtn: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    backBtn: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
@@ -117,13 +129,11 @@ function createStyles(colors: ThemeColors) {
 
     /* ---- Profile header card ---- */
     headerCard: {
-      marginHorizontal: spacing.lg,
-      marginTop: spacing.sm,
-      padding: spacing.lg,
-      borderRadius: borderRadius.lg,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.lg,
       backgroundColor: colors.cardBg,
-      borderWidth: 1,
-      borderColor: colors.border,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
       alignItems: 'center',
     },
     avatarWrapper: {
@@ -159,31 +169,30 @@ function createStyles(colors: ThemeColors) {
     /* ---- Tab bar ---- */
     tabRow: {
       flexDirection: 'row',
-      marginHorizontal: spacing.lg,
-      marginTop: spacing.lg,
-      borderRadius: borderRadius.lg,
       backgroundColor: colors.cardBg,
-      borderWidth: 1,
-      borderColor: colors.border,
-      padding: spacing.xs,
-      marginBottom: spacing.lg,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      marginBottom: 2,
     },
-    tab: { flex: 1, paddingVertical: spacing.sm, borderRadius: borderRadius.md, alignItems: 'center' },
-    tabActive: { backgroundColor: colors.primary },
+    tab: { flex: 1, paddingVertical: spacing.xs + 2, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
+    tabActive: { borderBottomColor: colors.primary },
     tabText: { ...typography.label, color: colors.textSecondary },
-    tabTextActive: { color: colors.textOnPrimary },
+    tabTextActive: { color: colors.primary },
 
     /* ---- Ranks overview grid ---- */
     ranksSection: {
-      marginHorizontal: spacing.lg,
-      marginBottom: spacing.xs,
+      backgroundColor: colors.cardBg,
+      borderBottomWidth: 4,
+      borderBottomColor: colors.background,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.sm,
+      marginBottom: 0,
     },
-    ranksSectionTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.xs },
+    ranksSectionTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.sm },
     ranksGrid: {
       flexDirection: 'row',
       gap: spacing.sm,
-      marginHorizontal: spacing.lg,
-      marginBottom: spacing.md,
     },
     rankCard: {
       flex: 1,
@@ -228,15 +237,15 @@ function createStyles(colors: ThemeColors) {
 
     /* ---- Cards ---- */
     card: {
-      marginHorizontal: spacing.lg,
       backgroundColor: colors.cardBg,
-      borderRadius: borderRadius.lg,
-      padding: spacing.lg,
-      marginBottom: spacing.md,
-      borderWidth: 1,
-      borderColor: colors.primary + '30',
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.sm,
+      marginBottom: 0,
+      borderBottomWidth: 4,
+      borderBottomColor: colors.background,
     },
-    cardTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.sm },
+    cardTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.xs },
     cardSubtitle: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md },
     placeholder: { ...typography.caption, color: colors.textSecondary },
     sportsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
@@ -256,15 +265,15 @@ function createStyles(colors: ThemeColors) {
     savingText: { ...typography.caption, color: colors.textSecondary },
 
     /* ---- Rankings ---- */
-    rankPage: { width: SCREEN_W, alignItems: 'center', justifyContent: 'center' },
+    rankPage: { width: SCREEN_W },
     rankPageInner: {
-      width: SCREEN_W - spacing.lg * 2,
-      backgroundColor: colors.cardBg,
-      borderRadius: borderRadius.lg,
-      padding: spacing.lg,
-      borderWidth: 1,
-      borderColor: colors.border,
+      width: SCREEN_W,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.xl,
       alignItems: 'center',
+      backgroundColor: colors.cardBg,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
     },
     rankEmoji: { fontSize: 48, marginBottom: spacing.sm },
     rankSport: { ...typography.heading, color: colors.text, marginBottom: spacing.xs },
@@ -340,24 +349,27 @@ function createStyles(colors: ThemeColors) {
     },
     signOutText: { ...typography.body, fontWeight: '600', color: colors.error },
     sectionHeader: {
-      marginHorizontal: spacing.lg,
+      paddingHorizontal: spacing.lg,
       marginBottom: spacing.xs,
     },
     sectionSubtitle: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
     matchHistoryList: {
-      marginHorizontal: spacing.lg,
-      backgroundColor: colors.primary + '05',
-      borderRadius: borderRadius.lg,
-      borderWidth: 1,
-      borderColor: colors.primary + '30',
-      overflow: 'hidden',
-      marginBottom: spacing.md,
+      backgroundColor: colors.cardBg,
+      borderBottomWidth: 4,
+      borderBottomColor: colors.background,
+      marginBottom: 0,
+    },
+    matchHistoryHeader: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
     },
     matchHistoryItem: {
       paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
+      paddingHorizontal: spacing.lg,
       borderBottomWidth: 1,
-      borderBottomColor: colors.divider,
+      borderBottomColor: colors.border,
     },
     matchHistoryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     matchHistoryEmoji: { fontSize: 20 },
@@ -769,15 +781,21 @@ export default function ProfileScreen() {
 
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>{t.profile.title}</Text>
+    <View style={styles.container}>
+      <View style={[styles.pageHeader, { paddingTop: insets.top + spacing.xs }]}>
+        {navigation.canGoBack() ? (
+          <TouchableOpacity style={styles.backBtn} activeOpacity={0.8} onPress={() => navigation.goBack()}>
+            <Ionicons name="chevron-back" size={20} color={colors.text} />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 34 }} />
+        )}
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.headerActionBtn} activeOpacity={0.8} onPress={shareProfile}>
-            <Ionicons name="share-outline" size={20} color={colors.text} />
+            <Ionicons name="share-outline" size={18} color={colors.text} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.headerActionBtn} activeOpacity={0.8} onPress={() => navigation.navigate('Settings')}>
-            <Ionicons name="settings-outline" size={20} color={colors.text} />
+            <Ionicons name="settings-outline" size={18} color={colors.text} />
           </TouchableOpacity>
         </View>
       </View>
@@ -859,8 +877,7 @@ export default function ProfileScreen() {
           <>
             <View style={styles.ranksSection}>
               <Text style={styles.ranksSectionTitle}>{t.profile.sportRanks}</Text>
-            </View>
-            <View style={styles.ranksGrid}>
+              <View style={styles.ranksGrid}>
               {top3Rankings.map((item) => (
                 <View key={item.sport} style={styles.rankCard}>
                   <View style={styles.rankCardHeader}>
@@ -888,13 +905,12 @@ export default function ProfileScreen() {
                   </View>
                 </View>
               ))}
+              </View>
             </View>
 
-            <View style={styles.sectionHeader}>
-              <Text style={styles.ranksSectionTitle}>{t.profile.preferredSports}</Text>
-              <Text style={styles.sectionSubtitle}>Select up to {MAX_PREFERRED} sports you play the most.</Text>
-            </View>
             <View style={styles.card}>
+              <Text style={styles.cardTitle}>{t.profile.preferredSports}</Text>
+              <Text style={styles.cardSubtitle}>Select up to {MAX_PREFERRED} sports you play the most.</Text>
               <View style={styles.sportsGrid}>
                 {SPORTS.map((sp) => {
                   const sel = (profile?.preferred_sports ?? []).includes(sp);
@@ -914,15 +930,16 @@ export default function ProfileScreen() {
               )}
             </View>
 
-            <View style={styles.sectionHeader}>
-              <Text style={styles.ranksSectionTitle}>{t.profile.matchHistory}</Text>
-            </View>
             {matchHistory.length === 0 ? (
               <View style={styles.card}>
+                <Text style={styles.cardTitle}>{t.profile.matchHistory}</Text>
                 <Text style={styles.placeholder}>Recent wins, losses, and casual games will appear here.</Text>
               </View>
             ) : (
               <View style={styles.matchHistoryList}>
+                <View style={styles.matchHistoryHeader}>
+                  <Text style={[styles.ranksSectionTitle, { marginBottom: 0 }]}>{t.profile.matchHistory}</Text>
+                </View>
                 {matchHistory.map((m, idx) => {
                   const myPart = (m.participants ?? []).find((p: { user_id?: string }) => String(p?.user_id) === String(currentUserId));
                   const others = (m.participants ?? []).filter((p: { user_id?: string }) => String(p?.user_id) !== String(currentUserId));
