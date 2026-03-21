@@ -2673,13 +2673,14 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: spacing.md,
+      paddingLeft: spacing.md,
+      paddingRight: spacing.xs + 4,
       paddingTop: 0,
-      paddingBottom: 4,
+      paddingBottom: 5,
       backgroundColor: colors.cardBg,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
-      marginBottom: 2,
+      marginBottom: 0,
     },
     topBarIcon: {
       width: 34,
@@ -4164,8 +4165,8 @@ export default function HomeScreen() {
       {/* ---- Top bar (includes safe-area inset so cardBg fills behind status bar) ---- */}
       <View style={[styles.topBar, { paddingTop: insets.top }]}>
         <Image
-          source={themeMode === 'dark' ? require('../../assets/icon_dark.png') : require('../../assets/icon_blue_small.png')}
-          style={{ height: 44, width: 120, marginLeft: -6, marginBottom: -2 }}
+          source={themeMode === 'dark' ? require('../../assets/icon_dark_mode.png') : require('../../assets/icon_light_mode.png')}
+          style={{ height: 44, width: 100, marginLeft: 2, marginBottom: -2 }}
           resizeMode="contain"
         />
         <View style={styles.topBarRight}>
