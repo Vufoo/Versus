@@ -316,9 +316,6 @@ export default function VersusScreen() {
       >
         {/* Header content — inside ScrollView so pull-to-refresh works from the top */}
         <View style={styles.header}>
-        <Text style={styles.subtitle}>
-          {t.versus.subtitle}
-        </Text>
 
         {/* Sport dropdown button */}
         <TouchableOpacity ref={sportBtnRef} style={styles.sportDropdownBtn} onPress={openSportDropdown} activeOpacity={0.85}>

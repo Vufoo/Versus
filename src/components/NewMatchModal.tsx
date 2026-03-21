@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Modal,
-  Pressable,
   FlatList,
   TextInput,
   ActivityIndicator,
@@ -14,8 +13,8 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
-  Dimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
@@ -27,7 +26,6 @@ import type { SearchedUser } from './UserSearch';
 import LocationPickerModal from './LocationPickerModal';
 import type { PickedLocation } from './LocationPickerModal';
 
-const SCREEN_H = Dimensions.get('window').height;
 
 type Props = {
   visible: boolean;
@@ -43,24 +41,20 @@ type Props = {
 
 function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
-    wrapper: { flex: 1, justifyContent: 'flex-end' },
-    backdropHit: { flex: 1 },
+    wrapper: { flex: 1, backgroundColor: c.surface },
     card: {
-      backgroundColor: c.surface,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
+      flex: 1,
       paddingHorizontal: spacing.xl,
-      paddingTop: spacing.lg,
       paddingBottom: spacing.xxl,
-      maxHeight: SCREEN_H * 0.85,
     },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: spacing.lg,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.lg,
     },
-    title: { ...typography.title, color: c.text },
+    title: { ...typography.title, color: c.text, textAlign: 'center' },
     scrollContent: { paddingBottom: spacing.xl },
     label: { ...typography.label, color: c.textSecondary, marginBottom: spacing.xs },
     selectedOpp: {
@@ -217,6 +211,7 @@ function makeStyles(c: ThemeColors) {
 
 export default function NewMatchModal({ visible, onClose, onCreated, colors, initialSport, initialMatchType, initialDate, initialLocation, preferredSports = [] }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
   const { t } = useLanguage();
 
   const [invitedUsers, setInvitedUsers] = useState<SearchedUser[]>([]);
@@ -250,7 +245,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUsername, setCurrentUsername] = useState<string | null>(null);
   const [friends, setFriends] = useState<SearchedUser[]>([]);
-  const [allowedInviteUserIds, setAllowedInviteUserIds] = useState<string[] | null>(null);
+  const [friendUserIds, setFriendUserIds] = useState<string[]>([]);
 
   type LocationSuggestion = { name: string; lat: number; lng: number };
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
@@ -326,13 +321,17 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
 
       const followingIds = (outRows ?? []).map((r: any) => r.followed_id as string);
       const followerIds = (inRows ?? []).map((r: any) => r.follower_id as string);
-      const allAllowedIds = Array.from(new Set([...followingIds, ...followerIds].filter(Boolean)));
-      setAllowedInviteUserIds(allAllowedIds);
+      const allFriendIds = Array.from(new Set([...followingIds, ...followerIds].filter(Boolean)));
+      setFriendUserIds(allFriendIds);
 
-      // For suggestions, show up to 3 people you follow (nice UX, but full search
-      // is still allowed across allAllowedIds).
-      if (followingIds.length > 0) {
-        const topIds = followingIds.slice(0, 3);
+      // Build suggestions (max 3): mutuals first, then following-only, then followers-only
+      if (allFriendIds.length > 0) {
+        const followerSet = new Set(followerIds);
+        const mutuals = followingIds.filter(id => followerSet.has(id));
+        const followingOnly = followingIds.filter(id => !followerSet.has(id));
+        const followingSet = new Set(followingIds);
+        const followerOnly = followerIds.filter(id => !followingSet.has(id));
+        const topIds = [...mutuals, ...followingOnly, ...followerOnly].slice(0, 3);
         const { data: profiles } = await supabase
           .from('profiles')
           .select('user_id, username, full_name, avatar_url')
@@ -344,6 +343,9 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
               avatar_url: (await resolveAvatarUrl(u.avatar_url)) ?? u.avatar_url,
             })),
           );
+          // Preserve the priority order
+          const order = new Map(topIds.map((id, i) => [id, i]));
+          resolved.sort((a, b) => (order.get(a.user_id) ?? 99) - (order.get(b.user_id) ?? 99));
           setFriends(resolved);
         }
       }
@@ -399,6 +401,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   };
 
   const handleSave = async () => {
+    if (saving) return;
     if (matchType === 'ranked' && invitedUsers.length === 0) {
       Alert.alert(t.newMatch.rankedRequiresOpponent, t.newMatch.rankedRequiresOpponentMsg);
       return;
@@ -501,19 +504,16 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
     (u.full_name ?? u.username ?? '?').split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2);
 
   return (
-    <Modal visible={visible} transparent animationType="slide">
+    <Modal visible={visible} transparent={false} animationType="slide">
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.wrapper}>
-          {/* Tappable backdrop area above the card */}
-          <TouchableOpacity style={styles.backdropHit} activeOpacity={1} onPress={onClose} />
-
-          {/* Card sits outside the backdrop — no Pressable wrapping it */}
+        <View style={[styles.wrapper, { paddingTop: insets.top }]}>
           <View style={styles.card}>
             <View style={styles.header}>
-              <Text style={styles.title}>{t.newMatch.title}</Text>
               <TouchableOpacity onPress={onClose} hitSlop={12}>
-                <Ionicons name="close" size={24} color={colors.textSecondary} />
+                <Ionicons name="arrow-back" size={24} color={colors.text} />
               </TouchableOpacity>
+              <Text style={styles.title}>{t.newMatch.title}</Text>
+              <View style={{ width: 24 }} />
             </View>
 
             <ScrollView
@@ -596,7 +596,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                     colors={colors}
                     excludeUserId={currentUserId ?? undefined}
                     excludeUserIds={invitedUsers.map(u => u.user_id)}
-                    allowedUserIds={allowedInviteUserIds ?? undefined}
+                    priorityUserIds={friendUserIds.length > 0 ? friendUserIds : undefined}
                     onSelect={u => setInvitedUsers(prev => [...prev, u])}
                     placeholder="Search by username or name..."
                     suggestions={friends.filter(f => !invitedUsers.some(u => u.user_id === f.user_id))}

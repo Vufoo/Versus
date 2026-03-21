@@ -309,10 +309,11 @@ export default function PlanMatchScreen() {
   useEffect(() => { if (isFocused) loadMatches(); }, [isFocused, loadMatches]);
 
   const handleRefresh = useCallback(async () => {
+    if (loadingMatches) return;
     setRefreshing(true);
     await loadMatches();
     setRefreshing(false);
-  }, [loadMatches]);
+  }, [loadMatches, loadingMatches]);
 
   const matchDayIds = useMemo(
     () => new Set(allMatches.map((m) => m.scheduled_at ? localDateStr(new Date(m.scheduled_at)) : null).filter(Boolean) as string[]),
@@ -367,15 +368,14 @@ export default function PlanMatchScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + spacing.lg }]}>
-      <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>{t.plan.title}</Text>
-        {selectedDayId !== todayStr && (
+    <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]}>
+      {selectedDayId !== todayStr && (
+        <View style={[styles.pageHeader, { justifyContent: 'flex-end' }]}>
           <TouchableOpacity style={styles.todayBtn} onPress={goToToday} activeOpacity={0.8}>
             <Text style={styles.todayBtnText}>{t.common.today}</Text>
           </TouchableOpacity>
-        )}
-      </View>
+        </View>
+      )}
 
       <View style={styles.calendarCard}>
         <View style={styles.calendarHeaderRow}>

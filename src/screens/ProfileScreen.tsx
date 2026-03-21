@@ -170,9 +170,7 @@ function createStyles(colors: ThemeColors) {
     tabRow: {
       flexDirection: 'row',
       backgroundColor: colors.cardBg,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-      marginBottom: 2,
+      marginBottom: 0,
     },
     tab: { flex: 1, paddingVertical: spacing.xs + 2, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
     tabActive: { borderBottomColor: colors.primary },
@@ -182,14 +180,16 @@ function createStyles(colors: ThemeColors) {
     /* ---- Ranks overview grid ---- */
     ranksSection: {
       backgroundColor: colors.cardBg,
+      borderTopWidth: 4,
+      borderTopColor: colors.background,
       borderBottomWidth: 4,
       borderBottomColor: colors.background,
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.sm,
-      paddingBottom: spacing.sm,
+      paddingBottom: spacing.lg,
       marginBottom: 0,
     },
-    ranksSectionTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.sm },
+    ranksSectionTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.md },
     ranksGrid: {
       flexDirection: 'row',
       gap: spacing.sm,
@@ -240,12 +240,12 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.cardBg,
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.sm,
-      paddingBottom: spacing.sm,
+      paddingBottom: spacing.lg,
       marginBottom: 0,
       borderBottomWidth: 4,
       borderBottomColor: colors.background,
     },
-    cardTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.xs },
+    cardTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.sm },
     cardSubtitle: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md },
     placeholder: { ...typography.caption, color: colors.textSecondary },
     sportsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
@@ -366,7 +366,7 @@ function createStyles(colors: ThemeColors) {
       borderBottomColor: colors.border,
     },
     matchHistoryItem: {
-      paddingVertical: spacing.sm,
+      paddingVertical: spacing.md,
       paddingHorizontal: spacing.lg,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
@@ -519,16 +519,16 @@ export default function ProfileScreen() {
         .from('avatars')
         .upload(filePath, bytes, { contentType: mimeType, upsert: true });
 
-      if (uploadErr) { console.error('Avatar upload error:', uploadErr); Alert.alert('Upload failed', uploadErr.message); return; }
+      if (uploadErr) { if (__DEV__) console.error('Avatar upload error:', uploadErr); Alert.alert('Upload failed', uploadErr.message); return; }
 
       const { error: updateErr } = await supabase.from('profiles').update({ avatar_url: filePath }).eq('user_id', currentUserId);
-      if (updateErr) { console.error('Avatar URL save error:', updateErr); Alert.alert('Save failed', updateErr.message); return; }
+      if (updateErr) { if (__DEV__) console.error('Avatar URL save error:', updateErr); Alert.alert('Save failed', updateErr.message); return; }
 
       const signedUrl = await resolveAvatarUrl(filePath);
       if (signedUrl) setAvatarUri(signedUrl);
       if (profile) setProfile({ ...profile, avatar_url: filePath });
     } catch (e: any) {
-      console.error('Avatar upload error:', e);
+      if (__DEV__) console.error('Avatar upload error:', e);
       Alert.alert('Upload failed', e?.message ?? 'Something went wrong.');
     } finally {
       setUploadingAvatar(false);
@@ -724,8 +724,8 @@ export default function ProfileScreen() {
     setSavingPrefs(true);
     try {
       const { error: updateErr } = await supabase.from('profiles').update({ preferred_sports: current }).eq('user_id', currentUserId);
-      if (updateErr) { console.error('Preferred sports save error:', updateErr); Alert.alert('Save failed', updateErr.message ?? 'Could not update.'); }
-    } catch (e) { console.error('Preferred sports save error:', e); }
+      if (updateErr) { if (__DEV__) console.error('Preferred sports save error:', updateErr); Alert.alert('Save failed', updateErr.message ?? 'Could not update.'); }
+    } catch (e) { if (__DEV__) console.error('Preferred sports save error:', e); }
     finally { setSavingPrefs(false); }
   };
 

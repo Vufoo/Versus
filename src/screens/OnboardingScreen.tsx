@@ -186,8 +186,21 @@ export default function OnboardingScreen({ onComplete }: Props) {
   };
 
   const handleSave = async () => {
-    if (!username.trim()) {
+    const trimmedUsername = username.trim().toLowerCase();
+    if (!trimmedUsername) {
       setError('Pick a username to continue.');
+      return;
+    }
+    if (trimmedUsername.length < 3) {
+      setError('Username must be at least 3 characters.');
+      return;
+    }
+    if (!/^[a-zA-Z0-9_]+$/.test(trimmedUsername)) {
+      setError('Username can only contain letters, numbers, and underscores.');
+      return;
+    }
+    if (usernameStatus === 'checking') {
+      setError('Please wait while we check username availability.');
       return;
     }
     if (usernameStatus === 'taken') {
@@ -221,7 +234,7 @@ export default function OnboardingScreen({ onComplete }: Props) {
       );
 
       if (upsertError) {
-        console.error('Profile upsert error:', upsertError);
+        if (__DEV__) console.error('Profile upsert error:', upsertError);
         if (upsertError.code === '23505') {
           setError('That username is taken. Try another.');
         } else if (upsertError.message?.includes('row-level security')) {

@@ -27,6 +27,7 @@ type Props = {
   excludeUserId?: string;
   excludeUserIds?: string[];
   allowedUserIds?: string[];
+  priorityUserIds?: string[];
   placeholder?: string;
   renderAction?: (user: SearchedUser) => ReactNode;
   suggestions?: SearchedUser[];
@@ -81,6 +82,7 @@ export default function UserSearch({
   excludeUserId,
   excludeUserIds,
   allowedUserIds,
+  priorityUserIds,
   placeholder,
   renderAction,
   suggestions,
@@ -113,11 +115,20 @@ export default function UserSearch({
 
         const exclude = new Set([excludeUserId, ...(excludeUserIds ?? [])].filter(Boolean));
         const allowed = allowedUserIds ? new Set(allowedUserIds) : null;
+        const priority = priorityUserIds ? new Set(priorityUserIds) : null;
         const filtered = (data ?? []).filter((u) => {
           if (exclude.has(u.user_id)) return false;
           if (allowed && !allowed.has(u.user_id)) return false;
           return true;
         }) as SearchedUser[];
+        // Sort: friends (priority) first, then everyone else
+        if (priority) {
+          filtered.sort((a, b) => {
+            const aP = priority.has(a.user_id) ? 0 : 1;
+            const bP = priority.has(b.user_id) ? 0 : 1;
+            return aP - bP;
+          });
+        }
         const resolved = await Promise.all(
           filtered.map(async (u) => ({
             ...u,
@@ -132,7 +143,7 @@ export default function UserSearch({
         setLoading(false);
       }
     },
-    [excludeUserId, excludeUserIds, allowedUserIds],
+    [excludeUserId, excludeUserIds, allowedUserIds, priorityUserIds],
   );
 
   useEffect(() => {

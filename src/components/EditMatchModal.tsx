@@ -27,7 +27,7 @@ const SCREEN_H = Dimensions.get('window').height;
 type Props = {
   visible: boolean;
   onClose: () => void;
-  onSaved?: (update?: { winnerRole?: 'challenger' | 'opponent' | 'draw' }) => void;
+  onSaved?: (update?: { winnerRole?: 'challenger' | 'opponent' | 'draw'; games?: { game_number: number; score_challenger: number; score_opponent: number }[] }) => void;
   colors: ThemeColors;
   currentUserId?: string | null;
   match: {
@@ -142,6 +142,37 @@ function makeStyles(c: ThemeColors) {
     tpDone: { backgroundColor: c.primary, paddingVertical: spacing.md, borderRadius: borderRadius.md, alignItems: 'center' },
     tpDoneText: { ...typography.heading, fontSize: 16, color: c.textOnPrimary },
   });
+}
+
+type ParsedGame = { game_number: number; score_challenger: number; score_opponent: number };
+
+/**
+ * Parses a score string like "21-15" or "6-4 7-5" into match_games rows.
+ * Tries challScore first (challenger perspective), then oppScore reversed.
+ * Returns null if neither is parseable.
+ */
+function parseScoreToGames(challScore: string, oppScore: string): ParsedGame[] | null {
+  const tryParse = (s: string, reversed: boolean): ParsedGame[] | null => {
+    const parts = s.trim().split(/[\s,]+/);
+    const games: ParsedGame[] = [];
+    for (let i = 0; i < parts.length; i++) {
+      const m = parts[i].match(/^(\d+)-(\d+)$/);
+      if (m) {
+        const a = parseInt(m[1], 10);
+        const b = parseInt(m[2], 10);
+        games.push({ game_number: i + 1, score_challenger: reversed ? b : a, score_opponent: reversed ? a : b });
+      }
+    }
+    return games.length > 0 ? games : null;
+  };
+  if (challScore.trim()) {
+    const r = tryParse(challScore, false);
+    if (r) return r;
+  }
+  if (oppScore.trim()) {
+    return tryParse(oppScore, true);
+  }
+  return null;
 }
 
 export default function EditMatchModal({ visible, onClose, onSaved, colors, match, currentUserId }: Props) {
@@ -272,20 +303,28 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
 
       await supabase.from('matches').update(updates).eq('id', match.id);
 
+      let savedGames: ParsedGame[] | null = null;
       if (isCasual && match.status === 'completed') {
         const challResult = winnerRole === 'challenger' ? 'win' : winnerRole === 'opponent' ? 'loss' : 'draw';
         const oppResult = winnerRole === 'opponent' ? 'win' : winnerRole === 'challenger' ? 'loss' : 'draw';
         const challengers = (match.participants ?? []).filter(p => p.role === 'challenger');
         const opponents = (match.participants ?? []).filter(p => p.role === 'opponent');
+        // Parse entered scores into per-game rows and persist to match_games
+        savedGames = parseScoreToGames(challengerScore, opponentScore);
         await Promise.all([
           ...challengers.map(p => supabase.from('match_participants').update({ result: challResult, score: challengerScore.trim() || null }).eq('match_id', match.id).eq('user_id', p.user_id)),
           ...opponents.map(p => supabase.from('match_participants').update({ result: oppResult, score: opponentScore.trim() || null }).eq('match_id', match.id).eq('user_id', p.user_id)),
+          ...(savedGames ? [
+            supabase.from('match_games').delete().eq('match_id', match.id).then(() =>
+              supabase.from('match_games').insert(savedGames!.map(g => ({ match_id: match.id, ...g })))
+            ),
+          ] : []),
         ]);
       }
 
       onClose();
       if (isCasual && match.status === 'completed') {
-        onSaved?.({ winnerRole });
+        onSaved?.({ winnerRole, games: savedGames ?? undefined });
       } else {
         onSaved?.();
       }

@@ -241,7 +241,7 @@ export default function LeaderboardScreen() {
     loadedRef.current.add(sportName);
     try {
       const { data: sportRow, error: sportErr } = await supabase.from('sports').select('id').eq('name', sportName).maybeSingle();
-      if (sportErr) console.error('[Leaderboard] sport lookup error:', sportErr);
+      if (sportErr && __DEV__) console.error('[Leaderboard] sport lookup error:', sportErr);
       if (!sportRow) { setSportData(prev => ({ ...prev, [sportName]: { entries: [], myRank: null, totalCount: 0 } })); return; }
 
       const myRating = userId ? ratings[sportName] : undefined;
@@ -270,7 +270,7 @@ export default function LeaderboardScreen() {
 
       const [top10Res, totalRes, aboveVpRes, sameVpRes] = await Promise.all([top10Promise, totalPromise, aboveVpPromise, sameVpPromise]);
 
-      if (top10Res.error) console.error('[Leaderboard] top10 query error:', top10Res.error);
+      if (top10Res.error && __DEV__) console.error('[Leaderboard] top10 query error:', top10Res.error);
 
       const rows = (top10Res.data ?? []) as { user_id: string; vp: number; rank_tier: string | null; rank_div: string | null }[];
 
@@ -282,7 +282,7 @@ export default function LeaderboardScreen() {
           .from('profiles')
           .select('user_id, username, full_name, avatar_url')
           .in('user_id', userIds);
-        if (profileErr) console.error('[Leaderboard] profiles query error:', profileErr);
+        if (profileErr && __DEV__) console.error('[Leaderboard] profiles query error:', profileErr);
         await Promise.all((profileRows ?? []).map(async (p: any) => {
           profileMap[p.user_id] = {
             username: p.username ?? null,
@@ -311,7 +311,7 @@ export default function LeaderboardScreen() {
         },
       }));
     } catch (e) {
-      console.error('[Leaderboard] loadSport error:', e);
+      if (__DEV__) console.error('[Leaderboard] loadSport error:', e);
       setSportData(prev => ({ ...prev, [sportName]: { entries: [], myRank: null, totalCount: 0 } }));
     }
   }, []);

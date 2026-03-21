@@ -200,17 +200,20 @@ export default function SearchScreen() {
       setRecLoading(true);
       try {
         const followedIds = Object.keys(map);
-        const { data: recData } = await supabase
+        let recQuery = supabase
           .from('profiles')
           .select('user_id, username, full_name, avatar_url, vp_total')
           .neq('user_id', user.id)
-          .not('user_id', 'in', followedIds.length > 0 ? `(${followedIds.join(',')})` : '(00000000-0000-0000-0000-000000000000)')
           .order('vp_total', { ascending: false })
-          .limit(10);
+          .limit(followedIds.length > 0 ? 20 : 10);
+        if (followedIds.length > 0) {
+          recQuery = recQuery.not('user_id', 'in', `(${followedIds.join(',')})`);
+        }
+        const { data: recData } = await recQuery;
 
         if (recData) {
           const resolved = await Promise.all(
-            (recData as any[]).map(async (u) => ({
+            (recData as any[]).slice(0, 10).map(async (u) => ({
               user_id: u.user_id,
               username: u.username,
               full_name: u.full_name,

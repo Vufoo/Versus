@@ -71,14 +71,12 @@ export async function sendMatchInvitePush(
   matchId: string,
 ): Promise<void> {
   try {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('push_token, push_notifications_enabled')
-      .eq('user_id', toUserId)
-      .maybeSingle();
+    const { data: rows } = await supabase
+      .rpc('get_push_token_for_notification', { target_user_id: toUserId });
 
-    if ((profile as any)?.push_notifications_enabled === false) return;
-    const token = (profile as any)?.push_token as string | null | undefined;
+    const profile = Array.isArray(rows) ? rows[0] : null;
+    if (!profile || profile.push_notifications_enabled === false) return;
+    const token = profile.push_token as string | null | undefined;
     if (!token || !token.startsWith('ExponentPushToken[')) return;
 
     await fetch('https://exp.host/--/api/v2/push/send', {

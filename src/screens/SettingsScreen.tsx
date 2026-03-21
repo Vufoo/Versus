@@ -226,6 +226,7 @@ export default function SettingsScreen() {
           await supabase.from('profiles').update({ push_token: null }).eq('user_id', user.id);
         }
       } catch { /* non-critical */ }
+      _settingsCache = null;
       await supabase.auth.signOut();
       setSignedIn(false);
       navigation.goBack();

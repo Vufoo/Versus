@@ -198,7 +198,7 @@ const en = {
   // ── Versus ──────────────────────────────────────────────────
   versus: {
     title: 'Versus',
-    subtitle: 'Choose your sport, see your rank, then find someone to play.',
+    // subtitle: 'Choose your sport, see your rank, then find someone to play.',
     sport: 'Sport',
     yourRankingIn: 'Your ranking in',
     leaderboards: 'Leaderboards',
@@ -561,7 +561,7 @@ const es: typeof en = {
 
   versus: {
     title: 'Versus',
-    subtitle: 'Elige tu deporte, ve tu ranking y encuentra a alguien con quien jugar.',
+    // subtitle: 'Elige tu deporte, ve tu ranking y encuentra a alguien con quien jugar.',
     sport: 'Deporte',
     yourRankingIn: 'Tu ranking en',
     leaderboards: 'Clasificaciones',

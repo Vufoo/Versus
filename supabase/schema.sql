@@ -120,6 +120,38 @@ create trigger prevent_self_admin_trigger
   before update on public.profiles
   for each row execute function public.prevent_self_admin();
 
+-- RPC: fetch push token for a user the caller shares a match with.
+-- Prevents arbitrary push token enumeration — only returns the token when
+-- the calling user is a confirmed participant in a shared match with the target.
+create or replace function public.get_push_token_for_notification(target_user_id uuid)
+returns table(push_token text, push_notifications_enabled boolean)
+language sql
+security definer
+set search_path = ''
+as $$
+  select p.push_token, p.push_notifications_enabled
+  from public.profiles p
+  where p.user_id = target_user_id
+    and (
+      -- Caller is in a shared match (any status) with the target
+      exists (
+        select 1
+        from public.match_participants mp1
+        join public.match_participants mp2
+          on mp1.match_id = mp2.match_id and mp2.user_id = target_user_id
+        where mp1.user_id = auth.uid()
+      )
+      -- OR the target follows or is followed by the caller
+      or exists (
+        select 1 from public.follows f
+        where (f.follower_id = auth.uid() and f.followed_id = target_user_id)
+           or (f.follower_id = target_user_id and f.followed_id = auth.uid())
+      )
+    );
+$$;
+
+grant execute on function public.get_push_token_for_notification(uuid) to authenticated;
+
 -- RPC: let the client check if an email is already registered ----------------
 
 create or replace function public.check_email_exists(email_input text)
@@ -524,9 +556,18 @@ create policy "Users can read own notifications"
   using (auth.uid() = user_id);
 
 drop policy if exists "Auth users can create notifications" on public.notifications;
+-- Require from_user_id in data to match the authenticated caller.
+-- Prevents any user from sending notifications impersonating someone else.
+-- from_user_id may be omitted for system-generated notifications (null check allows that).
 create policy "Auth users can create notifications"
   on public.notifications for insert
-  with check (true);
+  with check (
+    auth.uid() is not null
+    and (
+      data->>'from_user_id' is null
+      or data->>'from_user_id' = auth.uid()::text
+    )
+  );
 
 drop policy if exists "Users can update own notifications" on public.notifications;
 create policy "Users can update own notifications"
@@ -672,6 +713,7 @@ begin
 end $$;
 
 -- RLS: allow invited opponent to update match (for accept flow)
+-- WITH CHECK mirrors USING so participants cannot change created_by or escalate privileges.
 drop policy if exists "Creators and participants can update matches" on public.matches;
 create policy "Creators and participants can update matches"
   on public.matches for update
@@ -683,6 +725,19 @@ create policy "Creators and participants can update matches"
     or auth.uid() = invited_teammate_2_id
     or auth.uid() = invited_opponent_3_id
     or exists (select 1 from public.match_participants where match_id = id and user_id = auth.uid())
+  )
+  with check (
+    -- created_by must not be changed — the creator row must still match
+    created_by = (select created_by from public.matches where id = matches.id)
+    and (
+      auth.uid() = created_by
+      or auth.uid() = invited_opponent_id
+      or auth.uid() = invited_teammate_id
+      or auth.uid() = invited_opponent_2_id
+      or auth.uid() = invited_teammate_2_id
+      or auth.uid() = invited_opponent_3_id
+      or exists (select 1 from public.match_participants where match_id = id and user_id = auth.uid())
+    )
   );
 
 

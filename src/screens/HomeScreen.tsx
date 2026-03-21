@@ -678,7 +678,7 @@ function FeedCard({
   const canStartRanked = isRanked && participants.length >= requiredParticipants && (
     is2v2 ? readyCount >= requiredParticipants : (statusConfirmed || readyCount >= requiredParticipants)
   );
-  const canStartCasual = !isRanked && !isLocal && !isPractice && participants.length >= requiredParticipants;
+  const canStartCasual = !isRanked && !isLocal && !isPractice && participants.length >= 1;
   const canStartLocal = isLocal && participants.length >= 1;
   const canStartPractice = isPractice && participants.length >= 1;
   const isScheduledFuture = !!(
@@ -1965,16 +1965,16 @@ function FeedCard({
         <View style={styles.detailsLeft}>
           {item.match_type && (
             <View style={styles.detailItem}>
-              <Ionicons name="trophy-outline" size={13} color={colors.textSecondary} />
+              <Ionicons name="trophy-outline" size={14} color={colors.textSecondary} />
               <Text style={styles.detailText}>{t.matchType[(item.match_type || 'casual') as keyof typeof t.matchType] ?? item.match_type}</Text>
             </View>
           )}
           <View style={styles.detailItem}>
-            <Ionicons name={item.is_public !== false ? 'globe-outline' : 'lock-closed-outline'} size={13} color={colors.textSecondary} />
+            <Ionicons name={item.is_public !== false ? 'globe-outline' : 'lock-closed-outline'} size={14} color={colors.textSecondary} />
             <Text style={styles.detailText}>{item.is_public !== false ? t.common.public : t.common.private}</Text>
           </View>
           <View style={styles.detailItem}>
-            <Ionicons name="people-outline" size={13} color={colors.textSecondary} />
+            <Ionicons name="people-outline" size={14} color={colors.textSecondary} />
             <Text style={styles.detailText}>{(item.match_format || '1v1') === '2v2' ? '2v2' : '1v1'}</Text>
           </View>
         </View>
@@ -2749,7 +2749,7 @@ function createHomeStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: spacing.xs,
+      marginBottom: 0,
       paddingBottom: spacing.xs,
       borderBottomWidth: 1,
       borderBottomColor: colors.divider,
@@ -2764,9 +2764,9 @@ function createHomeStyles(colors: ThemeColors) {
     timestampsRow: {
       flexDirection: 'column',
       gap: spacing.xs,
-      marginTop: spacing.xs,
+      marginTop: 0,
       marginBottom: spacing.sm,
-      paddingBottom: spacing.xs,
+      paddingVertical: spacing.sm,
       borderBottomWidth: 1,
       borderBottomColor: colors.divider,
       width: '100%',
@@ -2881,8 +2881,8 @@ function createHomeStyles(colors: ThemeColors) {
       marginBottom: spacing.sm,
     },
     detailsLeft: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, justifyContent: 'center' },
-    detailItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-    detailText: { ...typography.caption, fontSize: 13, color: colors.textSecondary },
+    detailItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    detailText: { ...typography.caption, fontSize: 14, color: colors.textSecondary },
     readyUpReadyBtn: { backgroundColor: '#dcfce7' },
     readyUpUnreadyBtn: { backgroundColor: '#fecaca' },
     matchControlsRow: {
@@ -4296,15 +4296,18 @@ export default function HomeScreen() {
           const matchId = editMatch?.id;
           setEditMatch(null);
           if (!matchId) return;
-          if (update?.winnerRole !== undefined) {
+          if (update?.winnerRole !== undefined || update?.games !== undefined) {
             // Direct synchronous update — no DB round-trip needed
-            const wr = update.winnerRole;
+            const wr = update?.winnerRole;
             updateFeedItem(matchId, (m) => ({
               ...m,
-              participants: m.participants.map((p) => ({
-                ...p,
-                result: wr === 'draw' ? 'draw' : p.role === wr ? 'win' : 'loss',
-              })),
+              ...(wr !== undefined ? {
+                participants: m.participants.map((p) => ({
+                  ...p,
+                  result: wr === 'draw' ? 'draw' : p.role === wr ? 'win' : 'loss',
+                })),
+              } : {}),
+              ...(update?.games !== undefined ? { games: update.games } : {}),
             }));
           } else {
             // Location/notes/format changes — re-fetch fresh data
