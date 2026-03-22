@@ -20,6 +20,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import type { ThemeColors } from '../constants/theme';
 import { supabase, resolveAvatarUrl } from '../lib/supabase';
 import { SPORTS, SPORT_EMOJI } from '../constants/sports';
+import GradientCard from '../components/GradientCard';
 
 type ProfileTab = 'overview' | 'rankings';
 
@@ -85,10 +86,10 @@ function createStyles(colors: ThemeColors) {
       marginTop: spacing.sm,
       padding: spacing.lg,
       borderRadius: borderRadius.lg,
-      backgroundColor: colors.cardBg,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: 'center',
+      overflow: 'hidden',
     },
     avatarWrapper: {
       width: 80,
@@ -108,24 +109,24 @@ function createStyles(colors: ThemeColors) {
     socialValue: { ...typography.heading, fontSize: 18, color: colors.text },
     socialLabel: { ...typography.caption, color: colors.textSecondary },
     followBtn: {
-      flex: 1,
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.sm,
-      minHeight: 40,
+      width: 130,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 6,
+      minHeight: 34,
       borderRadius: borderRadius.full,
       backgroundColor: colors.primary,
       justifyContent: 'center',
       alignItems: 'center',
     },
     followBtnMuted: { backgroundColor: colors.border },
-    followBtnText: { ...typography.label, fontSize: 14, color: colors.textOnPrimary },
+    followBtnText: { ...typography.label, fontSize: 13, color: colors.textOnPrimary },
     followBtnTextMuted: { color: colors.text },
-    actionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, marginTop: spacing.sm },
+    actionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, marginTop: spacing.md },
     messageBtn: {
-      flex: 1,
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.sm,
-      minHeight: 40,
+      width: 130,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 6,
+      minHeight: 34,
       borderRadius: borderRadius.full,
       borderWidth: 1,
       borderColor: colors.primary,
@@ -134,7 +135,7 @@ function createStyles(colors: ThemeColors) {
       justifyContent: 'center',
       gap: spacing.xs,
     },
-    messageBtnText: { ...typography.label, fontSize: 14, color: colors.primary },
+    messageBtnText: { ...typography.label, fontSize: 13, color: colors.primary },
     tabRow: {
       flexDirection: 'row',
       marginHorizontal: spacing.lg,
@@ -153,7 +154,7 @@ function createStyles(colors: ThemeColors) {
     ranksSection: { marginHorizontal: spacing.lg, marginBottom: spacing.lg },
     ranksSectionTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.sm },
     ranksGrid: { flexDirection: 'row', gap: spacing.md, justifyContent: 'center' },
-    rankCard: { flex: 1, minWidth: 0, backgroundColor: colors.cardBg, borderRadius: borderRadius.lg, padding: spacing.md, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', minHeight: 120 },
+    rankCard: { flex: 1, minWidth: 0, borderRadius: borderRadius.lg, padding: spacing.md, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', minHeight: 120, overflow: 'hidden' },
     rankCardEmoji: { fontSize: 28, marginBottom: spacing.xs },
     rankCardSport: { ...typography.label, color: colors.text, marginBottom: spacing.xs, textAlign: 'center' },
     rankCardTier: { ...typography.caption, color: colors.primary, fontWeight: '600', marginBottom: spacing.xs },
@@ -163,7 +164,7 @@ function createStyles(colors: ThemeColors) {
     rankCardStat: { alignItems: 'center' },
     rankCardStatValue: { ...typography.label, fontSize: 14, color: colors.text },
     rankCardStatLabel: { ...typography.caption, fontSize: 10, color: colors.textSecondary },
-    card: { marginHorizontal: spacing.lg, backgroundColor: colors.cardBg, borderRadius: borderRadius.lg, padding: spacing.lg, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.border },
+    card: { marginHorizontal: spacing.lg, borderRadius: borderRadius.lg, padding: spacing.lg, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
     cardTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.sm },
     placeholder: { ...typography.caption, color: colors.textSecondary },
     matchHistoryItem: { paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.divider },
@@ -174,7 +175,7 @@ function createStyles(colors: ThemeColors) {
     matchHistoryMeta: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginTop: 4, lineHeight: 18 },
     matchHistoryResult: { ...typography.label, fontSize: 14, fontWeight: '600' },
     rankPage: { width: SCREEN_W - spacing.lg * 2, paddingHorizontal: spacing.lg },
-    rankPageInner: { backgroundColor: colors.cardBg, borderRadius: borderRadius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, alignItems: 'center' },
+    rankPageInner: { borderRadius: borderRadius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, alignItems: 'center', overflow: 'hidden' },
     rankEmoji: { fontSize: 48, marginBottom: spacing.sm },
     rankSport: { ...typography.heading, color: colors.text, marginBottom: spacing.xs },
     rankTier: { ...typography.body, color: colors.primary, marginBottom: spacing.md },
@@ -417,7 +418,7 @@ export default function UserProfileScreen() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.headerCard}>
+        <GradientCard style={styles.headerCard}>
           {loadingProfile ? (
             <ActivityIndicator color={colors.primary} />
           ) : (
@@ -477,7 +478,7 @@ export default function UserProfileScreen() {
               )}
             </>
           )}
-        </View>
+        </GradientCard>
 
         <View style={styles.tabRow}>
           <TouchableOpacity style={[styles.tab, tab === 'overview' && styles.tabActive]} onPress={() => setTab('overview')} activeOpacity={0.8}>
@@ -494,7 +495,7 @@ export default function UserProfileScreen() {
               <Text style={styles.ranksSectionTitle}>{t.profile.sportRanks}</Text>
               <View style={styles.ranksGrid}>
                 {top3Rankings.map((item) => (
-                  <View key={item.sport} style={styles.rankCard}>
+                  <GradientCard key={item.sport} style={styles.rankCard}>
                     <Text style={styles.rankCardEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
                     <Text style={styles.rankCardSport} numberOfLines={1}>{item.sport}</Text>
                     <Text style={[styles.rankCardTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : t.common.unranked}</Text>
@@ -504,12 +505,12 @@ export default function UserProfileScreen() {
                       <View style={styles.rankCardStat}><Text style={styles.rankCardStatValue}>{item.wins}</Text><Text style={styles.rankCardStatLabel}>W</Text></View>
                       <View style={styles.rankCardStat}><Text style={styles.rankCardStatValue}>{item.losses}</Text><Text style={styles.rankCardStatLabel}>L</Text></View>
                     </View>
-                  </View>
+                  </GradientCard>
                 ))}
               </View>
             </View>
 
-            <View style={styles.card}>
+            <GradientCard style={styles.card}>
               <Text style={styles.cardTitle}>{t.profile.matchHistory}</Text>
               {!isOwnProfile && targetProfileVisibility === 'private' ? (
                 <Text style={styles.placeholder}>{t.profile.matchHistoryPrivate}</Text>
@@ -550,7 +551,7 @@ export default function UserProfileScreen() {
                   );
                 })
               )}
-            </View>
+            </GradientCard>
           </>
         )}
 
@@ -568,7 +569,7 @@ export default function UserProfileScreen() {
             >
               {rankingsData.map((item) => (
                 <View key={item.sport} style={styles.rankPage}>
-                  <View style={styles.rankPageInner}>
+                  <GradientCard style={styles.rankPageInner}>
                     <Text style={styles.rankEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
                     <Text style={styles.rankSport}>{item.sport}</Text>
                     <Text style={[styles.rankTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : t.common.unranked}</Text>
@@ -578,7 +579,7 @@ export default function UserProfileScreen() {
                       <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.losses}</Text><Text style={styles.rankStatLabel}>{t.common.losses}</Text></View>
                     </View>
                     <Text style={styles.rankHint}>Play ranked matches in {item.sport} to earn VP and climb the ranks.</Text>
-                  </View>
+                  </GradientCard>
                 </View>
               ))}
             </ScrollView>

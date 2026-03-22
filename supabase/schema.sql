@@ -20,6 +20,16 @@ begin
     create type match_status as enum ('planned', 'pending', 'confirmed', 'in_progress', 'paused', 'completed', 'canceled');
   end if;
 
+  -- Ensure in_progress and paused exist even if the type was created by an older schema
+  begin
+    alter type match_status add value 'in_progress';
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter type match_status add value 'paused';
+  exception when duplicate_object then null;
+  end;
+
   if not exists (select 1 from pg_type where typname = 'participant_role') then
     create type participant_role as enum ('challenger', 'opponent');
   end if;
@@ -319,8 +329,18 @@ create table if not exists public.matches (
 
   is_public       boolean not null default true,
 
+  -- Invited players (added via migrations — safe if columns already exist)
+  invited_opponent_id   uuid references auth.users (id) on delete set null,
+  invited_teammate_id   uuid references auth.users (id) on delete set null,
+  invited_opponent_2_id uuid references auth.users (id) on delete set null,
+  invited_teammate_2_id uuid references auth.users (id) on delete set null,
+  invited_opponent_3_id uuid references auth.users (id) on delete set null,
+
+  match_format    text not null default '1v1' constraint matches_match_format_check check (match_format in ('1v1', '2v2', '3v3')),
+
   started_at      timestamptz,
   ended_at        timestamptz,
+  paused_at       timestamptz,
   games_played    integer,
 
   created_at      timestamptz not null default now(),
@@ -344,6 +364,12 @@ create table if not exists public.match_participants (
 
   score         text,
   vp_delta      integer not null default 0,
+
+  -- Ready-up / mutual-action flags (added via migrations — safe if columns already exist)
+  ready             boolean not null default false,
+  ready_at          timestamptz,
+  delete_requested  boolean not null default false,
+  finish_requested  boolean not null default false,
 
   created_at    timestamptz not null default now(),
 
@@ -1085,7 +1111,9 @@ begin
     return jsonb_build_object('ok', false, 'error', 'Match not found');
   end if;
 
-  if v_match.status not in ('in_progress', 'paused') then
+  -- Allow finishing from any non-terminal status (handles cases where start/pause
+  -- didn't persist to DB due to missing enum migration in older deployments).
+  if v_match.status in ('completed', 'canceled') then
     return jsonb_build_object('ok', false, 'error', 'Match already ' || v_match.status);
   end if;
 

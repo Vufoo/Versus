@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl, Modal, Pressable, FlatList } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl, Modal, Pressable, FlatList, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -7,11 +7,12 @@ import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
 import { useLanguage } from '../i18n/LanguageContext';
-import { supabase } from '../lib/supabase';
+import { supabase, resolveAvatarUrl } from '../lib/supabase';
 import NewMatchModal from '../components/NewMatchModal';
 import { useMembership } from '../hooks/useMembership';
 
 import { SPORTS, sportLabel } from '../constants/sports';
+import GradientCard from '../components/GradientCard';
 
 type Flow = null | 'ranked' | 'casual' | 'local';
 
@@ -35,9 +36,35 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.background,
       paddingHorizontal: spacing.lg,
     },
-    pageHeader: { marginBottom: spacing.sm },
-    pageTitle: { ...typography.heading, color: colors.text },
-    header: { marginBottom: spacing.lg },
+    topBar: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      justifyContent: 'space-between' as const,
+      paddingBottom: 9,
+      paddingHorizontal: spacing.md,
+      backgroundColor: colors.cardBg,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      marginHorizontal: -spacing.lg,
+      marginBottom: spacing.lg,
+    },
+    topBarIcon: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      overflow: 'hidden' as const,
+    },
+    topBarRight: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 4,
+    },
+    header: { marginBottom: spacing.sm },
     subtitle: {
       ...typography.body,
       color: colors.textSecondary,
@@ -90,12 +117,12 @@ function createStyles(colors: ThemeColors) {
     dropdownSportRating: { ...typography.caption, fontSize: 11, color: colors.textSecondary },
     // calendar
     calendarCard: {
-      backgroundColor: colors.cardBg,
       borderRadius: borderRadius.lg,
       borderWidth: 1,
       borderColor: colors.border,
       padding: spacing.md,
       marginBottom: spacing.md,
+      overflow: 'hidden' as const,
     },
     calendarHeader: {
       flexDirection: 'row',
@@ -149,9 +176,9 @@ function createStyles(colors: ThemeColors) {
       borderRadius: borderRadius.lg,
       borderWidth: 1,
       borderColor: colors.border,
-      backgroundColor: colors.cardBg,
       gap: 2,
       marginRight: spacing.xs,
+      overflow: 'hidden' as const,
     },
     rankLabel: { ...typography.caption, color: colors.textSecondary },
     rankSport: { ...typography.label, fontSize: 14, fontWeight: '700', color: colors.text },
@@ -163,33 +190,32 @@ function createStyles(colors: ThemeColors) {
     },
     rankHint: { ...typography.caption, color: colors.textSecondary },
     leaderboardCard: {
-      flex: 1,
-      marginLeft: spacing.xs,
       padding: spacing.md,
       borderRadius: borderRadius.lg,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.cardBg,
       alignItems: 'center',
       justifyContent: 'center',
       gap: 4,
+      flex: 1,
     },
     leaderboardLabel: { ...typography.caption, fontSize: 11, color: colors.textSecondary, textAlign: 'center' },
     leaderboardTitle: { ...typography.label, fontSize: 11, fontWeight: '700', color: colors.text, textAlign: 'center' },
     primaryButton: {
       borderRadius: borderRadius.lg,
-      padding: spacing.lg,
-      marginBottom: spacing.md,
+      paddingVertical: 20,
+      paddingHorizontal: spacing.md,
+      marginBottom: 10,
       borderWidth: 1,
     },
-    buttonIconWrap: { marginBottom: spacing.sm },
+    buttonIconWrap: { marginBottom: 4 },
     primaryButtonTitle: {
-      ...typography.heading,
+      fontSize: 16,
+      fontWeight: '600' as const,
       color: colors.textOnPrimary,
-      marginBottom: spacing.xs,
+      marginBottom: 2,
     },
     primaryButtonSub: {
-      ...typography.caption,
+      fontSize: 12,
+      fontWeight: '400' as const,
       color: 'rgba(255,255,255,0.9)',
     },
     rankedButton: {
@@ -227,7 +253,7 @@ const MEMBERSHIP_LOCK_MESSAGE =
   'Find ranked match and Find casual match are only available in the membership version of Versus. Upgrade in Settings to unlock.';
 
 export default function VersusScreen() {
-  const { colors } = useTheme();
+  const { colors, mode: themeMode } = useTheme();
   const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
@@ -237,6 +263,8 @@ export default function VersusScreen() {
   const [sport, setSport] = useState<string>(SPORTS[0]);
   const closeFlow = () => setFlow(null);
 
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [sportRatings, setSportRatings] = useState<Record<string, { rank_tier: string | null; rank_div: string | null; vp: number }>>({});
   const [preferredSports, setPreferredSports] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -261,10 +289,16 @@ export default function VersusScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      setCurrentUserId(user.id);
       const [ratingsRes, profRes] = await Promise.all([
         supabase.from('user_sport_ratings').select('vp, rank_tier, rank_div, sport_id, sports!inner(name)').eq('user_id', user.id),
-        supabase.from('profiles').select('preferred_sports').eq('user_id', user.id).maybeSingle(),
+        supabase.from('profiles').select('preferred_sports, avatar_url').eq('user_id', user.id).maybeSingle(),
       ]);
+      const avatarUrl = (profRes.data as any)?.avatar_url;
+      if (avatarUrl) {
+        const resolved = await resolveAvatarUrl(avatarUrl);
+        if (resolved) setAvatarUri(resolved);
+      }
 
       if (ratingsRes.data) {
         const map: typeof sportRatings = {};
@@ -303,9 +337,29 @@ export default function VersusScreen() {
   const rankVpDisplay = currentRating ? `${currentRating.vp} VP` : '0 VP';
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + spacing.lg }]}>
-      <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>{t.versus.title}</Text>
+    <View style={[styles.container, { paddingTop: 0 }]}>
+      <View style={[styles.topBar, { paddingTop: insets.top }]}>
+        {/* Left: profile avatar */}
+        <TouchableOpacity style={styles.topBarIcon} onPress={() => navigation.navigate('Profile')} activeOpacity={0.8}>
+          {avatarUri
+            ? <Image source={{ uri: avatarUri }} style={{ width: 34, height: 34, borderRadius: 17 }} />
+            : <Ionicons name="person-outline" size={18} color={colors.text} />}
+        </TouchableOpacity>
+        {/* Center: logo */}
+        <Image
+          source={themeMode === 'dark' ? require('../../assets/icon_dark_mode.png') : require('../../assets/icon_light_mode.png')}
+          style={{ height: 52, width: 118 }}
+          resizeMode="contain"
+        />
+        {/* Right: search + settings */}
+        <View style={styles.topBarRight}>
+          <TouchableOpacity style={styles.topBarIcon} onPress={() => navigation.navigate('Search')} activeOpacity={0.8}>
+            <Ionicons name="search" size={18} color={colors.text} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.topBarIcon} onPress={() => navigation.navigate('Settings')} activeOpacity={0.8}>
+            <Ionicons name="settings-outline" size={18} color={colors.text} />
+          </TouchableOpacity>
+        </View>
       </View>
       <ScrollView
         style={styles.scroll}
@@ -356,22 +410,24 @@ export default function VersusScreen() {
           </Pressable>
         </Modal>
         <View style={styles.rankRow}>
-          <View style={styles.rankCard}>
+          <GradientCard style={styles.rankCard}>
             <Text style={styles.rankLabel}>{t.versus.yourRankingIn}</Text>
             <Text style={styles.rankSport} numberOfLines={1}>{sport}</Text>
             <Text numberOfLines={1}>
               <Text style={[styles.rankValue, { color: tierColor(currentRating?.rank_tier ?? null) }]}>{rankTierDisplay}</Text>
               <Text style={[styles.rankValue, { color: '#2563EB', fontWeight: '700' }]}>{rankVpDisplay}</Text>
             </Text>
-          </View>
+          </GradientCard>
           <TouchableOpacity
-            style={styles.leaderboardCard}
+            style={{ flex: 1, marginLeft: spacing.xs, borderRadius: borderRadius.lg, overflow: 'hidden' }}
             onPress={() => navigation.navigate('Leaderboard')}
             activeOpacity={0.85}
           >
-            <Ionicons name="trophy" size={18} color={colors.primary} />
-            <Text style={styles.leaderboardTitle}>{t.versus.leaderboards}</Text>
-            <Text style={styles.leaderboardLabel}>{t.versus.topPlayers}</Text>
+            <GradientCard style={styles.leaderboardCard}>
+              <Ionicons name="trophy" size={18} color={colors.primary} />
+              <Text style={styles.leaderboardTitle}>{t.versus.leaderboards}</Text>
+              <Text style={styles.leaderboardLabel}>{t.versus.topPlayers}</Text>
+            </GradientCard>
           </TouchableOpacity>
         </View>
       </View>
@@ -382,7 +438,7 @@ export default function VersusScreen() {
           activeOpacity={0.85}
         >
           <View style={styles.buttonIconWrap}>
-            <Ionicons name="person-add-outline" size={28} color={colors.textOnPrimary} />
+            <Ionicons name="person-add-outline" size={22} color={colors.textOnPrimary} />
           </View>
           <Text style={styles.primaryButtonTitle}>
             {t.versus.newMatch}
@@ -398,7 +454,7 @@ export default function VersusScreen() {
           activeOpacity={0.85}
         >
           <View style={styles.buttonIconWrap}>
-            <Ionicons name="ribbon-outline" size={28} color={colors.text} />
+            <Ionicons name="ribbon-outline" size={22} color={colors.text} />
           </View>
           <Text style={[styles.primaryButtonTitle, styles.casualTitle]}>{t.versus.newTournament}</Text>
           <Text style={[styles.primaryButtonSub, styles.casualSub]}>
@@ -412,7 +468,7 @@ export default function VersusScreen() {
           activeOpacity={0.85}
         >
           <View style={styles.buttonIconWrap}>
-            <Ionicons name="trophy" size={28} color={colors.text} />
+            <Ionicons name="trophy" size={22} color={colors.text} />
           </View>
           <Text style={[styles.primaryButtonTitle, styles.casualTitle]}>{t.versus.findRankedMatch}</Text>
           <Text style={[styles.primaryButtonSub, styles.casualSub]}>
@@ -426,7 +482,7 @@ export default function VersusScreen() {
           activeOpacity={0.85}
         >
           <View style={styles.buttonIconWrap}>
-            <Ionicons name="happy-outline" size={28} color={colors.text} />
+            <Ionicons name="happy-outline" size={22} color={colors.text} />
           </View>
           <Text style={[styles.primaryButtonTitle, styles.casualTitle]}>
             {t.versus.findCasualMatch}

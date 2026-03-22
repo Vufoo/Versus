@@ -18,6 +18,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { sportLabel } from '../constants/sports';
 import NewMatchModal from '../components/NewMatchModal';
+import GradientCard from '../components/GradientCard';
 
 type CalendarDay = { id: string; day: number; isCurrentMonth: boolean; isToday: boolean };
 
@@ -98,12 +99,12 @@ function createPlanStyles(colors: ThemeColors) {
       marginBottom: spacing.lg,
     },
     calendarCard: {
-      backgroundColor: colors.cardBg,
       borderRadius: borderRadius.lg,
       padding: spacing.lg,
       borderWidth: 1,
       borderColor: colors.border,
       marginBottom: spacing.lg,
+      overflow: 'hidden' as const,
     },
     calendarHeaderRow: {
       flexDirection: 'row',
@@ -320,17 +321,22 @@ export default function PlanMatchScreen() {
     [allMatches],
   );
 
+  const completedMatchDayIds = useMemo(
+    () => new Set(allMatches.filter((m) => m.status === 'completed').map((m) => m.scheduled_at ? localDateStr(new Date(m.scheduled_at)) : null).filter(Boolean) as string[]),
+    [allMatches],
+  );
+
   const currentStreak = useMemo(() => {
     const now = new Date();
     let count = 0;
     for (let i = 0; i < 365; i++) {
       const d = new Date(now);
       d.setDate(now.getDate() - i);
-      if (matchDayIds.has(localDateStr(d))) count++;
+      if (completedMatchDayIds.has(localDateStr(d))) count++;
       else break;
     }
     return count;
-  }, [matchDayIds]);
+  }, [completedMatchDayIds]);
 
   const selectedDayMatches = useMemo(
     () => allMatches.filter((m) => m.scheduled_at ? localDateStr(new Date(m.scheduled_at)) === selectedDayId : false),
@@ -377,7 +383,7 @@ export default function PlanMatchScreen() {
         </View>
       )}
 
-      <View style={styles.calendarCard}>
+      <GradientCard style={styles.calendarCard}>
         <View style={styles.calendarHeaderRow}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
             <Text style={styles.calendarTitle}>
@@ -413,6 +419,7 @@ export default function PlanMatchScreen() {
             {week.map((cell) => {
               const isSelected = cell.id === selectedDayId;
               const hasMatch = matchDayIds.has(cell.id);
+              const hasCompletedMatch = completedMatchDayIds.has(cell.id);
               return (
                 <TouchableOpacity
                   key={cell.id}
@@ -438,7 +445,7 @@ export default function PlanMatchScreen() {
                       {cell.day}
                     </Text>
                   </View>
-                  {hasMatch && (
+                  {hasCompletedMatch && (
                     <Text style={styles.dayFlame}>🔥</Text>
                   )}
                 </TouchableOpacity>
@@ -446,7 +453,7 @@ export default function PlanMatchScreen() {
             })}
           </View>
         ))}
-      </View>
+      </GradientCard>
 
       <View style={styles.sectionHeader}>
         <View>

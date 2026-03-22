@@ -27,6 +27,7 @@ import type { ThemeColors } from '../constants/theme';
 import { supabase, resolveAvatarUrl } from '../lib/supabase';
 import { normalizePhone, hashPhone } from '../lib/contacts';
 import { SPORTS, sportLabel, SPORT_EMOJI } from '../constants/sports';
+import GradientCard from '../components/GradientCard';
 
 type ProfileTab = 'overview' | 'rankings';
 
@@ -94,11 +95,12 @@ function createStyles(colors: ThemeColors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: spacing.sm,
-      paddingBottom: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingBottom: 9,
       backgroundColor: colors.cardBg,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
+      marginBottom: 0,
     },
     pageTitle: { ...typography.heading, color: colors.text },
     headerActions: {
@@ -131,7 +133,6 @@ function createStyles(colors: ThemeColors) {
     headerCard: {
       paddingHorizontal: spacing.lg,
       paddingVertical: spacing.lg,
-      backgroundColor: colors.cardBg,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
       alignItems: 'center',
@@ -179,7 +180,6 @@ function createStyles(colors: ThemeColors) {
 
     /* ---- Ranks overview grid ---- */
     ranksSection: {
-      backgroundColor: colors.cardBg,
       borderTopWidth: 4,
       borderTopColor: colors.background,
       borderBottomWidth: 4,
@@ -189,7 +189,7 @@ function createStyles(colors: ThemeColors) {
       paddingBottom: spacing.lg,
       marginBottom: 0,
     },
-    ranksSectionTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.md },
+    ranksSectionTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.lg },
     ranksGrid: {
       flexDirection: 'row',
       gap: spacing.sm,
@@ -237,7 +237,6 @@ function createStyles(colors: ThemeColors) {
 
     /* ---- Cards ---- */
     card: {
-      backgroundColor: colors.cardBg,
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.sm,
       paddingBottom: spacing.lg,
@@ -246,7 +245,7 @@ function createStyles(colors: ThemeColors) {
       borderBottomColor: colors.background,
     },
     cardTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.sm },
-    cardSubtitle: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md },
+    cardSubtitle: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.lg },
     placeholder: { ...typography.caption, color: colors.textSecondary },
     sportsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     sportsGridRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs },
@@ -271,7 +270,6 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: spacing.lg,
       paddingVertical: spacing.xl,
       alignItems: 'center',
-      backgroundColor: colors.cardBg,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
@@ -354,7 +352,6 @@ function createStyles(colors: ThemeColors) {
     },
     sectionSubtitle: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
     matchHistoryList: {
-      backgroundColor: colors.cardBg,
       borderBottomWidth: 4,
       borderBottomColor: colors.background,
       marginBottom: 0,
@@ -782,15 +779,15 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.pageHeader, { paddingTop: insets.top + spacing.xs }]}>
+      <View style={[styles.pageHeader, { paddingTop: insets.top }]}>
         {navigation.canGoBack() ? (
           <TouchableOpacity style={styles.backBtn} activeOpacity={0.8} onPress={() => navigation.goBack()}>
-            <Ionicons name="chevron-back" size={20} color={colors.text} />
+            <Ionicons name="chevron-back" size={18} color={colors.text} />
           </TouchableOpacity>
         ) : (
           <View style={{ width: 34 }} />
         )}
-        <View style={styles.headerActions}>
+<View style={styles.headerActions}>
           <TouchableOpacity style={styles.headerActionBtn} activeOpacity={0.8} onPress={shareProfile}>
             <Ionicons name="share-outline" size={18} color={colors.text} />
           </TouchableOpacity>
@@ -802,7 +799,7 @@ export default function ProfileScreen() {
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefreshProfile} tintColor={colors.text} colors={[colors.primary]} progressBackgroundColor={colors.cardBg} />}>
         {/* Profile header */}
-        <View style={styles.headerCard}>
+        <GradientCard style={styles.headerCard}>
           {!loadingProfile && (
             <TouchableOpacity style={styles.editBtn} onPress={openEditModal} activeOpacity={0.8}>
               <Ionicons name="pencil" size={14} color={colors.textSecondary} />
@@ -860,7 +857,7 @@ export default function ProfileScreen() {
               </View>
             </>
           )}
-        </View>
+        </GradientCard>
 
         {/* Tab switcher */}
         <View style={styles.tabRow}>
@@ -875,7 +872,7 @@ export default function ProfileScreen() {
         {/* Overview */}
         {tab === 'overview' && (
           <>
-            <View style={styles.ranksSection}>
+            <GradientCard style={styles.ranksSection}>
               <Text style={styles.ranksSectionTitle}>{t.profile.sportRanks}</Text>
               <View style={styles.ranksGrid}>
               {top3Rankings.map((item) => (
@@ -906,9 +903,9 @@ export default function ProfileScreen() {
                 </View>
               ))}
               </View>
-            </View>
+            </GradientCard>
 
-            <View style={styles.card}>
+            <GradientCard style={styles.card}>
               <Text style={styles.cardTitle}>{t.profile.preferredSports}</Text>
               <Text style={styles.cardSubtitle}>Select up to {MAX_PREFERRED} sports you play the most.</Text>
               <View style={styles.sportsGrid}>
@@ -928,15 +925,15 @@ export default function ProfileScreen() {
                   <Text style={styles.savingText}>Saving…</Text>
                 </View>
               )}
-            </View>
+            </GradientCard>
 
             {matchHistory.length === 0 ? (
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>{t.profile.matchHistory}</Text>
+              <GradientCard style={styles.card}>
+                <Text style={[styles.cardTitle, { marginBottom: spacing.md }]}>{t.profile.matchHistory}</Text>
                 <Text style={styles.placeholder}>Recent wins, losses, and casual games will appear here.</Text>
-              </View>
+              </GradientCard>
             ) : (
-              <View style={styles.matchHistoryList}>
+              <GradientCard style={styles.matchHistoryList}>
                 <View style={styles.matchHistoryHeader}>
                   <Text style={[styles.ranksSectionTitle, { marginBottom: 0 }]}>{t.profile.matchHistory}</Text>
                 </View>
@@ -979,14 +976,14 @@ export default function ProfileScreen() {
                     </TouchableOpacity>
                   );
                 })}
-              </View>
+              </GradientCard>
             )}
           </>
         )}
 
         {/* Rankings */}
         {tab === 'rankings' && (
-          <>
+          <View style={{ borderTopWidth: 4, borderTopColor: colors.background }}>
             <ScrollView
               horizontal
               pagingEnabled
@@ -1000,7 +997,7 @@ export default function ProfileScreen() {
             >
               {rankingsData.map((item) => (
                 <View key={item.sport} style={styles.rankPage}>
-                  <View style={styles.rankPageInner}>
+                  <GradientCard style={styles.rankPageInner}>
                     <Text style={styles.rankEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
                     <Text style={styles.rankSport}>{item.sport}</Text>
                     <Text style={[styles.rankTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}</Text>
@@ -1010,7 +1007,7 @@ export default function ProfileScreen() {
                       <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.losses}</Text><Text style={styles.rankStatLabel}>{t.common.losses}</Text></View>
                     </View>
                     <Text style={styles.rankHint}>Play ranked matches in {item.sport} to earn VP and climb the ranks.</Text>
-                  </View>
+                  </GradientCard>
                 </View>
               ))}
             </ScrollView>
@@ -1019,7 +1016,7 @@ export default function ProfileScreen() {
                 <View key={item.sport} style={[styles.dot, i === rankIdx && styles.dotActive]} />
               ))}
             </View>
-          </>
+          </View>
         )}
       </ScrollView>
 

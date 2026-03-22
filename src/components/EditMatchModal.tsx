@@ -146,34 +146,6 @@ function makeStyles(c: ThemeColors) {
 
 type ParsedGame = { game_number: number; score_challenger: number; score_opponent: number };
 
-/**
- * Parses a score string like "21-15" or "6-4 7-5" into match_games rows.
- * Tries challScore first (challenger perspective), then oppScore reversed.
- * Returns null if neither is parseable.
- */
-function parseScoreToGames(challScore: string, oppScore: string): ParsedGame[] | null {
-  const tryParse = (s: string, reversed: boolean): ParsedGame[] | null => {
-    const parts = s.trim().split(/[\s,]+/);
-    const games: ParsedGame[] = [];
-    for (let i = 0; i < parts.length; i++) {
-      const m = parts[i].match(/^(\d+)-(\d+)$/);
-      if (m) {
-        const a = parseInt(m[1], 10);
-        const b = parseInt(m[2], 10);
-        games.push({ game_number: i + 1, score_challenger: reversed ? b : a, score_opponent: reversed ? a : b });
-      }
-    }
-    return games.length > 0 ? games : null;
-  };
-  if (challScore.trim()) {
-    const r = tryParse(challScore, false);
-    if (r) return r;
-  }
-  if (oppScore.trim()) {
-    return tryParse(oppScore, true);
-  }
-  return null;
-}
 
 export default function EditMatchModal({ visible, onClose, onSaved, colors, match, currentUserId }: Props) {
   const { t } = useLanguage();
@@ -208,8 +180,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
   const isCasual = match?.match_type?.toLowerCase() === 'casual';
 
   const [winnerRole, setWinnerRole] = useState<'challenger' | 'opponent' | 'draw'>('draw');
-  const [challengerScore, setChallengerScore] = useState('');
-  const [opponentScore, setOpponentScore] = useState('');
+  const [editGames, setEditGames] = useState<Array<{ score_challenger: string; score_opponent: string }>>([{ score_challenger: '', score_opponent: '' }]);
   // Casual / practice: all participants can edit. Ranked: creator only.
   const canEdit = isCreator || (!isRanked && isParticipant);
   // Ranked non-creator participants can edit limited fields (location, notes, visibility).
@@ -237,17 +208,27 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
 
       if (match.match_type?.toLowerCase() === 'casual') {
         let cancelled = false;
-        supabase.from('match_participants').select('role, result, score').eq('match_id', match.id)
-          .then(({ data }) => {
-            if (cancelled || !data) return;
-            const chal = (data as any[]).find(p => p.role === 'challenger');
-            const opp = (data as any[]).find(p => p.role === 'opponent');
+        Promise.all([
+          supabase.from('match_participants').select('role, result, score').eq('match_id', match.id),
+          supabase.from('match_games').select('game_number, score_challenger, score_opponent').eq('match_id', match.id).order('game_number'),
+        ]).then(([{ data: pData }, { data: gData }]) => {
+          if (cancelled) return;
+          if (pData) {
+            const chal = (pData as any[]).find(p => p.role === 'challenger');
+            const opp = (pData as any[]).find(p => p.role === 'opponent');
             if (chal?.result === 'win') setWinnerRole('challenger');
             else if (opp?.result === 'win') setWinnerRole('opponent');
             else setWinnerRole('draw');
-            setChallengerScore(chal?.score ?? '');
-            setOpponentScore(opp?.score ?? '');
-          });
+          }
+          if (gData && (gData as any[]).length > 0) {
+            setEditGames((gData as any[]).map(g => ({
+              score_challenger: (g.score_challenger ?? 0) > 0 || (g.score_opponent ?? 0) > 0 ? String(g.score_challenger ?? 0) : '',
+              score_opponent: (g.score_challenger ?? 0) > 0 || (g.score_opponent ?? 0) > 0 ? String(g.score_opponent ?? 0) : '',
+            })));
+          } else {
+            setEditGames([{ score_challenger: '', score_opponent: '' }]);
+          }
+        });
         return () => { cancelled = true; };
       }
       if (match.scheduled_at) {
@@ -303,28 +284,38 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
 
       await supabase.from('matches').update(updates).eq('id', match.id);
 
-      let savedGames: ParsedGame[] | null = null;
+      let savedGames: ParsedGame[] = [];
       if (isCasual && match.status === 'completed') {
         const challResult = winnerRole === 'challenger' ? 'win' : winnerRole === 'opponent' ? 'loss' : 'draw';
         const oppResult = winnerRole === 'opponent' ? 'win' : winnerRole === 'challenger' ? 'loss' : 'draw';
         const challengers = (match.participants ?? []).filter(p => p.role === 'challenger');
         const opponents = (match.participants ?? []).filter(p => p.role === 'opponent');
-        // Parse entered scores into per-game rows and persist to match_games
-        savedGames = parseScoreToGames(challengerScore, opponentScore);
+        // Build per-game rows from the per-game UI inputs
+        savedGames = editGames
+          .map((g, i) => ({
+            game_number: i + 1,
+            score_challenger: parseInt(g.score_challenger, 10) || 0,
+            score_opponent: parseInt(g.score_opponent, 10) || 0,
+          }))
+          .filter(g => g.score_challenger > 0 || g.score_opponent > 0);
+        const challTotal = savedGames.reduce((a, g) => a + g.score_challenger, 0);
+        const oppTotal = savedGames.reduce((a, g) => a + g.score_opponent, 0);
         await Promise.all([
-          ...challengers.map(p => supabase.from('match_participants').update({ result: challResult, score: challengerScore.trim() || null }).eq('match_id', match.id).eq('user_id', p.user_id)),
-          ...opponents.map(p => supabase.from('match_participants').update({ result: oppResult, score: opponentScore.trim() || null }).eq('match_id', match.id).eq('user_id', p.user_id)),
-          ...(savedGames ? [
+          ...challengers.map(p => supabase.from('match_participants').update({ result: challResult, score: challTotal > 0 ? String(challTotal) : null }).eq('match_id', match.id).eq('user_id', p.user_id)),
+          ...opponents.map(p => supabase.from('match_participants').update({ result: oppResult, score: oppTotal > 0 ? String(oppTotal) : null }).eq('match_id', match.id).eq('user_id', p.user_id)),
+          ...(savedGames.length > 0 ? [
             supabase.from('match_games').delete().eq('match_id', match.id).then(() =>
-              supabase.from('match_games').insert(savedGames!.map(g => ({ match_id: match.id, ...g })))
+              supabase.from('match_games').insert(savedGames.map(g => ({ match_id: match.id, ...g })))
             ),
-          ] : []),
+          ] : [
+            supabase.from('match_games').delete().eq('match_id', match.id),
+          ]),
         ]);
       }
 
       onClose();
       if (isCasual && match.status === 'completed') {
-        onSaved?.({ winnerRole, games: savedGames ?? undefined });
+        onSaved?.({ winnerRole, games: savedGames.length > 0 ? savedGames : undefined });
       } else {
         onSaved?.();
       }
@@ -604,29 +595,51 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                           })}
                         </View>
                         <Text style={styles.label}>Score</Text>
-                        <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.md, alignItems: 'flex-end' }}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.label, { textAlign: 'center', marginBottom: 4 }]} numberOfLines={1}>{challName}</Text>
-                            <TextInput
-                              style={[styles.input, { marginBottom: 0, textAlign: 'center' }]}
-                              placeholder="e.g. 21-15"
-                              placeholderTextColor={colors.textSecondary}
-                              value={challengerScore}
-                              onChangeText={setChallengerScore}
-                            />
-                          </View>
-                          <Text style={{ color: colors.textSecondary, fontWeight: '700', paddingBottom: spacing.sm, fontSize: 13 }}>vs</Text>
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.label, { textAlign: 'center', marginBottom: 4 }]} numberOfLines={1}>{oppName}</Text>
-                            <TextInput
-                              style={[styles.input, { marginBottom: 0, textAlign: 'center' }]}
-                              placeholder="e.g. 15-21"
-                              placeholderTextColor={colors.textSecondary}
-                              value={opponentScore}
-                              onChangeText={setOpponentScore}
-                            />
-                          </View>
+                        {/* Per-game score header */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                          {editGames.length > 1 && <View style={{ width: 22 + spacing.xs }} />}
+                          <Text style={[styles.label, { flex: 1, textAlign: 'center' }]} numberOfLines={1}>{challName}</Text>
+                          <View style={{ width: 32 }} />
+                          <Text style={[styles.label, { flex: 1, textAlign: 'center' }]} numberOfLines={1}>{oppName}</Text>
+                          {editGames.length > 1 && <View style={{ width: 20 + spacing.xs }} />}
                         </View>
+                        {editGames.map((game, idx) => (
+                          <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs }}>
+                            {editGames.length > 1 && (
+                              <Text style={[styles.label, { width: 22, color: colors.textSecondary }]}>G{idx + 1}</Text>
+                            )}
+                            <TextInput
+                              style={[styles.input, { flex: 1, marginBottom: 0, textAlign: 'center' }]}
+                              placeholder="0"
+                              placeholderTextColor={colors.textSecondary}
+                              value={game.score_challenger}
+                              onChangeText={v => setEditGames(gs => gs.map((g, i) => i === idx ? { ...g, score_challenger: v.replace(/[^0-9]/g, '') } : g))}
+                              keyboardType="numeric"
+                            />
+                            <Text style={{ color: colors.textSecondary, fontWeight: '700', fontSize: 13 }}>–</Text>
+                            <TextInput
+                              style={[styles.input, { flex: 1, marginBottom: 0, textAlign: 'center' }]}
+                              placeholder="0"
+                              placeholderTextColor={colors.textSecondary}
+                              value={game.score_opponent}
+                              onChangeText={v => setEditGames(gs => gs.map((g, i) => i === idx ? { ...g, score_opponent: v.replace(/[^0-9]/g, '') } : g))}
+                              keyboardType="numeric"
+                            />
+                            {editGames.length > 1 && (
+                              <TouchableOpacity onPress={() => setEditGames(gs => gs.filter((_, i) => i !== idx))} hitSlop={8}>
+                                <Ionicons name="close-circle" size={20} color={colors.textSecondary} />
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        ))}
+                        <TouchableOpacity
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.md, paddingVertical: 4 }}
+                          onPress={() => setEditGames(gs => [...gs, { score_challenger: '', score_opponent: '' }])}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
+                          <Text style={[styles.label, { color: colors.primary }]}>Add game</Text>
+                        </TouchableOpacity>
                       </>
                     );
                   })()}

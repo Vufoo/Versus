@@ -18,6 +18,7 @@ import {
   Animated,
   Linking,
   RefreshControl,
+  PanResponder,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapPreview from '../components/MapPreview';
@@ -39,6 +40,7 @@ import type { SearchedUser } from '../components/UserSearch';
 import EditMatchModal from '../components/EditMatchModal';
 import LocationPickerModal from '../components/LocationPickerModal';
 import type { PickedLocation } from '../components/LocationPickerModal';
+import GradientCard from '../components/GradientCard';
 
 type FeedMode = 'public' | 'my';
 
@@ -210,8 +212,6 @@ function gameWinnerP1(
 function formatMatchScore(
   sportName: string,
   games: { score_challenger: number; score_opponent: number }[],
-  p1Name: string,
-  p2Name: string,
 ): { main: string; sub: string | null } {
   const filtered = games.filter((g) => g.score_challenger > 0 || g.score_opponent > 0);
   if (filtered.length === 0) return { main: '', sub: null };
@@ -500,7 +500,7 @@ function FeedCard({
   }, [item.id]);
 
   useEffect(() => {
-    if (commentsVisible) loadComments();
+    if (commentsVisible && commentsCount > 0) loadComments();
   }, [commentsVisible, loadComments]);
 
   const loadLikers = useCallback(async () => {
@@ -710,14 +710,10 @@ function FeedCard({
     setStartStopLoading(true);
     try {
       const pausedAt = new Date().toISOString();
-      const { data } = await supabase.from('matches').update({ status: 'paused', paused_at: pausedAt })
+      await supabase.from('matches').update({ status: 'paused', paused_at: pausedAt })
         .eq('id', item.id)
-        .eq('status', 'in_progress')
-        .select('id');
-      if (data && data.length > 0) {
-        updateFeedItem(item.id, (m) => ({ ...m, status: 'paused', paused_at: pausedAt }));
-        onNotifyUpdate?.();
-      }
+        .eq('status', 'in_progress');
+      updateFeedItem(item.id, (m) => ({ ...m, status: 'paused', paused_at: pausedAt }));
     } catch { /* swallow */ }
     finally { setStartStopLoading(false); }
   };
@@ -726,14 +722,16 @@ function FeedCard({
     if (!currentUserId || startStopLoading) return;
     setStartStopLoading(true);
     try {
-      const { data } = await supabase.from('matches').update({ status: 'in_progress', paused_at: null })
+      // Shift started_at forward by the time spent paused so the timer resumes from
+      // where it was frozen, not from the original start time.
+      const pausedMs = item.paused_at ? Date.now() - new Date(item.paused_at).getTime() : 0;
+      const newStartedAt = item.started_at
+        ? new Date(new Date(item.started_at).getTime() + pausedMs).toISOString()
+        : new Date().toISOString();
+      await supabase.from('matches').update({ status: 'in_progress', paused_at: null, started_at: newStartedAt })
         .eq('id', item.id)
-        .eq('status', 'paused')
-        .select('id');
-      if (data && data.length > 0) {
-        updateFeedItem(item.id, (m) => ({ ...m, status: 'in_progress', paused_at: null }));
-        onNotifyUpdate?.();
-      }
+        .eq('status', 'paused');
+      updateFeedItem(item.id, (m) => ({ ...m, status: 'in_progress', paused_at: null, started_at: newStartedAt }));
     } catch { /* swallow */ }
     finally { setStartStopLoading(false); }
   };
@@ -971,14 +969,10 @@ function FeedCard({
             setWinnerSelection(detectWinnerFromScores());
             setWinnerPickerVisible(true);
           };
-          if (Platform.OS === 'web') {
-            if (window.confirm(`Unusual scores:\n${errMsg}\n\nFinish anyway?`)) proceed();
-          } else {
-            Alert.alert('Unusual scores', errMsg + '\n\nFinish anyway?', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Finish anyway', onPress: proceed },
-            ]);
-          }
+          Alert.alert('Unusual scores', errMsg + '\n\nFinish anyway?', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Finish anyway', onPress: proceed },
+          ]);
           return;
         }
       }
@@ -995,14 +989,10 @@ function FeedCard({
       setWinnerSelection(detectWinnerFromScores());
       setWinnerPickerVisible(true);
     };
-    if (Platform.OS === 'web') {
-      if (window.confirm('Are you sure you want to finish this match?')) doFinish();
-    } else {
-      Alert.alert('Finish match?', 'Are you sure you want to finish this match?', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Finish', onPress: doFinish },
-      ]);
-    }
+    Alert.alert('Finish match?', 'Are you sure you want to finish this match?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Finish', onPress: doFinish },
+    ]);
   };
 
   const selectWinner = (userId: string | null) => {
@@ -1360,45 +1350,42 @@ function FeedCard({
       } finally { setDeleteLoading(false); }
     };
 
-    if (isRanked) {
+    if (isRanked && isPendingState) {
+      // Ranked + pending/confirmed: creator can cancel alone — fully deletes the match.
+      const doRankedCancel = async () => {
+        setDeleteLoading(true);
+        try {
+          await performFullDelete();
+        } catch (e: any) {
+          Alert.alert('Error', e?.message ?? 'Could not cancel match.');
+        } finally { setDeleteLoading(false); }
+      };
+      Alert.alert('Cancel match', 'Are you sure you want to cancel this ranked match?', [
+        { text: 'Keep', style: 'cancel' },
+        { text: 'Cancel match', style: 'destructive', onPress: doRankedCancel },
+      ]);
+    } else if (isRanked) {
+      // Ranked + completed: permanent delete requires both players to confirm (reverses ratings).
       const alreadyRequested = myParticipant?.delete_requested === true;
       if (alreadyRequested) return;
-      if (Platform.OS === 'web') {
-        if (window.confirm('Both players must confirm to permanently delete this ranked match and reverse any rating changes.')) {
-          doRankedDeleteRequest();
-        }
-      } else {
-        Alert.alert(
-          'Delete match?',
-          'Both players must confirm to permanently delete this ranked match and reverse any rating changes.',
-          [
-            { text: 'Keep', style: 'cancel' },
-            { text: 'Yes, request delete', style: 'destructive', onPress: doRankedDeleteRequest },
-          ],
-        );
-      }
+      Alert.alert(
+        'Delete match?',
+        'Both players must confirm to permanently delete this ranked match and reverse any rating changes.',
+        [
+          { text: 'Keep', style: 'cancel' },
+          { text: 'Yes, request delete', style: 'destructive', onPress: doRankedDeleteRequest },
+        ],
+      );
     } else if (isPendingState) {
-      if (Platform.OS === 'web') {
-        if (window.confirm('Are you sure you want to cancel this match? It will be permanently deleted.')) {
-          doCasualDelete();
-        }
-      } else {
-        Alert.alert('Cancel match', 'Are you sure you want to cancel this match? It will be permanently deleted.', [
-          { text: 'Keep', style: 'cancel' },
-          { text: 'Cancel match', style: 'destructive', onPress: doCasualDelete },
-        ]);
-      }
+      Alert.alert('Cancel match', 'Are you sure you want to cancel this match? It will be permanently deleted.', [
+        { text: 'Keep', style: 'cancel' },
+        { text: 'Cancel match', style: 'destructive', onPress: doCasualDelete },
+      ]);
     } else {
-      if (Platform.OS === 'web') {
-        if (window.confirm('Are you sure you want to permanently delete this match?')) {
-          doCasualDelete();
-        }
-      } else {
-        Alert.alert('Delete match', 'Are you sure you want to permanently delete this match?', [
-          { text: 'Keep', style: 'cancel' },
-          { text: 'Delete match', style: 'destructive', onPress: doCasualDelete },
-        ]);
-      }
+      Alert.alert('Delete match', 'Are you sure you want to permanently delete this match?', [
+        { text: 'Keep', style: 'cancel' },
+        { text: 'Delete match', style: 'destructive', onPress: doCasualDelete },
+      ]);
     }
   };
 
@@ -1422,25 +1409,15 @@ function FeedCard({
     const doCancel = async () => {
       setDeleteLoading(true);
       try {
-        await supabase.from('matches').update({ status: 'canceled' }).eq('id', item.id);
-        // Remove pending match invite notifications so the invited opponent's inbox is clean
-        await supabase
-          .from('notifications')
-          .delete()
-          .eq('type', 'match_invite')
-          .filter('data->>match_id', 'eq', item.id);
-        updateFeedItem(item.id, (m) => ({ ...m, status: 'canceled' }));
-      } catch { /* swallow */ }
-      finally { setDeleteLoading(false); }
+        await performFullDelete();
+      } catch (e: any) {
+        Alert.alert('Error', e?.message ?? 'Could not cancel match.');
+      } finally { setDeleteLoading(false); }
     };
-    if (Platform.OS === 'web') {
-      if (window.confirm('Are you sure you want to cancel this match?')) doCancel();
-    } else {
-      Alert.alert('Cancel match', 'Are you sure you want to cancel this match?', [
-        { text: 'Keep', style: 'cancel' },
-        { text: 'Cancel match', style: 'destructive', onPress: doCancel },
-      ]);
-    }
+    Alert.alert('Cancel match', 'Are you sure you want to cancel this match?', [
+      { text: 'Keep', style: 'cancel' },
+      { text: 'Cancel match', style: 'destructive', onPress: doCancel },
+    ]);
   };
 
   const handleLeave = () => {
@@ -1470,14 +1447,10 @@ function FeedCard({
         Alert.alert('Error', e?.message ?? 'Could not leave match.');
       } finally { setDeleteLoading(false); }
     };
-    if (Platform.OS === 'web') {
-      if (window.confirm('Are you sure you want to leave this match? The host can invite someone else.')) doLeave();
-    } else {
-      Alert.alert('Leave match?', 'Are you sure you want to leave this match? The host can invite someone else.', [
-        { text: 'Stay', style: 'cancel' },
-        { text: 'Leave', style: 'destructive', onPress: doLeave },
-      ]);
-    }
+    Alert.alert('Leave match?', 'Are you sure you want to leave this match? The host can invite someone else.', [
+      { text: 'Stay', style: 'cancel' },
+      { text: 'Leave', style: 'destructive', onPress: doLeave },
+    ]);
   };
 
   if (!p1) return null;
@@ -1501,8 +1474,6 @@ function FeedCard({
   const { main: displayScoreMain, sub: displayScoreSub } = formatMatchScore(
     item.sport_name,
     gamesForDisplay,
-    p1 ? getName(p1) : 'Challenger',
-    p2 ? getName(p2) : 'Opponent'
   );
   const hasScore = gamesForDisplay.length > 0;
   const imagesList = (item.images ?? []) as MatchImage[];
@@ -1511,7 +1482,7 @@ function FeedCard({
 
   return (
     <Animated.View style={{ opacity: cardAnim, transform: [{ scale: cardAnim.interpolate({ inputRange: [0, 1], outputRange: [0.93, 1] }) }] }}>
-    <View style={styles.feedCard}>
+    <GradientCard style={styles.feedCard}>
       {/* Header: Created by (left) + Sport (right) */}
       <View style={styles.stravaHeader}>
         <View style={styles.creatorBlock}>
@@ -1675,7 +1646,7 @@ function FeedCard({
                   {hasScore && displayScoreMain ? <Text style={[typography.caption, { fontSize: 12, color: colors.textSecondary, marginTop: 2 }]}>{displayScoreMain}</Text> : null}
                   <Text style={styles.vsText}>{t.common.vs}</Text>
                   {durationMs > 0 && (
-                    <Text style={[typography.caption, { fontSize: 13, fontWeight: '600', color: '#1E3A8A', marginTop: spacing.xs }]}>
+                    <Text style={[typography.caption, { fontSize: 13, fontWeight: '600', color: colors.primary, marginTop: spacing.xs }]}>
                       {formatDurationDigital(durationMs)}
                     </Text>
                   )}
@@ -1702,7 +1673,7 @@ function FeedCard({
                   )}
                   <Text style={styles.vsText}>{t.common.vs}</Text>
                   {durationMs > 0 && (
-                    <Text style={[typography.caption, { fontSize: 13, fontWeight: '600', color: '#1E3A8A', marginTop: spacing.xs }]}>
+                    <Text style={[typography.caption, { fontSize: 13, fontWeight: '600', color: colors.primary, marginTop: spacing.xs }]}>
                       {formatDurationDigital(durationMs)}
                     </Text>
                   )}
@@ -1765,7 +1736,7 @@ function FeedCard({
                     {
                       fontSize: 13,
                       fontWeight: '600',
-                      color: '#1E3A8A',
+                      color: colors.primary,
                       marginTop: spacing.xs,
                     },
                   ]}
@@ -1778,10 +1749,13 @@ function FeedCard({
         </View>
         <View style={styles.playerCol}>
           {isPractice ? (() => {
-            const PSIZE = 36;
+            const n = practicePartners.length;
+            // Match the creator's avatar size (46) when only one slot is visible on the right;
+            // use smaller size when multiple partner avatars need to fit side-by-side.
+            const PSIZE = n === 0 ? 46 : 36;
             const inviteBadge = (
-              <View style={{ position: 'absolute', bottom: -2, right: -2, backgroundColor: colors.primary, borderRadius: 8, padding: 3 }}>
-                <Ionicons name="person-add" size={10} color={colors.textOnPrimary} />
+              <View style={{ position: 'absolute', bottom: -2, right: -2, backgroundColor: colors.primary, borderRadius: 8, padding: 2 }}>
+                <Ionicons name="person-add" size={9} color={colors.textOnPrimary} />
               </View>
             );
             const partnerAvatar = (p: Participant, url: string | null) => (
@@ -1793,15 +1767,14 @@ function FeedCard({
               </TouchableOpacity>
             );
             const inviteBtn = onInviteOpponent && canControl ? (
-              <TouchableOpacity onPress={() => onInviteOpponent(item)} activeOpacity={0.8} style={{ alignItems: 'center', gap: 2 }}>
+              <TouchableOpacity onPress={() => onInviteOpponent(item)} activeOpacity={0.8} style={{ alignItems: 'center', gap: spacing.xs }}>
                 <View style={{ position: 'relative' }}>
-                  <Avatar initials="?" size={PSIZE} colors={colors} />
+                  <Avatar initials="+" size={PSIZE} colors={colors} />
                   {inviteBadge}
                 </View>
-                <Text style={{ fontSize: 10, color: colors.textSecondary, textAlign: 'center' }}>Invite</Text>
+                <Text style={[styles.playerName]}>{t.common.invite}</Text>
               </TouchableOpacity>
             ) : null;
-            const n = practicePartners.length;
             if (n === 0) {
               // single invite button centered
               return inviteBtn ?? <Avatar initials="?" size={PSIZE} colors={colors} />;
@@ -2122,7 +2095,8 @@ function FeedCard({
                 )}
               </>
             )}
-            {(isRanked ? isParticipant : item.created_by === currentUserId) && (item.status === 'pending' || item.status === 'confirmed' || item.status === 'completed') && (() => {
+            {/* Ranked pending/confirmed: only creator can cancel. Ranked completed: any participant can request delete. Non-ranked: only creator. */}
+            {((isRanked && item.status === 'completed') ? isParticipant : item.created_by === currentUserId) && (item.status === 'pending' || item.status === 'confirmed' || item.status === 'completed') && (() => {
               const myDeleteRequested = myParticipant?.delete_requested === true;
               const deleteCount = participants.filter((p) => p.delete_requested === true).length;
               const totalParticipants = participants.length;
@@ -2152,7 +2126,7 @@ function FeedCard({
               const isPendingState = item.status === 'pending' || item.status === 'confirmed';
               const cancelBtnIcon = isPendingState ? 'close-outline' : 'trash-outline';
               const cancelBtnLabel = isPendingState
-                ? (isRanked && deleteCount > 0 ? `${t.common.cancel} (${deleteCount}/${totalParticipants})` : t.common.cancel)
+                ? t.common.cancel
                 : (isRanked && deleteCount > 0 ? `${t.common.delete} (${deleteCount}/${totalParticipants})` : t.common.delete);
 
               return (
@@ -2316,10 +2290,6 @@ function FeedCard({
                 <Ionicons name="image-outline" size={28} color={colors.textSecondary} />
               </View>
             )}
-            {/* Removed inline delete overlay — delete is now in the lightbox */}
-            {false && (
-              <View />
-            )}
           </TouchableOpacity>
         ))}
         {isParticipant ? (
@@ -2354,7 +2324,7 @@ function FeedCard({
           activeOpacity={0.8}
         >
           <Ionicons name="chatbubble-outline" size={19} color={colors.textSecondary} />
-          <Text style={styles.actionLabel}>{commentsCount > 0 ? `${commentsCount} ` : ''}{commentsCount === 1 ? t.home.comment : t.home.comments}</Text>
+          <Text style={styles.actionLabel}>{commentsCount > 0 ? `${commentsCount} ` : ''}{commentsCount === 1 ? t.home.comment : commentsCount === 0 ? t.home.comment : t.home.comments}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionBtn} onPress={handleShare} activeOpacity={0.8}>
           <Ionicons name="share-outline" size={19} color={colors.textSecondary} />
@@ -2477,7 +2447,7 @@ function FeedCard({
           </View>
         </View>
       </Modal>
-    </View>
+    </GradientCard>
 
     <Modal visible={winnerPickerVisible} transparent animationType="fade">
       <View style={styles.winnerPickerBackdrop}>
@@ -2676,7 +2646,7 @@ function createHomeStyles(colors: ThemeColors) {
       paddingLeft: spacing.md,
       paddingRight: spacing.xs + 4,
       paddingTop: 0,
-      paddingBottom: 5,
+      paddingBottom: 9,
       backgroundColor: colors.cardBg,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
@@ -2720,12 +2690,19 @@ function createHomeStyles(colors: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: spacing.sm,
-      paddingVertical: spacing.sm,
-      borderBottomWidth: 2,
-      borderBottomColor: 'transparent',
+      paddingVertical: 12,
     },
-    switcherTabActive: { borderBottomColor: colors.primary },
-    switcherLabel: { ...typography.label, color: colors.textSecondary },
+    switcherTabActive: {},
+    switcherIndicator: {
+      position: 'absolute' as const,
+      bottom: 0,
+      left: 0,
+      height: 2.5,
+      width: '50%',
+      backgroundColor: colors.primary,
+      borderRadius: 2,
+    },
+    switcherLabel: { fontSize: 16, fontWeight: '600' as const, color: colors.textSecondary },
     switcherLabelActive: { color: colors.primary },
     switcherHint: {
       ...typography.caption,
@@ -2738,8 +2715,7 @@ function createHomeStyles(colors: ThemeColors) {
     loadingCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xxl },
 
     feedCard: {
-      backgroundColor: colors.cardBg,
-      paddingTop: spacing.md,
+      paddingTop: 10,
       paddingHorizontal: spacing.md,
       paddingBottom: spacing.sm,
       marginBottom: spacing.sm,
@@ -3109,7 +3085,7 @@ function createHomeStyles(colors: ThemeColors) {
     commentsSection: {
       marginTop: spacing.sm,
       paddingTop: spacing.sm,
-      paddingBottom: spacing.lg,
+      paddingBottom: spacing.xs,
       borderTopWidth: 1,
       borderTopColor: colors.divider,
     },
@@ -3252,6 +3228,7 @@ function createHomeStyles(colors: ThemeColors) {
       borderRadius: 20,
       alignItems: 'center',
       justifyContent: 'center',
+      overflow: 'hidden' as const,
     },
     notifContent: { flex: 1 },
     notifTitle: { ...typography.body, fontSize: 14, fontWeight: '600', color: colors.text },
@@ -3363,6 +3340,21 @@ export default function HomeScreen() {
   const navigation = useNavigation<any>();
   const feedListRef = useRef<FlatList>(null);
   const notifSlideAnim = useRef(new Animated.Value(-400)).current;
+  const tabIndicatorX = useRef(new Animated.Value(0)).current;
+  const feedSlideAnim = useRef(new Animated.Value(0)).current;
+  const feedOpacityAnim = useRef(new Animated.Value(1)).current;
+  const feedModeInitialized = useRef(false);
+  const feedSwipePan = useRef(
+    PanResponder.create({
+      // Only capture clearly horizontal swipes (dx dominates dy by 2:1)
+      onMoveShouldSetPanResponder: (_, gs) =>
+        Math.abs(gs.dx) > 15 && Math.abs(gs.dx) > Math.abs(gs.dy) * 2,
+      onPanResponderRelease: (_, gs) => {
+        if (gs.dx < -60 && Math.abs(gs.dx) > Math.abs(gs.dy)) setFeedMode('public');
+        else if (gs.dx > 60 && Math.abs(gs.dx) > Math.abs(gs.dy)) setFeedMode('my');
+      },
+    }),
+  ).current;
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [preferredSports, setPreferredSports] = useState<string[]>([]);
@@ -3370,11 +3362,13 @@ export default function HomeScreen() {
   const [loadingFeed, setLoadingFeed] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [notifSenderAvatars, setNotifSenderAvatars] = useState<Record<string, string | null>>({});
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadDmCount, setUnreadDmCount] = useState(0);
 
   useEffect(() => {
     if (notifsVisible) {
+      if (Platform.OS === 'web') return; // Modal animationType="fade" handles it on web
       notifSlideAnim.setValue(-400);
       Animated.spring(notifSlideAnim, {
         toValue: 0,
@@ -3386,6 +3380,13 @@ export default function HomeScreen() {
   }, [notifsVisible]);
 
   const closeNotifications = useCallback(() => {
+    // On web, skip the slide animation — the Modal's animationType="fade" handles
+    // the transition. Using useNativeDriver animations in a callback on web can
+    // cause the callback to never fire, leaving the modal stuck open (white screen).
+    if (Platform.OS === 'web') {
+      setNotifsVisible(false);
+      return;
+    }
     Animated.timing(notifSlideAnim, {
       toValue: -400,
       duration: 200,
@@ -3393,7 +3394,7 @@ export default function HomeScreen() {
     }).start(({ finished }) => {
       if (finished) setNotifsVisible(false);
     });
-  }, []);
+  }, [notifSlideAnim]);
 
   const [inviteOpponentMatch, setInviteOpponentMatch] = useState<FeedMatch | null>(null);
   const [inviteSlot, setInviteSlot] = useState<'opponent' | 'teammate' | 'opponent_2'>('opponent');
@@ -3524,7 +3525,30 @@ export default function HomeScreen() {
       };
       const newItems = (feedRes.data ?? []).map((m: any) => ({ ...m, participants: parseParticipants(m.participants) })) as FeedMatch[];
       newItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      setFeedItems(newItems);
+      // Preserve optimistic local status when DB hasn't caught up yet.
+      // If local says in_progress/paused but DB still shows a pre-active status
+      // (because the enum migration hasn't run yet), keep the local version.
+      setFeedItems(prev => {
+        const prevMap = new Map(prev.map(m => [m.id, m]));
+        return newItems.map(m => {
+          const local = prevMap.get(m.id);
+          if (local) {
+            const localIsActive = local.status === 'in_progress' || local.status === 'paused';
+            const dbIsPreActive = m.status === 'confirmed' || m.status === 'pending' || m.status === 'planned';
+            if (localIsActive && dbIsPreActive) {
+              return { ...m, status: local.status, started_at: local.started_at ?? m.started_at, paused_at: local.paused_at };
+            }
+            // If both are in_progress, preserve a locally shifted started_at (resume
+            // shifts it forward to subtract paused time). Keep whichever is later.
+            if (local.status === 'in_progress' && m.status === 'in_progress' && local.started_at && m.started_at) {
+              if (new Date(local.started_at).getTime() > new Date(m.started_at).getTime()) {
+                return { ...m, started_at: local.started_at };
+              }
+            }
+          }
+          return m;
+        });
+      });
     } catch { /* swallow */ }
     finally { if (showLoading) setLoadingFeed(false); }
   }, []);
@@ -3594,6 +3618,28 @@ export default function HomeScreen() {
       if (hasMatchAccepted) loadFeed(false);
       // Refresh follow states so "Follow back" button is accurate
       refreshFollowStates();
+
+      // Fetch sender avatars for notifications that have a from_user_id
+      const senderIds = [...new Set(
+        items.map(n => n.data?.from_user_id).filter((id): id is string => Boolean(id)),
+      )];
+      if (senderIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('user_id, avatar_url')
+          .in('user_id', senderIds);
+        const resolved = await Promise.all(
+          ((profiles ?? []) as { user_id: string; avatar_url: string | null }[]).map(async (p) => ({
+            user_id: p.user_id,
+            avatarUrl: p.avatar_url ? await resolveAvatarUrl(p.avatar_url) : null,
+          })),
+        );
+        setNotifSenderAvatars(prev => {
+          const next = { ...prev };
+          for (const r of resolved) next[r.user_id] = r.avatarUrl;
+          return next;
+        });
+      }
     } catch { /* swallow */ }
   }, [currentUserId, loadFeed, refreshFollowStates]);
 
@@ -3763,9 +3809,9 @@ export default function HomeScreen() {
         return (m.participants ?? []).some((p) => p.user_id === currentUserId);
       })
       .sort((a, b) => {
-        // In-progress matches always at the top
-        const aLive = a.status === 'in_progress' ? 0 : 1;
-        const bLive = b.status === 'in_progress' ? 0 : 1;
+        // In-progress and paused matches always at the top
+        const aLive = (a.status === 'in_progress' || a.status === 'paused') ? 0 : 1;
+        const bLive = (b.status === 'in_progress' || b.status === 'paused') ? 0 : 1;
         if (aLive !== bLive) return aLive - bLive;
         // Otherwise: most recently created first
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -3783,10 +3829,10 @@ export default function HomeScreen() {
     if (preferredSports.length === 0) return feed;
     const prefSet = new Set(preferredSports);
     return [...feed].sort((a, b) => {
-      // Always keep in-progress at the top for my feed
+      // Always keep in-progress and paused at the top for my feed
       if (feedMode === 'my') {
-        const aLive = a.status === 'in_progress' ? 0 : 1;
-        const bLive = b.status === 'in_progress' ? 0 : 1;
+        const aLive = (a.status === 'in_progress' || a.status === 'paused') ? 0 : 1;
+        const bLive = (b.status === 'in_progress' || b.status === 'paused') ? 0 : 1;
         if (aLive !== bLive) return aLive - bLive;
       }
       const aP = prefSet.has(a.sport_name) ? 0 : 1;
@@ -3794,6 +3840,29 @@ export default function HomeScreen() {
       return aP - bP;
     });
   }, [feedMode, myFeed, publicFeed, preferredSports]);
+
+  // Animate tab indicator + feed content when feed mode changes
+  useEffect(() => {
+    if (!feedModeInitialized.current) {
+      feedModeInitialized.current = true;
+      return;
+    }
+    const toPublic = feedMode === 'public';
+    // Slide indicator to new tab
+    Animated.spring(tabIndicatorX, {
+      toValue: toPublic ? Dimensions.get('window').width / 2 : 0,
+      useNativeDriver: true,
+      tension: 120,
+      friction: 16,
+    }).start();
+    // Slide + fade feed content in from the correct direction
+    feedSlideAnim.setValue(toPublic ? 30 : -30);
+    feedOpacityAnim.setValue(0);
+    Animated.parallel([
+      Animated.spring(feedSlideAnim, { toValue: 0, useNativeDriver: true, tension: 90, friction: 13 }),
+      Animated.timing(feedOpacityAnim, { toValue: 1, duration: 180, useNativeDriver: true }),
+    ]).start();
+  }, [feedMode]);
 
   // Capture scrollToMatchId param immediately and clear it from route so it doesn't re-fire
   useEffect(() => {
@@ -3933,6 +4002,9 @@ export default function HomeScreen() {
         ]);
       } else {
         await doAccept(forceRole ?? 'opponent');
+        // On web, close the notification panel after accepting so stale modal
+        // state doesn't conflict with the feed/notification reloads that follow.
+        if (Platform.OS === 'web') closeNotifications();
       }
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Could not accept invite.');
@@ -4166,7 +4238,7 @@ export default function HomeScreen() {
       <View style={[styles.topBar, { paddingTop: insets.top }]}>
         <Image
           source={themeMode === 'dark' ? require('../../assets/icon_dark_mode.png') : require('../../assets/icon_light_mode.png')}
-          style={{ height: 44, width: 100, marginLeft: 2, marginBottom: -2 }}
+          style={{ height: 52, width: 118, marginLeft: 2, marginBottom: -2 }}
           resizeMode="contain"
         />
         <View style={styles.topBarRight}>
@@ -4175,14 +4247,14 @@ export default function HomeScreen() {
             activeOpacity={0.8}
             onPress={() => navigation.navigate('Search')}
           >
-            <Ionicons name="search" size={17} color={colors.text} />
+            <Ionicons name="search" size={18} color={colors.text} />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.topBarIcon}
             activeOpacity={0.8}
             onPress={openNotifs}
           >
-            <Ionicons name="notifications-outline" size={17} color={colors.text} />
+            <Ionicons name="notifications-outline" size={18} color={colors.text} />
             {unreadCount > 0 && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
@@ -4194,7 +4266,7 @@ export default function HomeScreen() {
             activeOpacity={0.8}
             onPress={() => navigation.navigate('Messages')}
           >
-            <Ionicons name="chatbubbles-outline" size={17} color={colors.text} />
+            <Ionicons name="chatbubbles-outline" size={18} color={colors.text} />
             {unreadDmCount > 0 && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{unreadDmCount > 99 ? '99+' : unreadDmCount}</Text>
@@ -4207,13 +4279,13 @@ export default function HomeScreen() {
       {/* ---- Feed switcher ---- */}
       <View style={styles.switcherRow}>
         <TouchableOpacity
-          style={[styles.switcherTab, feedMode === 'my' && styles.switcherTabActive]}
+          style={styles.switcherTab}
           onPress={() => setFeedMode('my')}
           activeOpacity={0.8}
         >
           <Ionicons
             name="people"
-            size={18}
+            size={21}
             color={feedMode === 'my' ? colors.primary : colors.textSecondary}
           />
           <Text style={[styles.switcherLabel, feedMode === 'my' && styles.switcherLabelActive]}>
@@ -4221,25 +4293,32 @@ export default function HomeScreen() {
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.switcherTab, feedMode === 'public' && styles.switcherTabActive]}
+          style={styles.switcherTab}
           onPress={() => setFeedMode('public')}
           activeOpacity={0.8}
         >
           <Ionicons
             name="globe-outline"
-            size={18}
+            size={21}
             color={feedMode === 'public' ? colors.primary : colors.textSecondary}
           />
           <Text style={[styles.switcherLabel, feedMode === 'public' && styles.switcherLabelActive]}>
             {t.home.publicLabel}
           </Text>
         </TouchableOpacity>
+        {/* Sliding active tab indicator */}
+        <Animated.View
+          style={[styles.switcherIndicator, { transform: [{ translateX: tabIndicatorX }] }]}
+          pointerEvents="none"
+        />
       </View>
       {/* {feedMode === 'public' && (
         <Text style={styles.switcherHint}>All confirmed & completed matches</Text>
       )} */}
 
       {/* ---- Feed ---- */}
+      <View style={{ flex: 1 }} {...feedSwipePan.panHandlers}>
+      <Animated.View style={{ flex: 1, opacity: feedOpacityAnim, transform: [{ translateX: feedSlideAnim }] }}>
       {loadingFeed ? (
         <View style={styles.loadingCenter}>
           <ActivityIndicator size="large" color={colors.primary} />
@@ -4248,7 +4327,7 @@ export default function HomeScreen() {
         <FlatList
           ref={feedListRef}
           data={displayedItems}
-          keyExtractor={(item) => { const pts = Array.isArray(item.participants) ? item.participants : []; return `${item.id}-${item.status}-${pts.length}-${pts.map((p: Participant) => p?.ready).join(',')}`; }}
+          keyExtractor={(item) => item.id}
           onScrollToIndexFailed={(info) => {
             setTimeout(() => feedListRef.current?.scrollToIndex({ index: info.index, animated: true }), 100);
           }}
@@ -4288,6 +4367,8 @@ export default function HomeScreen() {
           )}
         />
       )}
+      </Animated.View>
+      </View>
 
       {/* ---- Edit match modal ---- */}
       <EditMatchModal
@@ -4407,7 +4488,8 @@ export default function HomeScreen() {
           <Animated.View
             style={[
               styles.notifModalCard,
-              { paddingTop: insets.top + spacing.lg, transform: [{ translateY: notifSlideAnim }] },
+              { paddingTop: insets.top + spacing.lg },
+              Platform.OS !== 'web' && { transform: [{ translateY: notifSlideAnim }] },
             ]}
             onStartShouldSetResponder={() => true}
           >
@@ -4441,11 +4523,34 @@ export default function HomeScreen() {
                 const isInvite = n.type === 'match_invite' && !n.read;
                 const isFollowReq = n.type === 'follow_request' && !n.read;
                 const isJoinReq = n.type === 'match_join_request' && !n.read;
+                const senderId = n.data?.from_user_id as string | undefined;
+                const senderAvatar = senderId ? notifSenderAvatars[senderId] : undefined;
                 return (
                   <View key={n.id} style={styles.notifCard}>
-                    <View style={[styles.notifIconCircle, { backgroundColor: `${icon.bg}20` }]}>
-                      <Ionicons name={icon.name} size={20} color={icon.bg} />
-                    </View>
+                    {senderId ? (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          closeNotifications();
+                          navigation.navigate('UserProfile', { userId: senderId });
+                        }}
+                      >
+                        {senderAvatar ? (
+                          <Image
+                            source={{ uri: senderAvatar }}
+                            style={[styles.notifIconCircle, { backgroundColor: colors.border }]}
+                          />
+                        ) : (
+                          <View style={[styles.notifIconCircle, { backgroundColor: `${icon.bg}20` }]}>
+                            <Ionicons name={icon.name} size={20} color={icon.bg} />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={[styles.notifIconCircle, { backgroundColor: `${icon.bg}20` }]}>
+                        <Ionicons name={icon.name} size={20} color={icon.bg} />
+                      </View>
+                    )}
                     <View style={styles.notifContent}>
                       <Text style={[styles.notifTitle, !n.read && styles.notifTitleUnread]}>
                         {n.title}
