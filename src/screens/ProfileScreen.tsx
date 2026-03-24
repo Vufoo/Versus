@@ -180,10 +180,8 @@ function createStyles(colors: ThemeColors) {
 
     /* ---- Ranks overview grid ---- */
     ranksSection: {
-      borderTopWidth: 4,
-      borderTopColor: colors.background,
-      borderBottomWidth: 4,
-      borderBottomColor: colors.background,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.sm,
       paddingBottom: spacing.lg,
@@ -241,8 +239,8 @@ function createStyles(colors: ThemeColors) {
       paddingTop: spacing.sm,
       paddingBottom: spacing.lg,
       marginBottom: 0,
-      borderBottomWidth: 4,
-      borderBottomColor: colors.background,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
     },
     cardTitle: { ...typography.heading, color: colors.text, marginBottom: spacing.sm },
     cardSubtitle: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.lg },
@@ -352,8 +350,8 @@ function createStyles(colors: ThemeColors) {
     },
     sectionSubtitle: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
     matchHistoryList: {
-      borderBottomWidth: 4,
-      borderBottomColor: colors.background,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
       marginBottom: 0,
     },
     matchHistoryHeader: {
@@ -983,7 +981,7 @@ export default function ProfileScreen() {
 
         {/* Rankings */}
         {tab === 'rankings' && (
-          <View style={{ borderTopWidth: 4, borderTopColor: colors.background }}>
+          <View>
             <ScrollView
               horizontal
               pagingEnabled

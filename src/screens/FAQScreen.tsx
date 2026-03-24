@@ -94,7 +94,7 @@ const FAQ_SECTIONS = [
       },
       {
         q: 'What is the Plan view?',
-        a: 'The Plan view (calendar icon in the tab bar) shows your upcoming and past matches on a calendar. Days with matches are highlighted with a flame icon. A streak counter in the header shows how many consecutive days you\'ve played.',
+        a: 'The Plan view (calendar icon in the tab bar) shows your upcoming and past matches on a calendar. Days with any match are highlighted with a colored circle; days with completed matches also show a 🔥 beneath the date. The streak counter (🔥 Xd) in the calendar header shows how many consecutive days you\'ve played. Tap "Today" between the navigation arrows to jump back to the current date.',
       },
       {
         q: 'How do I set my preferred sports?',
@@ -136,11 +136,11 @@ const FAQ_SECTIONS = [
     items: [
       {
         q: 'What do the match statuses mean?',
-        a: 'Planned — scheduled but not yet accepted by all players. Pending — waiting on opponent acceptance. Confirmed — all players accepted, ready to play. In Progress — match has started. Paused — temporarily paused. Completed — finished and results submitted. Canceled — called off with no VP change.',
+        a: 'Planned — scheduled but not yet accepted by all players. Pending — waiting on opponent acceptance. Confirmed — all players accepted, ready to play. In Progress — match has started. Paused — temporarily paused. Completed — finished and results recorded.',
       },
       {
         q: 'How do I record match results?',
-        a: 'After completing a match, open it from your home feed and tap "Submit Result". Enter the scores for each game. Both players must confirm before VP is awarded.',
+        a: 'For casual and local matches: tap "Finish" on the active match card, then select the winner (or Draw). For ranked matches: both players must tap "Request Finish" on the match card; once both confirm, VP is awarded automatically. Scores can be edited at any time on a completed casual match via the ⋯ menu.',
       },
       {
         q: 'What is 2v2?',
@@ -148,7 +148,7 @@ const FAQ_SECTIONS = [
       },
       {
         q: 'Can I cancel a match?',
-        a: 'Yes. Open the match and tap the cancel option. Canceling a planned match before it starts has no effect on VP.',
+        a: 'Yes. Open the match card and use the cancel option. Canceling permanently deletes the match from your feed — no VP is affected. For pending or confirmed ranked matches, only the creator can cancel alone. For completed ranked matches, all participants must confirm deletion, which also reverses any VP changes.',
       },
       {
         q: 'What happens if there\'s a dispute over results?',

@@ -530,7 +530,7 @@ export default function SettingsScreen() {
               <Ionicons name="information-circle-outline" size={20} color={colors.textSecondary} />
               <Text style={styles.settingLabel}>{t.settings.version}</Text>
             </View>
-            <Text style={styles.settingValue}>1.0.1</Text>
+            <Text style={styles.settingValue}>1.0.2</Text>
           </View>
         </View>
 

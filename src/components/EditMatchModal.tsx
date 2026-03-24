@@ -13,11 +13,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   Dimensions,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
-import { supabase } from '../lib/supabase';
+import { supabase, resolveAvatarUrl } from '../lib/supabase';
 import { SPORTS_2V2, SPORTS_2V2_ONLY } from '../constants/sports';
 import LocationPickerModal from './LocationPickerModal';
 import type { PickedLocation } from './LocationPickerModal';
@@ -63,7 +64,7 @@ function makeStyles(c: ThemeColors) {
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.lg },
     title: { ...typography.title, color: c.text },
     scrollContent: { paddingBottom: spacing.xl },
-    label: { ...typography.label, color: c.textSecondary, marginBottom: spacing.xs },
+    label: { ...typography.label, color: c.textSecondary, marginBottom: spacing.sm },
     matchTypeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
     matchTypeChip: {
       flex: 1,
@@ -181,6 +182,20 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
 
   const [winnerRole, setWinnerRole] = useState<'challenger' | 'opponent' | 'draw'>('draw');
   const [editGames, setEditGames] = useState<Array<{ score_challenger: string; score_opponent: string }>>([{ score_challenger: '', score_opponent: '' }]);
+  const [participantAvatars, setParticipantAvatars] = useState<Record<string, string | null>>({});
+
+  useEffect(() => {
+    const ids = (match?.participants ?? []).map(p => p.user_id);
+    if (!ids.length) return;
+    supabase.from('profiles').select('user_id, avatar_url').in('user_id', ids).then(async ({ data }) => {
+      if (!data) return;
+      const map: Record<string, string | null> = {};
+      await Promise.all((data as any[]).map(async (p) => {
+        map[p.user_id] = p.avatar_url ? (await resolveAvatarUrl(p.avatar_url)) ?? null : null;
+      }));
+      setParticipantAvatars(map);
+    });
+  }, [match?.id]);
   // Casual / practice: all participants can edit. Ranked: creator only.
   const canEdit = isCreator || (!isRanked && isParticipant);
   // Ranked non-creator participants can edit limited fields (location, notes, visibility).
@@ -253,7 +268,11 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
         setDpDay(parseInt(dateStr.slice(8, 10)));
       }
     }
-  }, [match]);
+  // Depend only on match.id (not the whole object) — the match prop is an inline object
+  // recreated on every HomeScreen render (polling), so using [match] would reset local
+  // edits (score, games, winner) every few seconds while the user is typing.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [match?.id]);
 
   const formatTime = () => `${timeHour}:${timeMinute.toString().padStart(2, '0')} ${timeAmPm}`;
 
@@ -517,6 +536,110 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
 
               {canEdit && (
                 <>
+                  {isCasual && match.status === 'completed' && (() => {
+                    const challName = (match.participants ?? []).find(p => p.role === 'challenger')?.full_name
+                      ?? (match.participants ?? []).find(p => p.role === 'challenger')?.username
+                      ?? 'Challenger';
+                    const oppName = (match.participants ?? []).find(p => p.role === 'opponent')?.full_name
+                      ?? (match.participants ?? []).find(p => p.role === 'opponent')?.username
+                      ?? 'Opponent';
+                    return (
+                      <>
+                        {(() => {
+                          const challUserId = (match.participants ?? []).find(p => p.role === 'challenger')?.user_id;
+                          const oppUserId = (match.participants ?? []).find(p => p.role === 'opponent')?.user_id;
+                          const challAvatar = challUserId ? participantAvatars[challUserId] : null;
+                          const oppAvatar = oppUserId ? participantAvatars[oppUserId] : null;
+                          const challInitials = challName.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2);
+                          const oppInitials = oppName.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2);
+                          const renderAvatar = (uri: string | null, initials: string, size: number, sel?: boolean) => (
+                            uri
+                              ? <Image source={{ uri }} style={{ width: size, height: size, borderRadius: size / 2 }} />
+                              : <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: sel !== undefined ? (sel ? 'rgba(255,255,255,0.25)' : colors.primary + '25') : colors.primary + '20', alignItems: 'center', justifyContent: 'center' }}>
+                                  <Text style={{ fontSize: size * 0.42, fontWeight: '700', color: sel !== undefined ? (sel ? colors.textOnPrimary : colors.primary) : colors.primary }}>{initials}</Text>
+                                </View>
+                          );
+                          return (
+                            <>
+                        <Text style={styles.label}>Winner</Text>
+                        <View style={styles.matchTypeRow}>
+                          {(['challenger', 'opponent', 'draw'] as const).map((opt) => {
+                            const chipName = opt === 'draw' ? 'Draw' : opt === 'challenger' ? challName : oppName;
+                            const sel = winnerRole === opt;
+                            return (
+                              <TouchableOpacity key={opt} style={[styles.matchTypeChip, sel && styles.matchTypeChipSel]} onPress={() => setWinnerRole(opt)} activeOpacity={0.8}>
+                                {opt === 'draw'
+                                  ? <Ionicons name="remove-circle-outline" size={14} color={sel ? colors.textOnPrimary : colors.textSecondary} />
+                                  : renderAvatar(opt === 'challenger' ? challAvatar : oppAvatar, opt === 'challenger' ? challInitials : oppInitials, 16, sel)
+                                }
+                                <Text style={[styles.matchTypeLbl, sel && styles.matchTypeLblSel]} numberOfLines={1}>{chipName}</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                        <Text style={styles.label}>Score</Text>
+                        {/* Per-game score header */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm }}>
+                          {editGames.length > 1 && <View style={{ width: 22 + spacing.xs }} />}
+                          <View style={{ width: 90, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                            {renderAvatar(challAvatar, challInitials, 18)}
+                            <Text style={[styles.label, { marginBottom: 0, flexShrink: 1 }]} numberOfLines={1}>{challName}</Text>
+                          </View>
+                          <View style={{ width: 32 }} />
+                          <View style={{ width: 90, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                            {renderAvatar(oppAvatar, oppInitials, 18)}
+                            <Text style={[styles.label, { marginBottom: 0, flexShrink: 1 }]} numberOfLines={1}>{oppName}</Text>
+                          </View>
+                          {editGames.length > 1 && <View style={{ width: 20 + spacing.xs }} />}
+                        </View>
+                        {editGames.map((game, idx) => (
+                          <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: spacing.xs }}>
+                            {editGames.length > 1 && (
+                              <Text style={[styles.label, { width: 22 + spacing.xs, color: colors.textSecondary, marginBottom: 0 }]}>G{idx + 1}</Text>
+                            )}
+                            <TextInput
+                              style={[styles.input, { width: 90, marginBottom: 0, textAlign: 'center' }]}
+                              placeholder="0"
+                              placeholderTextColor={colors.textSecondary}
+                              value={game.score_challenger}
+                              onChangeText={v => setEditGames(gs => gs.map((g, i) => i === idx ? { ...g, score_challenger: v.replace(/[^0-9]/g, '') } : g))}
+                              keyboardType="numeric"
+                            />
+                            <View style={{ width: 32, alignItems: 'center' }}>
+                              <Text style={{ color: colors.textSecondary, fontWeight: '700', fontSize: 13 }}>–</Text>
+                            </View>
+                            <TextInput
+                              style={[styles.input, { width: 90, marginBottom: 0, textAlign: 'center' }]}
+                              placeholder="0"
+                              placeholderTextColor={colors.textSecondary}
+                              value={game.score_opponent}
+                              onChangeText={v => setEditGames(gs => gs.map((g, i) => i === idx ? { ...g, score_opponent: v.replace(/[^0-9]/g, '') } : g))}
+                              keyboardType="numeric"
+                            />
+                            {editGames.length > 1 && (
+                              <View style={{ width: 22 + spacing.xs, alignItems: 'center' }}>
+                                <TouchableOpacity onPress={() => setEditGames(gs => gs.filter((_, i) => i !== idx))} hitSlop={8}>
+                                  <Ionicons name="close-circle" size={20} color={colors.textSecondary} />
+                                </TouchableOpacity>
+                              </View>
+                            )}
+                          </View>
+                        ))}
+                        <TouchableOpacity
+                          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 9, paddingVertical: 4, borderWidth: 1, borderColor: colors.primary, borderRadius: borderRadius.sm, alignSelf: 'center', marginTop: spacing.sm, marginBottom: spacing.md }}
+                          onPress={() => setEditGames(gs => [...gs, { score_challenger: '', score_opponent: '' }])}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="add" size={12} color={colors.primary} />
+                          <Text style={[styles.label, { color: colors.primary, marginBottom: 0, fontSize: 11 }]}>Add game</Text>
+                        </TouchableOpacity>
+                            </>
+                          );
+                        })()}
+                      </>
+                    );
+                  })()}
+
                   <Text style={styles.label}>{t.newMatch.visibility}</Text>
                   <View style={styles.matchTypeRow}>
                     <TouchableOpacity style={[styles.matchTypeChip, isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(true)} activeOpacity={0.8}>
@@ -570,79 +693,6 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                       {locationLat != null ? 'Change pin on map' : 'Pick on map'}
                     </Text>
                   </TouchableOpacity>
-
-                  {isCasual && match.status === 'completed' && (() => {
-                    const challName = (match.participants ?? []).find(p => p.role === 'challenger')?.full_name
-                      ?? (match.participants ?? []).find(p => p.role === 'challenger')?.username
-                      ?? 'Challenger';
-                    const oppName = (match.participants ?? []).find(p => p.role === 'opponent')?.full_name
-                      ?? (match.participants ?? []).find(p => p.role === 'opponent')?.username
-                      ?? 'Opponent';
-                    return (
-                      <>
-                        <Text style={styles.label}>Winner</Text>
-                        <View style={styles.matchTypeRow}>
-                          {(['challenger', 'opponent', 'draw'] as const).map((opt) => {
-                            const label = opt === 'draw' ? 'Draw' : opt === 'challenger' ? challName : oppName;
-                            const icon = opt === 'draw' ? 'remove-circle-outline' : 'trophy-outline';
-                            const sel = winnerRole === opt;
-                            return (
-                              <TouchableOpacity key={opt} style={[styles.matchTypeChip, sel && styles.matchTypeChipSel]} onPress={() => setWinnerRole(opt)} activeOpacity={0.8}>
-                                <Ionicons name={icon as any} size={14} color={sel ? colors.textOnPrimary : colors.textSecondary} />
-                                <Text style={[styles.matchTypeLbl, sel && styles.matchTypeLblSel]} numberOfLines={1}>{label}</Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </View>
-                        <Text style={styles.label}>Score</Text>
-                        {/* Per-game score header */}
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                          {editGames.length > 1 && <View style={{ width: 22 + spacing.xs }} />}
-                          <Text style={[styles.label, { flex: 1, textAlign: 'center' }]} numberOfLines={1}>{challName}</Text>
-                          <View style={{ width: 32 }} />
-                          <Text style={[styles.label, { flex: 1, textAlign: 'center' }]} numberOfLines={1}>{oppName}</Text>
-                          {editGames.length > 1 && <View style={{ width: 20 + spacing.xs }} />}
-                        </View>
-                        {editGames.map((game, idx) => (
-                          <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs }}>
-                            {editGames.length > 1 && (
-                              <Text style={[styles.label, { width: 22, color: colors.textSecondary }]}>G{idx + 1}</Text>
-                            )}
-                            <TextInput
-                              style={[styles.input, { flex: 1, marginBottom: 0, textAlign: 'center' }]}
-                              placeholder="0"
-                              placeholderTextColor={colors.textSecondary}
-                              value={game.score_challenger}
-                              onChangeText={v => setEditGames(gs => gs.map((g, i) => i === idx ? { ...g, score_challenger: v.replace(/[^0-9]/g, '') } : g))}
-                              keyboardType="numeric"
-                            />
-                            <Text style={{ color: colors.textSecondary, fontWeight: '700', fontSize: 13 }}>–</Text>
-                            <TextInput
-                              style={[styles.input, { flex: 1, marginBottom: 0, textAlign: 'center' }]}
-                              placeholder="0"
-                              placeholderTextColor={colors.textSecondary}
-                              value={game.score_opponent}
-                              onChangeText={v => setEditGames(gs => gs.map((g, i) => i === idx ? { ...g, score_opponent: v.replace(/[^0-9]/g, '') } : g))}
-                              keyboardType="numeric"
-                            />
-                            {editGames.length > 1 && (
-                              <TouchableOpacity onPress={() => setEditGames(gs => gs.filter((_, i) => i !== idx))} hitSlop={8}>
-                                <Ionicons name="close-circle" size={20} color={colors.textSecondary} />
-                              </TouchableOpacity>
-                            )}
-                          </View>
-                        ))}
-                        <TouchableOpacity
-                          style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.md, paddingVertical: 4 }}
-                          onPress={() => setEditGames(gs => [...gs, { score_challenger: '', score_opponent: '' }])}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
-                          <Text style={[styles.label, { color: colors.primary }]}>Add game</Text>
-                        </TouchableOpacity>
-                      </>
-                    );
-                  })()}
 
                   <Text style={styles.label}>Notes</Text>
                   <TextInput style={[styles.input, styles.notesInput]} placeholder="Notes and comments..." placeholderTextColor={colors.textSecondary} value={notes} onChangeText={setNotes} multiline />

@@ -1,16 +1,18 @@
 import React, { useMemo } from 'react';
-import { View } from 'react-native';
+import { View, TouchableOpacity } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
 
 type Props = {
   style?: StyleProp<ViewStyle>;
   children?: React.ReactNode;
+  onPress?: () => void;
+  activeOpacity?: number;
 };
 
 const STRIPS = 200;
 
-export default function GradientCard({ style, children }: Props) {
+export default function GradientCard({ style, children, onPress, activeOpacity = 0.85 }: Props) {
   const { mode, colors } = useTheme();
 
   const tintColor = mode === 'dark' ? '#2563EB' : '#a3b0d9';
@@ -42,8 +44,20 @@ export default function GradientCard({ style, children }: Props) {
     });
   }, [mode, tintColor, extraOpacity]);
 
+  const baseStyle = [{ backgroundColor: colors.cardBg, overflow: 'hidden' as const }, style];
+
+  if (onPress) {
+    return (
+      <TouchableOpacity style={baseStyle} onPress={onPress} activeOpacity={activeOpacity}>
+        <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: tintColor, opacity: baseOpacity }} />
+        {strips}
+        {children}
+      </TouchableOpacity>
+    );
+  }
+
   return (
-    <View style={[{ backgroundColor: colors.cardBg, overflow: 'hidden' }, style]}>
+    <View style={baseStyle}>
       {/* Full-card base tint — no gap anywhere */}
       <View
         pointerEvents="none"

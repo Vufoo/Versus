@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  Alert,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -182,7 +184,9 @@ export default function SearchScreen() {
       if (stored === 'granted') {
         setContactsGranted(true);
         loadContactMatches(user.id);
-      } else if (stored !== 'dismissed') {
+      } else {
+        // Always show the banner when contacts haven't been granted,
+        // regardless of whether the user previously dismissed or denied.
         setContactsBannerVisible(true);
       }
 
@@ -282,13 +286,20 @@ export default function SearchScreen() {
       setContactsBannerVisible(false);
       if (currentUserId) loadContactMatches(currentUserId);
     } else {
-      await AsyncStorage.setItem('contacts_permission', 'dismissed');
-      setContactsBannerVisible(false);
+      // OS already denied — prompt the user to open Settings instead
+      Alert.alert(
+        'Contacts Access Denied',
+        'To find friends from your contacts, enable access in your device Settings.',
+        [
+          { text: 'Not Now', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+        ],
+      );
     }
   }, [currentUserId, loadContactMatches]);
 
-  const handleDismissBanner = useCallback(async () => {
-    await AsyncStorage.setItem('contacts_permission', 'dismissed');
+  const handleDismissBanner = useCallback(() => {
+    // Hide for this session only — the banner will reappear next time
     setContactsBannerVisible(false);
   }, []);
 

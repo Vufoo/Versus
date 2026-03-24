@@ -119,7 +119,7 @@ function createPlanStyles(colors: ThemeColors) {
     monthNav: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.md,
+      gap: spacing.sm,
     },
     weekdayRow: {
       flexDirection: 'row',
@@ -214,7 +214,7 @@ function createPlanStyles(colors: ThemeColors) {
       backgroundColor: colors.cardBg,
       borderRadius: borderRadius.lg,
       padding: spacing.md,
-      marginBottom: spacing.sm,
+      marginBottom: spacing.xs,
       borderWidth: 1,
       borderColor: colors.border,
       flexDirection: 'row',
@@ -239,13 +239,13 @@ function createPlanStyles(colors: ThemeColors) {
     },
     emptyText: { ...typography.body, color: colors.textSecondary, textAlign: 'center', paddingVertical: spacing.lg },
     todayBtn: {
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.xs,
-      borderRadius: borderRadius.md,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      borderRadius: borderRadius.sm,
       borderWidth: 1,
       borderColor: colors.primary,
     },
-    todayBtnText: { ...typography.label, color: colors.primary, fontSize: 12 },
+    todayBtnText: { ...typography.label, color: colors.primary, fontSize: 11 },
   });
 }
 
@@ -375,14 +375,6 @@ export default function PlanMatchScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]}>
-      {selectedDayId !== todayStr && (
-        <View style={[styles.pageHeader, { justifyContent: 'flex-end' }]}>
-          <TouchableOpacity style={styles.todayBtn} onPress={goToToday} activeOpacity={0.8}>
-            <Text style={styles.todayBtnText}>{t.common.today}</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
       <GradientCard style={styles.calendarCard}>
         <View style={styles.calendarHeaderRow}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
@@ -400,6 +392,11 @@ export default function PlanMatchScreen() {
             <TouchableOpacity onPress={goToPrevMonth} hitSlop={12}>
               <Ionicons name="chevron-back" size={22} color={colors.text} />
             </TouchableOpacity>
+            {selectedDayId !== todayStr && (
+              <TouchableOpacity style={styles.todayBtn} onPress={goToToday} activeOpacity={0.8}>
+                <Text style={styles.todayBtnText}>{t.common.today}</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity onPress={goToNextMonth} hitSlop={12}>
               <Ionicons name="chevron-forward" size={22} color={colors.text} />
             </TouchableOpacity>

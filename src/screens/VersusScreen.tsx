@@ -190,12 +190,15 @@ function createStyles(colors: ThemeColors) {
     },
     rankHint: { ...typography.caption, color: colors.textSecondary },
     leaderboardCard: {
+      flex: 1,
       padding: spacing.md,
       borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
       alignItems: 'center',
       justifyContent: 'center',
       gap: 4,
-      flex: 1,
+      marginLeft: spacing.xs,
     },
     leaderboardLabel: { ...typography.caption, fontSize: 11, color: colors.textSecondary, textAlign: 'center' },
     leaderboardTitle: { ...typography.label, fontSize: 11, fontWeight: '700', color: colors.text, textAlign: 'center' },
@@ -348,7 +351,7 @@ export default function VersusScreen() {
         {/* Center: logo */}
         <Image
           source={themeMode === 'dark' ? require('../../assets/icon_dark_mode.png') : require('../../assets/icon_light_mode.png')}
-          style={{ height: 52, width: 118 }}
+          style={{ height: 44, width: 100, marginVertical: -5 }}
           resizeMode="contain"
         />
         {/* Right: search + settings */}
@@ -418,17 +421,15 @@ export default function VersusScreen() {
               <Text style={[styles.rankValue, { color: '#2563EB', fontWeight: '700' }]}>{rankVpDisplay}</Text>
             </Text>
           </GradientCard>
-          <TouchableOpacity
-            style={{ flex: 1, marginLeft: spacing.xs, borderRadius: borderRadius.lg, overflow: 'hidden' }}
+          <GradientCard
+            style={styles.leaderboardCard}
             onPress={() => navigation.navigate('Leaderboard')}
             activeOpacity={0.85}
           >
-            <GradientCard style={styles.leaderboardCard}>
-              <Ionicons name="trophy" size={18} color={colors.primary} />
-              <Text style={styles.leaderboardTitle}>{t.versus.leaderboards}</Text>
-              <Text style={styles.leaderboardLabel}>{t.versus.topPlayers}</Text>
-            </GradientCard>
-          </TouchableOpacity>
+            <Ionicons name="trophy" size={18} color={colors.primary} />
+            <Text style={styles.leaderboardTitle}>{t.versus.leaderboards}</Text>
+            <Text style={styles.leaderboardLabel}>{t.versus.topPlayers}</Text>
+          </GradientCard>
         </View>
       </View>
 

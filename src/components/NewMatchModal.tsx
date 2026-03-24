@@ -56,7 +56,7 @@ function makeStyles(c: ThemeColors) {
     },
     title: { ...typography.title, color: c.text, textAlign: 'center' },
     scrollContent: { paddingBottom: spacing.xl },
-    label: { ...typography.label, color: c.textSecondary, marginBottom: spacing.xs },
+    label: { ...typography.label, color: c.textSecondary, marginBottom: spacing.sm },
     selectedOpp: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -560,8 +560,30 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                 </View>
               </Modal>
 
+              <Text style={[styles.label, { marginTop: spacing.md }]}>{t.newMatch.matchType}</Text>
+              <View style={styles.matchTypeRow}>
+                {(['casual', 'ranked', 'practice'] as const).map((mt) => {
+                  const icon = mt === 'casual' ? 'people-outline' : mt === 'ranked' ? 'trophy-outline' : 'barbell-outline';
+                  const sel = matchType === mt;
+                  const rankedDisabled = mt === 'ranked' && SPORTS_NO_RANKED.includes(sport);
+                  return (
+                    <TouchableOpacity
+                      key={mt}
+                      style={[styles.matchTypeChip, sel && styles.matchTypeChipSel, rankedDisabled && { opacity: 0.45 }]}
+                      onPress={() => { if (!rankedDisabled) setMatchType(mt); }}
+                      activeOpacity={rankedDisabled ? 1 : 0.8}
+                    >
+                      <Ionicons name={icon as any} size={14} color={sel ? colors.textOnPrimary : colors.textSecondary} />
+                      <Text style={[styles.matchTypeLbl, sel && styles.matchTypeLblSel]}>
+                        {mt === 'casual' ? t.matchType.casual : mt === 'ranked' ? (rankedDisabled ? t.matchType.rankedSoon : t.matchType.ranked) : t.matchType.practice}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
               <View key={`${matchType}-${matchFormat}`}>
-                <Text style={[styles.label, { marginTop: spacing.md }]}>
+                <Text style={[styles.label, { marginTop: spacing.sm }]}>
                   {matchType === 'practice'
                     ? 'Invite practice partners (optional, up to 3)'
                     : matchFormat === '3v3'
@@ -604,35 +626,13 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                   />
                 )}
               </View>
-
-              <Text style={[styles.label, { marginTop: spacing.md }]}>{t.newMatch.matchType}</Text>
-              <View style={styles.matchTypeRow}>
-                {(['casual', 'ranked', 'practice'] as const).map((mt) => {
-                  const icon = mt === 'casual' ? 'people-outline' : mt === 'ranked' ? 'trophy-outline' : 'barbell-outline';
-                  const sel = matchType === mt;
-                  const rankedDisabled = mt === 'ranked' && SPORTS_NO_RANKED.includes(sport);
-                  return (
-                    <TouchableOpacity
-                      key={mt}
-                      style={[styles.matchTypeChip, sel && styles.matchTypeChipSel, rankedDisabled && { opacity: 0.45 }]}
-                      onPress={() => { if (!rankedDisabled) setMatchType(mt); }}
-                      activeOpacity={rankedDisabled ? 1 : 0.8}
-                    >
-                      <Ionicons name={icon as any} size={14} color={sel ? colors.textOnPrimary : colors.textSecondary} />
-                      <Text style={[styles.matchTypeLbl, sel && styles.matchTypeLblSel]}>
-                        {mt === 'casual' ? t.matchType.casual : mt === 'ranked' ? (rankedDisabled ? t.matchType.rankedSoon : t.matchType.ranked) : t.matchType.practice}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
               {/* {matchType === 'practice' && (
                 <Text style={[styles.label, { marginBottom: spacing.md, fontStyle: 'italic' }]}>
                   Practice: track how long you train. No score or opponent required.
                 </Text>
               )} */}
 
-              <Text style={styles.label}>{t.newMatch.visibility}</Text>
+              <Text style={[styles.label, { marginTop: spacing.md }]}>{t.newMatch.visibility}</Text>
               <View style={styles.matchTypeRow}>
                 <TouchableOpacity style={[styles.matchTypeChip, isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(true)} activeOpacity={0.8}>
                   <Ionicons name="globe-outline" size={14} color={isPublic ? colors.textOnPrimary : colors.textSecondary} />

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Versus",
     "slug": "Versus",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/versus_blue.png",
     "userInterfaceStyle": "light",

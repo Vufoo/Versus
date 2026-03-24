@@ -292,6 +292,7 @@ function FeedCard({
   onEditMatch,
   navigation,
   onNotifyUpdate,
+  mediaRowTouchingRef,
 }: {
   item: FeedMatch;
   currentUserId: string | null;
@@ -305,6 +306,7 @@ function FeedCard({
   onEditMatch?: (match: FeedMatch) => void;
   navigation: { navigate: (screen: string, params?: object) => void };
   onNotifyUpdate?: () => void;
+  mediaRowTouchingRef?: React.MutableRefObject<boolean>;
 }) {
   const participantsParsed: Participant[] = (() => {
     const raw = item.participants ?? [];
@@ -606,7 +608,12 @@ function FeedCard({
   }, [isInProgress, item.started_at]);
 
   const durationMs = item.ended_at && item.started_at
-    ? new Date(item.ended_at).getTime() - new Date(item.started_at).getTime()
+    // If paused_at is still set on a completed match, the match was finished while paused.
+    // ended_at - started_at would include the idle pause time, so use paused_at - started_at
+    // which reflects only the net active duration (started_at is already shifted by prior resumes).
+    ? item.paused_at
+      ? new Date(item.paused_at).getTime() - new Date(item.started_at).getTime()
+      : new Date(item.ended_at).getTime() - new Date(item.started_at).getTime()
     : isInProgress ? elapsedMs
     : isPaused && item.paused_at && item.started_at
       ? new Date(item.paused_at).getTime() - new Date(item.started_at).getTime()
@@ -2219,6 +2226,12 @@ function FeedCard({
         </View>
 
       {/* Horizontal scrollable media row: location → photos → add photo */}
+      {/* onTouchStart/End block the parent feed-swipe PanResponder while the user is touching this row */}
+      <View
+        onTouchStart={() => { if (mediaRowTouchingRef) mediaRowTouchingRef.current = true; }}
+        onTouchEnd={() => { if (mediaRowTouchingRef) mediaRowTouchingRef.current = false; }}
+        onTouchCancel={() => { if (mediaRowTouchingRef) mediaRowTouchingRef.current = false; }}
+      >
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm, marginHorizontal: -spacing.md }} contentContainerStyle={{ gap: spacing.sm, paddingHorizontal: spacing.md }}>
         {(item.location_lat != null || item.location_name != null || !!isParticipant) && (
           <TouchableOpacity
@@ -2304,6 +2317,7 @@ function FeedCard({
           </View>
         ) : null}
       </ScrollView>
+      </View>
 
       <View style={styles.actionsRow}>
         <TouchableOpacity style={styles.actionBtn} onPress={handleToggleLike} activeOpacity={0.8}>
@@ -2718,8 +2732,8 @@ function createHomeStyles(colors: ThemeColors) {
       paddingTop: 10,
       paddingHorizontal: spacing.md,
       paddingBottom: spacing.sm,
-      marginBottom: spacing.sm,
-      borderBottomWidth: 6,
+      marginBottom: spacing.xs,
+      borderBottomWidth: 3,
       borderBottomColor: colors.background,
     },
     stravaHeader: {
@@ -2775,7 +2789,7 @@ function createHomeStyles(colors: ThemeColors) {
     addMediaText: { ...typography.caption, fontSize: 13, color: colors.primary, marginTop: spacing.xs },
     gamesEditSection: { marginTop: spacing.sm, width: '100%', alignItems: 'center' },
     scoreHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, marginBottom: 4 },
-    scoreHeaderName: { ...typography.label, fontSize: 13, color: colors.textSecondary, width: 48, textAlign: 'center' },
+    scoreHeaderName: { ...typography.label, fontSize: 13, color: colors.textSecondary, width: 58, textAlign: 'center' },
     gameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, marginBottom: spacing.xs },
     gameLabelWrap: { width: 0, alignItems: 'flex-end' as const, overflow: 'visible' as const },
     gameLabelText: { ...typography.label, fontSize: 13, color: colors.textSecondary, marginRight: 4, width: 24 },
@@ -2961,7 +2975,7 @@ function createHomeStyles(colors: ThemeColors) {
       flexWrap: 'wrap',
     },
     scoreInput: {
-      width: 48,
+      width: 58,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: borderRadius.sm,
@@ -3344,10 +3358,13 @@ export default function HomeScreen() {
   const feedSlideAnim = useRef(new Animated.Value(0)).current;
   const feedOpacityAnim = useRef(new Animated.Value(1)).current;
   const feedModeInitialized = useRef(false);
+  const mediaRowTouching = useRef(false);
   const feedSwipePan = useRef(
     PanResponder.create({
-      // Only capture clearly horizontal swipes (dx dominates dy by 2:1)
+      // Only capture clearly horizontal swipes (dx dominates dy by 2:1),
+      // and never steal from the media row's horizontal ScrollView.
       onMoveShouldSetPanResponder: (_, gs) =>
+        !mediaRowTouching.current &&
         Math.abs(gs.dx) > 15 && Math.abs(gs.dx) > Math.abs(gs.dy) * 2,
       onPanResponderRelease: (_, gs) => {
         if (gs.dx < -60 && Math.abs(gs.dx) > Math.abs(gs.dy)) setFeedMode('public');
@@ -4238,7 +4255,7 @@ export default function HomeScreen() {
       <View style={[styles.topBar, { paddingTop: insets.top }]}>
         <Image
           source={themeMode === 'dark' ? require('../../assets/icon_dark_mode.png') : require('../../assets/icon_light_mode.png')}
-          style={{ height: 52, width: 118, marginLeft: 2, marginBottom: -2 }}
+          style={{ height: 44, width: 100, marginLeft: 2, marginVertical: -5 }}
           resizeMode="contain"
         />
         <View style={styles.topBarRight}>
@@ -4363,6 +4380,7 @@ export default function HomeScreen() {
               onNotifyUpdate={() => {
                 realtimeChannelRef.current?.send({ type: 'broadcast', event: 'match_updated', payload: {} });
               }}
+              mediaRowTouchingRef={mediaRowTouching}
             />
           )}
         />
