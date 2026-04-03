@@ -433,6 +433,7 @@ export default function MapScreen() {
   const [currentUserProfile, setCurrentUserProfile] = useState<{ avatar_url: string | null; username: string | null; full_name: string | null } | null>(null);
   const [myAvatarUrl, setMyAvatarUrl] = useState<string | null>(null);
   const [joiningMatchId, setJoiningMatchId] = useState<string | null>(null);
+  const [myLocationIsPublic, setMyLocationIsPublic] = useState(false);
   const [mapRegion, setMapRegion] = useState(DEFAULT_REGION);
   const [mapSize, setMapSize] = useState({ width: 375, height: 600 });
   const [clusterModal, setClusterModal] = useState<{ visible: boolean; items: MapMarker[] }>({ visible: false, items: [] });
@@ -492,15 +493,16 @@ export default function MapScreen() {
       setCurrentUserId(user.id);
       const { data: profile } = await supabase
         .from('profiles')
-        .select('avatar_url, username, full_name, preferred_sports')
+        .select('avatar_url, username, full_name, preferred_sports, location_visibility')
         .eq('user_id', user.id)
         .maybeSingle();
       if (profile) {
-        const p = profile as { avatar_url: string | null; username: string | null; full_name: string | null; preferred_sports?: string[] };
+        const p = profile as { avatar_url: string | null; username: string | null; full_name: string | null; preferred_sports?: string[]; location_visibility?: string };
         setCurrentUserProfile(p);
         const resolved = await resolveAvatarUrl(p.avatar_url);
         setMyAvatarUrl(resolved);
         if (p.preferred_sports) setPreferredSports(p.preferred_sports);
+        setMyLocationIsPublic(p.location_visibility === 'public');
       }
       // Restore persisted pending requests
       const storedReqs = await AsyncStorage.getItem(`join_requests_${user.id}`);
@@ -818,6 +820,14 @@ export default function MapScreen() {
   const handleRequestJoin = async (match: NearbyMatch) => {
     if (!currentUserId) return;
     if (requestedMatchIds.has(match.id) || deniedMatchIds.has(match.id)) return;
+    if (match.match_type === 'ranked' && !myLocationIsPublic) {
+      Alert.alert(
+        'Location Required',
+        'You must set your location to Public in Settings to join a ranked match.',
+        [{ text: 'OK' }],
+      );
+      return;
+    }
     setJoiningMatchId(match.id);
     try {
       const myUsername = currentUserProfile?.username ?? 'Someone';

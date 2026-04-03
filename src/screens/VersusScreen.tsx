@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl, Modal, Pressable, FlatList, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl, Modal, Pressable, FlatList, Image, Share } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -8,6 +8,7 @@ import type { ThemeColors } from '../constants/theme';
 import { useTheme } from '../theme/ThemeProvider';
 import { useLanguage } from '../i18n/LanguageContext';
 import { supabase, resolveAvatarUrl } from '../lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import NewMatchModal from '../components/NewMatchModal';
 import { useMembership } from '../hooks/useMembership';
 
@@ -264,6 +265,7 @@ export default function VersusScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [flow, setFlow] = useState<Flow>(null);
   const [sport, setSport] = useState<string>(SPORTS[0]);
+  const sportRestoredRef = useRef(false);
   const closeFlow = () => setFlow(null);
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -282,9 +284,19 @@ export default function VersusScreen() {
     });
   };
 
-  // Default to first preferred sport once loaded
+  // Restore last chosen sport on mount; only fall back to preferred sport if nothing saved
   useEffect(() => {
-    if (preferredSports.length > 0) setSport(preferredSports[0]);
+    AsyncStorage.getItem('lastChosenSport').then((saved) => {
+      if (saved && SPORTS.includes(saved as any)) {
+        setSport(saved);
+        sportRestoredRef.current = true;
+      }
+    });
+  }, []);
+
+  // Default to first preferred sport only if user hasn't explicitly chosen one
+  useEffect(() => {
+    if (!sportRestoredRef.current && preferredSports.length > 0) setSport(preferredSports[0]);
   }, [preferredSports]);
 
   const loadData = useCallback(async () => {
@@ -397,7 +409,7 @@ export default function VersusScreen() {
                   return (
                     <TouchableOpacity
                       style={[styles.dropdownSportRow, isSelected && styles.dropdownSportRowSelected]}
-                      onPress={() => { setSport(s); setSportDropdownOpen(false); }}
+                      onPress={() => { setSport(s); setSportDropdownOpen(false); sportRestoredRef.current = true; AsyncStorage.setItem('lastChosenSport', s); }}
                       activeOpacity={0.7}
                     >
                       <Text style={[styles.dropdownSportName, isSelected && styles.dropdownSportNameSelected]}>
@@ -434,7 +446,7 @@ export default function VersusScreen() {
       </View>
 
         <TouchableOpacity
-          style={[styles.primaryButton, styles.rankedButton]}
+          style={[styles.primaryButton, styles.rankedButton, { marginTop: spacing.md }]}
           onPress={() => setFlow('local')}
           activeOpacity={0.85}
         >
@@ -479,17 +491,17 @@ export default function VersusScreen() {
 
         <TouchableOpacity
           style={[styles.primaryButton, styles.casualButton]}
-          onPress={() => Alert.alert('Coming soon', 'Find casual match will be available in a future update.')}
+          onPress={() => Share.share({ message: 'Join me on Versus — the sports challenge app! Challenge friends to Tennis, Pickleball, Basketball, and more. Download the app and let\'s play! 🏆' })}
           activeOpacity={0.85}
         >
           <View style={styles.buttonIconWrap}>
-            <Ionicons name="happy-outline" size={22} color={colors.text} />
+            <Ionicons name="person-add-outline" size={22} color={colors.text} />
           </View>
           <Text style={[styles.primaryButtonTitle, styles.casualTitle]}>
-            {t.versus.findCasualMatch}
+            {t.versus.inviteFriends}
           </Text>
           <Text style={[styles.primaryButtonSub, styles.casualSub]}>
-            {t.common.comingSoon}
+            {t.versus.inviteFriendsSub}
           </Text>
         </TouchableOpacity>
 

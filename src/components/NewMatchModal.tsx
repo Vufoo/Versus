@@ -15,6 +15,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
@@ -244,6 +245,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUsername, setCurrentUsername] = useState<string | null>(null);
+  const [locationIsPublic, setLocationIsPublic] = useState(false);
   const [friends, setFriends] = useState<SearchedUser[]>([]);
   const [friendUserIds, setFriendUserIds] = useState<string[]>([]);
 
@@ -267,6 +269,14 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   }, [preferredSports]);
 
   useEffect(() => { if (initialSport) setSport(initialSport); }, [initialSport]);
+
+  // Restore last chosen sport when opening (only if no explicit initialSport)
+  useEffect(() => {
+    if (!visible || initialSport) return;
+    AsyncStorage.getItem('lastChosenSport').then((saved) => {
+      if (saved && SPORTS.includes(saved as any)) setSport(saved);
+    });
+  }, [visible]);
   useEffect(() => { if (initialMatchType) setMatchType(initialMatchType as 'casual' | 'ranked' | 'practice'); }, [initialMatchType]);
   useEffect(() => { if (SPORTS_NO_RANKED.includes(sport) && matchType === 'ranked') setMatchType('casual'); }, [sport, matchType]);
   useEffect(() => {
@@ -310,8 +320,9 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setCurrentUserId(user.id);
-      const { data: p } = await supabase.from('profiles').select('username').eq('user_id', user.id).maybeSingle();
+      const { data: p } = await supabase.from('profiles').select('username, location_visibility').eq('user_id', user.id).maybeSingle();
       if (p?.username) setCurrentUsername(p.username);
+      setLocationIsPublic((p as any)?.location_visibility === 'public');
 
       // Fetch both follow directions in parallel
       const [{ data: outRows }, { data: inRows }] = await Promise.all([
@@ -495,7 +506,13 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
     setMatchType((initialMatchType ?? 'casual') as 'casual' | 'ranked' | 'practice');
     setIsPublic(true);
     setMatchFormat('1v1');
-    setSport(initialSport ?? SPORTS[0]);
+    if (!initialSport) {
+      AsyncStorage.getItem('lastChosenSport').then((saved) => {
+        setSport(saved && SPORTS.includes(saved as any) ? saved : SPORTS[0]);
+      });
+    } else {
+      setSport(initialSport);
+    }
     setScheduleDate(initialDate ?? todayDateStr);
     setStartNow(!initialDate || initialDate === todayDateStr);
   };
@@ -518,7 +535,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
 
             <ScrollView
               contentContainerStyle={styles.scrollContent}
-              showsVerticalScrollIndicator={true}
+              showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               bounces={true}
             >
@@ -546,7 +563,7 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                         return (
                           <TouchableOpacity
                             style={[styles.dropdownSportRow, isSelected && styles.dropdownSportRowSelected]}
-                            onPress={() => { setSport(s); setSportDropdownOpen(false); }}
+                            onPress={() => { setSport(s); setSportDropdownOpen(false); AsyncStorage.setItem('lastChosenSport', s); }}
                             activeOpacity={0.7}
                           >
                             <Text style={[styles.dropdownSportName, isSelected && styles.dropdownSportNameSelected]}>{sportLabel(s)}</Text>
@@ -570,7 +587,18 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                     <TouchableOpacity
                       key={mt}
                       style={[styles.matchTypeChip, sel && styles.matchTypeChipSel, rankedDisabled && { opacity: 0.45 }]}
-                      onPress={() => { if (!rankedDisabled) setMatchType(mt); }}
+                      onPress={() => {
+                        if (rankedDisabled) return;
+                        if (mt === 'ranked' && !locationIsPublic) {
+                          Alert.alert(
+                            'Location Required',
+                            'You must set your location to Public in Settings to create a ranked match.',
+                            [{ text: 'OK' }],
+                          );
+                          return;
+                        }
+                        setMatchType(mt);
+                      }}
                       activeOpacity={rankedDisabled ? 1 : 0.8}
                     >
                       <Ionicons name={icon as any} size={14} color={sel ? colors.textOnPrimary : colors.textSecondary} />

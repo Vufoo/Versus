@@ -8,18 +8,26 @@ type Props = {
   children?: React.ReactNode;
   onPress?: () => void;
   activeOpacity?: number;
+  variant?: 'default' | 'completed';
 };
 
 const STRIPS = 200;
 
-export default function GradientCard({ style, children, onPress, activeOpacity = 0.85 }: Props) {
+export default function GradientCard({ style, children, onPress, activeOpacity = 0.85, variant = 'default' }: Props) {
   const { mode, colors } = useTheme();
 
-  const tintColor = mode === 'dark' ? '#2563EB' : '#a3b0d9';
+  const isCompleted = variant === 'completed';
+  const tintColor = mode === 'dark'
+    ? (isCompleted ? '#1e40af' : '#2563EB')
+    : (isCompleted ? '#3b5fa0' : '#a3b0d9');
   // Base tint covers the whole card — just enough to eliminate the left gap
-  const baseOpacity = mode === 'dark' ? 0.014 : 0.03;
+  const baseOpacity = mode === 'dark'
+    ? (isCompleted ? 0.07 : 0.014)
+    : (isCompleted ? 0.05 : 0.01);
   // Strips ramp from 0 → extraOpacity, creating a subtle left-to-right contrast
-  const extraOpacity = mode === 'dark' ? 0.07 : 0.15;
+  const extraOpacity = mode === 'dark'
+    ? (isCompleted ? 0.2 : 0.07)
+    : (isCompleted ? 0.25 : 0.12);
 
   const strips = useMemo(() => {
     const stripW = 100 / STRIPS;

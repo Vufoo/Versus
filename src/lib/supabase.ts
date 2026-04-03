@@ -75,9 +75,21 @@ export async function getRememberMePreference(): Promise<boolean> {
   return getRememberMe();
 }
 
-const avatarCache = new Map<string, { url: string; expires: number }>();
-const imageCache = new Map<string, { url: string; expires: number }>();
 const SIGNED_TTL = 60 * 60 * 24 * 7; // 7 days
+const CACHE_MAX = 200; // max entries before evicting the oldest
+
+type CacheEntry = { url: string; expires: number };
+
+function cacheSet(map: Map<string, CacheEntry>, key: string, value: CacheEntry) {
+  if (map.size >= CACHE_MAX) {
+    // Evict the oldest (first inserted) key
+    map.delete(map.keys().next().value!);
+  }
+  map.set(key, value);
+}
+
+const avatarCache = new Map<string, CacheEntry>();
+const imageCache = new Map<string, CacheEntry>();
 
 export async function resolveAvatarUrl(path: string | null | undefined): Promise<string | null> {
   if (!path) return null;
@@ -87,7 +99,7 @@ export async function resolveAvatarUrl(path: string | null | undefined): Promise
   try {
     const { data, error } = await supabase.storage.from('avatars').createSignedUrl(path, SIGNED_TTL);
     if (error || !data?.signedUrl) return null;
-    avatarCache.set(path, { url: data.signedUrl, expires: Date.now() + (SIGNED_TTL - 60) * 1000 });
+    cacheSet(avatarCache, path, { url: data.signedUrl, expires: Date.now() + (SIGNED_TTL - 60) * 1000 });
     return data.signedUrl;
   } catch { return null; }
 }
@@ -100,7 +112,7 @@ export async function resolveMatchImageUrl(path: string | null | undefined): Pro
   try {
     const { data, error } = await supabase.storage.from('match-images').createSignedUrl(path, SIGNED_TTL);
     if (error || !data?.signedUrl) return null;
-    imageCache.set(path, { url: data.signedUrl, expires: Date.now() + (SIGNED_TTL - 60) * 1000 });
+    cacheSet(imageCache, path, { url: data.signedUrl, expires: Date.now() + (SIGNED_TTL - 60) * 1000 });
     return data.signedUrl;
   } catch { return null; }
 }

@@ -19,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, typography, borderRadius } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { supabase, resolveAvatarUrl } from '../lib/supabase';
-import { SPORTS_2V2, SPORTS_2V2_ONLY } from '../constants/sports';
+import { SPORTS_2V2, SPORTS_2V2_ONLY, SPORT_SCORING } from '../constants/sports';
 import LocationPickerModal from './LocationPickerModal';
 import type { PickedLocation } from './LocationPickerModal';
 
@@ -28,7 +28,7 @@ const SCREEN_H = Dimensions.get('window').height;
 type Props = {
   visible: boolean;
   onClose: () => void;
-  onSaved?: (update?: { winnerRole?: 'challenger' | 'opponent' | 'draw'; games?: { game_number: number; score_challenger: number; score_opponent: number }[] }) => void;
+  onSaved?: () => void;
   colors: ThemeColors;
   currentUserId?: string | null;
   match: {
@@ -44,6 +44,8 @@ type Props = {
     match_format?: string;
     scheduled_at: string | null;
     created_by?: string | null;
+    started_at?: string | null;
+    ended_at?: string | null;
     participants?: Array<{ user_id: string; role: string; username: string | null; full_name: string | null }>;
   } | null;
 };
@@ -169,6 +171,8 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
   const [timeHour, setTimeHour] = useState(12);
   const [timeMinute, setTimeMinute] = useState(0);
   const [timeAmPm, setTimeAmPm] = useState<'AM' | 'PM'>('PM');
+  const [durationHours, setDurationHours] = useState('0');
+  const [durationMinutes, setDurationMinutes] = useState('0');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [editTeams, setEditTeams] = useState(false);
@@ -204,6 +208,9 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
   const supports2v2 = match ? SPORTS_2V2.includes(match.sport_name) : false;
   const only2v2 = match ? SPORTS_2V2_ONLY.includes(match.sport_name) : false;
   const canEditFormat = match && match.status !== 'in_progress' && match.status !== 'completed';
+  const sportRules = match ? SPORT_SCORING[match.sport_name] : undefined;
+  const isSingleGameSport = sportRules !== 'set' && !!(sportRules as { singleGame?: boolean })?.singleGame;
+  const isLowerWinsSport = sportRules !== 'set' && !!(sportRules as { lowerWins?: boolean })?.lowerWins;
 
   useEffect(() => {
     if (match) {
@@ -215,6 +222,15 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
       setMatchFormat((match.match_format as '1v1' | '2v2') || '1v1');
       setScheduledAt(match.scheduled_at);
       setEditTeams(false);
+
+      if (match.status === 'completed' && match.started_at && match.ended_at) {
+        const totalSecs = Math.max(0, Math.floor((new Date(match.ended_at).getTime() - new Date(match.started_at).getTime()) / 1000));
+        setDurationHours(String(Math.floor(totalSecs / 3600)));
+        setDurationMinutes(String(Math.floor((totalSecs % 3600) / 60)));
+      } else {
+        setDurationHours('0');
+        setDurationMinutes('0');
+      }
       const roles: Record<string, 'challenger' | 'opponent'> = {};
       for (const p of match.participants ?? []) {
         if (p.role === 'challenger' || p.role === 'opponent') roles[p.user_id] = p.role;
@@ -300,6 +316,15 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
         scheduled_at: newScheduledAt,
       };
       if (canEditFormat) updates.match_format = matchFormat;
+      if (match.status === 'completed' && match.started_at) {
+        const h = Math.max(0, parseInt(durationHours, 10) || 0);
+        const m = Math.max(0, Math.min(59, parseInt(durationMinutes, 10) || 0));
+        const newDurationMs = (h * 3600 + m * 60) * 1000;
+        if (newDurationMs > 0) {
+          updates.ended_at = new Date(new Date(match.started_at).getTime() + newDurationMs).toISOString();
+          updates.paused_at = null;
+        }
+      }
 
       await supabase.from('matches').update(updates).eq('id', match.id);
 
@@ -333,11 +358,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
       }
 
       onClose();
-      if (isCasual && match.status === 'completed') {
-        onSaved?.({ winnerRole, games: savedGames.length > 0 ? savedGames : undefined });
-      } else {
-        onSaved?.();
-      }
+      onSaved?.();
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Could not save changes.');
     } finally {
@@ -599,7 +620,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                             )}
                             <TextInput
                               style={[styles.input, { width: 90, marginBottom: 0, textAlign: 'center' }]}
-                              placeholder="0"
+                              placeholder={isSingleGameSport ? 'Strokes' : '0'}
                               placeholderTextColor={colors.textSecondary}
                               value={game.score_challenger}
                               onChangeText={v => setEditGames(gs => gs.map((g, i) => i === idx ? { ...g, score_challenger: v.replace(/[^0-9]/g, '') } : g))}
@@ -610,7 +631,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                             </View>
                             <TextInput
                               style={[styles.input, { width: 90, marginBottom: 0, textAlign: 'center' }]}
-                              placeholder="0"
+                              placeholder={isSingleGameSport ? 'Strokes' : '0'}
                               placeholderTextColor={colors.textSecondary}
                               value={game.score_opponent}
                               onChangeText={v => setEditGames(gs => gs.map((g, i) => i === idx ? { ...g, score_opponent: v.replace(/[^0-9]/g, '') } : g))}
@@ -625,14 +646,21 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                             )}
                           </View>
                         ))}
-                        <TouchableOpacity
-                          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 9, paddingVertical: 4, borderWidth: 1, borderColor: colors.primary, borderRadius: borderRadius.sm, alignSelf: 'center', marginTop: spacing.sm, marginBottom: spacing.md }}
-                          onPress={() => setEditGames(gs => [...gs, { score_challenger: '', score_opponent: '' }])}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons name="add" size={12} color={colors.primary} />
-                          <Text style={[styles.label, { color: colors.primary, marginBottom: 0, fontSize: 11 }]}>Add game</Text>
-                        </TouchableOpacity>
+                        {isLowerWinsSport && (
+                          <Text style={{ ...typography.caption, fontSize: 10, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.xs }}>
+                            Lower score wins
+                          </Text>
+                        )}
+                        {!isSingleGameSport && (
+                          <TouchableOpacity
+                            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 9, paddingVertical: 4, borderWidth: 1, borderColor: colors.primary, borderRadius: borderRadius.sm, alignSelf: 'center', marginTop: spacing.sm, marginBottom: spacing.md }}
+                            onPress={() => setEditGames(gs => [...gs, { score_challenger: '', score_opponent: '' }])}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons name="add" size={12} color={colors.primary} />
+                            <Text style={[styles.label, { color: colors.primary, marginBottom: 0, fontSize: 11 }]}>Add game</Text>
+                          </TouchableOpacity>
+                        )}
                             </>
                           );
                         })()}
@@ -677,6 +705,37 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                           <Ionicons name="time-outline" size={18} color={colors.primary} />
                           <Text style={styles.timeText}>{formatTime()}</Text>
                         </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
+
+                  {match.status === 'completed' && match.started_at && (
+                    <>
+                      <Text style={styles.label}>Duration</Text>
+                      <View style={[styles.timeRow, { marginBottom: spacing.md }]}>
+                        <View style={[styles.timeBtn, { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
+                          <TextInput
+                            style={{ flex: 1, color: colors.text, fontSize: 15, textAlign: 'center', minWidth: 36 }}
+                            keyboardType="number-pad"
+                            value={durationHours}
+                            onChangeText={v => setDurationHours(v.replace(/[^0-9]/g, ''))}
+                            maxLength={2}
+                          />
+                          <Text style={{ color: colors.textSecondary, fontSize: 13 }}>h</Text>
+                        </View>
+                        <View style={[styles.timeBtn, { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
+                          <TextInput
+                            style={{ flex: 1, color: colors.text, fontSize: 15, textAlign: 'center', minWidth: 36 }}
+                            keyboardType="number-pad"
+                            value={durationMinutes}
+                            onChangeText={v => {
+                              const n = parseInt(v.replace(/[^0-9]/g, ''), 10);
+                              setDurationMinutes(isNaN(n) ? '0' : String(Math.min(59, n)));
+                            }}
+                            maxLength={2}
+                          />
+                          <Text style={{ color: colors.textSecondary, fontSize: 13 }}>min</Text>
+                        </View>
                       </View>
                     </>
                   )}

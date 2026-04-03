@@ -1,4 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+if (typeof UIManager !== 'undefined' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import {
   View,
   Text,
@@ -19,6 +22,8 @@ import {
   Linking,
   RefreshControl,
   PanResponder,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapPreview from '../components/MapPreview';
@@ -236,7 +241,11 @@ function formatMatchScore(
     return { main: `${gamesP1} - ${gamesP2}`, sub: gameScores };
   }
 
-  // Single game: show actual score
+  // Single game: show actual score; for lower-wins sports label the unit
+  const singleGameSport = rules !== 'set' && !!(rules as { singleGame?: boolean })?.singleGame;
+  if (singleGameSport && lowerWins) {
+    return { main: `${filtered[0].score_challenger} – ${filtered[0].score_opponent}`, sub: 'strokes' };
+  }
   return { main: `${filtered[0].score_challenger} - ${filtered[0].score_opponent}`, sub: null };
 }
 
@@ -293,6 +302,8 @@ function FeedCard({
   navigation,
   onNotifyUpdate,
   mediaRowTouchingRef,
+  hasOtherLiveMatch,
+  onMatchFinished,
 }: {
   item: FeedMatch;
   currentUserId: string | null;
@@ -307,6 +318,8 @@ function FeedCard({
   navigation: { navigate: (screen: string, params?: object) => void };
   onNotifyUpdate?: () => void;
   mediaRowTouchingRef?: React.MutableRefObject<boolean>;
+  hasOtherLiveMatch?: boolean;
+  onMatchFinished?: (matchId: string) => void;
 }) {
   const participantsParsed: Participant[] = (() => {
     const raw = item.participants ?? [];
@@ -380,6 +393,34 @@ function FeedCard({
   const animateAndRemove = useCallback(() => {
     Animated.timing(cardAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => onRemoveItem(item.id));
   }, [cardAnim, onRemoveItem, item.id]);
+
+  const shimmerAnim = useRef(new Animated.Value(-1)).current;
+  const triggerShimmer = useCallback(() => {
+    shimmerAnim.setValue(-1);
+    Animated.timing(shimmerAnim, {
+      toValue: 1,
+      duration: 750,
+      useNativeDriver: true,
+    }).start();
+  }, [shimmerAnim]);
+
+  const statusTransAnim = useRef(new Animated.Value(1)).current;
+  const prevStatusRef = useRef(item.status);
+  useEffect(() => {
+    if (prevStatusRef.current !== item.status && (
+      (prevStatusRef.current === 'in_progress' && item.status === 'paused') ||
+      (prevStatusRef.current === 'paused' && item.status === 'in_progress')
+    )) {
+      statusTransAnim.setValue(0.3);
+      Animated.spring(statusTransAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 120,
+        friction: 7,
+      }).start();
+    }
+    prevStatusRef.current = item.status;
+  }, [item.status]);
 
   // Clear auto-save timer on unmount to prevent state updates after removal
   useEffect(() => {
@@ -700,12 +741,21 @@ function FeedCard({
   const handleStart = async () => {
     if (!currentUserId || startStopLoading) return;
     if (!canStartMeetsCriteria) return;
+    if (hasOtherLiveMatch) {
+      Alert.alert(
+        'Match Already Active',
+        'You have another match in progress. Pause or finish it before starting a new one.',
+        [{ text: 'OK' }],
+      );
+      return;
+    }
     setStartStopLoading(true);
     try {
       const startedAt = new Date().toISOString();
       await supabase.from('matches').update({ status: 'in_progress', started_at: startedAt })
         .eq('id', item.id)
         .in('status', ['confirmed', 'pending', 'planned']);
+      triggerShimmer();
       updateFeedItem(item.id, (m) => ({ ...m, status: 'in_progress', started_at: startedAt }));
       onNotifyUpdate?.();
     } catch { /* swallow */ }
@@ -727,6 +777,14 @@ function FeedCard({
 
   const handleResume = async () => {
     if (!currentUserId || startStopLoading) return;
+    if (hasOtherLiveMatch) {
+      Alert.alert(
+        'Match Already Active',
+        'You have another match in progress. Pause or finish it before resuming this one.',
+        [{ text: 'OK' }],
+      );
+      return;
+    }
     setStartStopLoading(true);
     try {
       // Shift started_at forward by the time spent paused so the timer resumes from
@@ -738,6 +796,7 @@ function FeedCard({
       await supabase.from('matches').update({ status: 'in_progress', paused_at: null, started_at: newStartedAt })
         .eq('id', item.id)
         .eq('status', 'paused');
+      triggerShimmer();
       updateFeedItem(item.id, (m) => ({ ...m, status: 'in_progress', paused_at: null, started_at: newStartedAt }));
     } catch { /* swallow */ }
     finally { setStartStopLoading(false); }
@@ -762,6 +821,8 @@ function FeedCard({
         return;
       }
 
+      triggerShimmer();
+      onMatchFinished?.(item.id);
       // Optimistic local update
       const participants = (item.participants ?? []) as Participant[];
       const is2v2 = (item.match_format || '1v1') === '2v2';
@@ -902,6 +963,7 @@ function FeedCard({
             return { ...p, result: res, vp_delta: res === 'win' ? 1 : res === 'loss' ? -1 : 0 };
           }),
         }));
+        onMatchFinished?.(item.id);
         // Notify other participants
         const { data: myProfile } = await supabase.from('profiles').select('username, full_name').eq('user_id', currentUserId).maybeSingle();
         const finisherName = myProfile?.full_name ?? myProfile?.username ?? 'Someone';
@@ -1483,9 +1545,18 @@ function FeedCard({
     gamesForDisplay,
   );
   const hasScore = gamesForDisplay.length > 0;
+  const sportRules = SPORT_SCORING[item.sport_name];
+  const isSingleGameSport = sportRules !== 'set' && !!(sportRules as { singleGame?: boolean })?.singleGame;
+  const isLowerWinsSport = sportRules !== 'set' && !!(sportRules as { lowerWins?: boolean })?.lowerWins;
   const imagesList = (item.images ?? []) as MatchImage[];
   const mediaRowWidth = Dimensions.get('window').width - 2 * spacing.md;
   const halfWidth = (mediaRowWidth - spacing.sm) / 2;
+
+  const CARD_W = Dimensions.get('window').width;
+  const shimmerTranslate = shimmerAnim.interpolate({
+    inputRange: [-1, 1],
+    outputRange: [-CARD_W, CARD_W],
+  });
 
   return (
     <Animated.View style={{ opacity: cardAnim, transform: [{ scale: cardAnim.interpolate({ inputRange: [0, 1], outputRange: [0.93, 1] }) }] }}>
@@ -1533,6 +1604,11 @@ function FeedCard({
         </Text>
       </View>
 
+      <View style={[
+        item.status === 'in_progress' && styles.playersRowLive,
+        item.status === 'paused' && styles.playersRowPaused,
+        item.status === 'completed' && styles.playersRowCompleted,
+      ]}>
       <View style={styles.playersRow}>
         <View style={styles.playerCol}>
           {is2v2 ? (
@@ -1672,7 +1748,16 @@ function FeedCard({
                       </Text>
                     );
                   })()}
-                  {hasScore && <Text style={styles.scoreText}>{displayScoreMain}</Text>}
+                  {hasScore && (
+                    <Text
+                      style={[styles.scoreText, isSingleGameSport && { fontSize: 13 }]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.7}
+                    >
+                      {displayScoreMain}
+                    </Text>
+                  )}
                   {hasScore && displayScoreSub && (
                     <Text style={[typography.caption, { fontSize: 9, color: colors.textSecondary, marginTop: 1 }]}>
                       {displayScoreSub}
@@ -1964,11 +2049,12 @@ function FeedCard({
           </View>
         )}
       </View>
+      </View>
 
       {/* Start / Stop / Score editing / Delete */}
       <View style={[styles.matchControlsRow, !hasControlButtons && { paddingTop: spacing.sm, paddingBottom: spacing.sm, marginBottom: 0 }]}>
         {hasControlButtons && (
-          <View style={styles.matchControlsButtonRow}>
+          <Animated.View style={[styles.matchControlsButtonRow, { opacity: statusTransAnim, transform: [{ scale: statusTransAnim.interpolate({ inputRange: [0.3, 1], outputRange: [0.96, 1] }) }] }]}>
             {item.status !== 'in_progress' && item.status !== 'completed' && item.status !== 'paused' && (
               <TouchableOpacity
                 style={[styles.startButton, (startStopLoading || !canStart) && { opacity: 0.6 }]}
@@ -2159,7 +2245,7 @@ function FeedCard({
                 <Text style={styles.deleteButtonText}>{t.home.leave}</Text>
               </TouchableOpacity>
             )}
-          </View>
+          </Animated.View>
         )}
         {(item.status === 'in_progress' || item.status === 'paused') && !isPractice && (
             <View style={styles.gamesEditSection}>
@@ -2171,14 +2257,16 @@ function FeedCard({
                 </View>
                 {localGames.map((game, idx) => (
                   <View key={idx} style={styles.gameRow}>
-                    <View style={styles.gameLabelWrap}>
-                      <Text style={styles.gameLabelText}>G{idx + 1}</Text>
-                    </View>
+                    {!isSingleGameSport && (
+                      <View style={styles.gameLabelWrap}>
+                        <Text style={styles.gameLabelText}>G{idx + 1}</Text>
+                      </View>
+                    )}
                     <TextInput
                       style={[styles.scoreInput, !canEditChallenger && styles.scoreInputDisabled]}
                       value={game.score_challenger}
                       onChangeText={(t) => handleScoreChange(idx, 'score_challenger', t)}
-                      placeholder="0"
+                      placeholder={isSingleGameSport ? 'Strokes' : '0'}
                       placeholderTextColor={colors.textSecondary}
                       keyboardType="numeric"
                       editable={canEditChallenger}
@@ -2188,13 +2276,18 @@ function FeedCard({
                       style={[styles.scoreInput, !canEditOpponent && styles.scoreInputDisabled]}
                       value={game.score_opponent}
                       onChangeText={(t) => handleScoreChange(idx, 'score_opponent', t)}
-                      placeholder="0"
+                      placeholder={isSingleGameSport ? 'Strokes' : '0'}
                       placeholderTextColor={colors.textSecondary}
                       keyboardType="numeric"
                       editable={canEditOpponent}
                     />
                   </View>
                 ))}
+                {isLowerWinsSport && (
+                  <Text style={{ ...typography.caption, fontSize: 10, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.xs }}>
+                    Lower score wins
+                  </Text>
+                )}
                 {saveValidationError != null && (
                   <View style={[styles.validationErrorBanner, { backgroundColor: colors.error + '18', borderColor: colors.error }]}>
                     <Text style={[styles.validationErrorTitle, { color: colors.error }]}>Scoring may be incorrect</Text>
@@ -2210,10 +2303,12 @@ function FeedCard({
                   </View>
                 )}
                 <View style={styles.gameActionsRow}>
-                  <TouchableOpacity style={styles.addGameBtn} onPress={handleAddGame} activeOpacity={0.8}>
-                    <Ionicons name="add" size={12} color={colors.primary} />
-                    <Text style={styles.addGameBtnText}>Add game</Text>
-                  </TouchableOpacity>
+                  {!isSingleGameSport && (
+                    <TouchableOpacity style={styles.addGameBtn} onPress={handleAddGame} activeOpacity={0.8}>
+                      <Ionicons name="add" size={12} color={colors.primary} />
+                      <Text style={styles.addGameBtnText}>Add game</Text>
+                    </TouchableOpacity>
+                  )}
                   {saving && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
                       <ActivityIndicator size="small" color={colors.textSecondary} />
@@ -2461,6 +2556,15 @@ function FeedCard({
           </View>
         </View>
       </Modal>
+      {/* Shimmer sweep overlay — triggered on start/resume/finish */}
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: 'absolute', top: 0, bottom: 0, width: CARD_W * 0.6,
+          transform: [{ translateX: shimmerTranslate }],
+          backgroundColor: 'rgba(255,255,255,0.35)',
+        }}
+      />
     </GradientCard>
 
     <Modal visible={winnerPickerVisible} transparent animationType="fade">
@@ -2735,6 +2839,27 @@ function createHomeStyles(colors: ThemeColors) {
       marginBottom: spacing.xs,
       borderBottomWidth: 3,
       borderBottomColor: colors.background,
+    },
+    playersRowLive: {
+      borderWidth: 1,
+      borderColor: '#22C55E70',
+      borderRadius: borderRadius.lg,
+      marginHorizontal: -spacing.xs,
+      paddingHorizontal: spacing.xs,
+    },
+    playersRowPaused: {
+      borderWidth: 1,
+      borderColor: '#EF444470',
+      borderRadius: borderRadius.lg,
+      marginHorizontal: -spacing.xs,
+      paddingHorizontal: spacing.xs,
+    },
+    playersRowCompleted: {
+      borderWidth: 1,
+      borderColor: colors.primary + '70',
+      borderRadius: borderRadius.lg,
+      marginHorizontal: -spacing.xs,
+      paddingHorizontal: spacing.xs,
     },
     stravaHeader: {
       flexDirection: 'row',
@@ -3349,6 +3474,8 @@ export default function HomeScreen() {
   const route = useRoute<RouteProp<TabParamList, 'Home'>>();
   const styles = useMemo(() => createHomeStyles(colors), [colors]);
   const [feedMode, setFeedMode] = useState<FeedMode>('my');
+  const [recentlyFinished, setRecentlyFinished] = useState<Set<string>>(new Set());
+  const finishTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [pendingScrollMatchId, setPendingScrollMatchId] = useState<string | null>(null);
   const [notifsVisible, setNotifsVisible] = useState(false);
   const navigation = useNavigation<any>();
@@ -3522,6 +3649,27 @@ export default function HomeScreen() {
 
   const removeFeedItem = useCallback((matchId: string) => {
     setFeedItems(prev => prev.filter(m => m.id !== matchId));
+  }, []);
+
+  const handleMatchFinished = useCallback((matchId: string) => {
+    setRecentlyFinished(prev => new Set([...prev, matchId]));
+    // Clear any existing timer for this match
+    const existing = finishTimersRef.current.get(matchId);
+    if (existing) clearTimeout(existing);
+    // After 60s, animate the card sliding down to its completed position
+    const timer = setTimeout(() => {
+      LayoutAnimation.configureNext({
+        duration: 500,
+        update: { type: LayoutAnimation.Types.easeInEaseOut },
+      });
+      setRecentlyFinished(prev => {
+        const next = new Set(prev);
+        next.delete(matchId);
+        return next;
+      });
+      finishTimersRef.current.delete(matchId);
+    }, 60000);
+    finishTimersRef.current.set(matchId, timer);
   }, []);
 
   const loadFeed = useCallback(async (showLoading = true) => {
@@ -3749,6 +3897,7 @@ export default function HomeScreen() {
       if (feedDebounceTimerRef.current) clearTimeout(feedDebounceTimerRef.current);
       if (notifDebounceTimerRef.current) clearTimeout(notifDebounceTimerRef.current);
       if (dmDebounceTimerRef.current) clearTimeout(dmDebounceTimerRef.current);
+      finishTimersRef.current.forEach(clearTimeout);
       realtimeChannelRef.current = null;
       supabase.removeChannel(channel);
     };
@@ -3826,14 +3975,15 @@ export default function HomeScreen() {
         return (m.participants ?? []).some((p) => p.user_id === currentUserId);
       })
       .sort((a, b) => {
-        // In-progress and paused matches always at the top
-        const aLive = (a.status === 'in_progress' || a.status === 'paused') ? 0 : 1;
-        const bLive = (b.status === 'in_progress' || b.status === 'paused') ? 0 : 1;
-        if (aLive !== bLive) return aLive - bLive;
-        // Otherwise: most recently created first
+        // Tier 0: all active (in_progress, paused, pending, confirmed) + recently finished
+        // Tier 1: completed
+        const tier = (m: FeedMatch) =>
+          m.status === 'completed' && !recentlyFinished.has(m.id) ? 1 : 0;
+        const tA = tier(a), tB = tier(b);
+        if (tA !== tB) return tA - tB;
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       }),
-    [feedItems, currentUserId],
+    [feedItems, currentUserId, recentlyFinished],
   );
   const publicFeed = useMemo(
     () => feedItems
@@ -3846,17 +3996,17 @@ export default function HomeScreen() {
     if (preferredSports.length === 0) return feed;
     const prefSet = new Set(preferredSports);
     return [...feed].sort((a, b) => {
-      // Always keep in-progress and paused at the top for my feed
       if (feedMode === 'my') {
-        const aLive = (a.status === 'in_progress' || a.status === 'paused') ? 0 : 1;
-        const bLive = (b.status === 'in_progress' || b.status === 'paused') ? 0 : 1;
-        if (aLive !== bLive) return aLive - bLive;
+        const tier = (m: FeedMatch) =>
+          m.status === 'completed' && !recentlyFinished.has(m.id) ? 1 : 0;
+        const tA = tier(a), tB = tier(b);
+        if (tA !== tB) return tA - tB;
       }
       const aP = prefSet.has(a.sport_name) ? 0 : 1;
       const bP = prefSet.has(b.sport_name) ? 0 : 1;
       return aP - bP;
     });
-  }, [feedMode, myFeed, publicFeed, preferredSports]);
+  }, [feedMode, myFeed, publicFeed, preferredSports, recentlyFinished]);
 
   // Animate tab indicator + feed content when feed mode changes
   useEffect(() => {
@@ -4381,6 +4531,11 @@ export default function HomeScreen() {
                 realtimeChannelRef.current?.send({ type: 'broadcast', event: 'match_updated', payload: {} });
               }}
               mediaRowTouchingRef={mediaRowTouching}
+              onMatchFinished={handleMatchFinished}
+              hasOtherLiveMatch={feedItems.some(
+                m => m.id !== item.id && m.status === 'in_progress' &&
+                  ((m.participants ?? []).some(p => p.user_id === currentUserId) || m.created_by === currentUserId)
+              )}
             />
           )}
         />
@@ -4392,33 +4547,19 @@ export default function HomeScreen() {
       <EditMatchModal
         visible={!!editMatch}
         onClose={() => setEditMatch(null)}
-        onSaved={(update) => {
+        onSaved={() => {
           const matchId = editMatch?.id;
           setEditMatch(null);
           if (!matchId) return;
-          if (update?.winnerRole !== undefined || update?.games !== undefined) {
-            // Direct synchronous update — no DB round-trip needed
-            const wr = update?.winnerRole;
-            updateFeedItem(matchId, (m) => ({
-              ...m,
-              ...(wr !== undefined ? {
-                participants: m.participants.map((p) => ({
-                  ...p,
-                  result: wr === 'draw' ? 'draw' : p.role === wr ? 'win' : 'loss',
-                })),
-              } : {}),
-              ...(update?.games !== undefined ? { games: update.games } : {}),
-            }));
-          } else {
-            // Location/notes/format changes — re-fetch fresh data
-            supabase.from('match_feed').select('*').eq('id', matchId).maybeSingle().then(({ data }) => {
-              if (!data) return;
-              const pts: Participant[] = Array.isArray(data.participants)
-                ? data.participants
-                : (typeof data.participants === 'string' ? (() => { try { return JSON.parse(data.participants); } catch { return []; } })() : []);
-              updateFeedItem(matchId, () => ({ ...data, participants: pts } as FeedMatch));
-            });
-          }
+          // Always re-fetch the full match from match_feed so every edited field
+          // (location, time, duration, winner, score, visibility, format) reflects immediately.
+          supabase.from('match_feed').select('*').eq('id', matchId).maybeSingle().then(({ data }) => {
+            if (!data) return;
+            const pts: Participant[] = Array.isArray(data.participants)
+              ? data.participants
+              : (typeof data.participants === 'string' ? (() => { try { return JSON.parse(data.participants); } catch { return []; } })() : []);
+            updateFeedItem(matchId, () => ({ ...data, participants: pts } as FeedMatch));
+          });
         }}
         colors={colors}
         currentUserId={currentUserId}
@@ -4435,6 +4576,8 @@ export default function HomeScreen() {
           match_format: editMatch.match_format ?? '1v1',
           scheduled_at: editMatch.scheduled_at ?? null,
           created_by: editMatch.created_by,
+          started_at: editMatch.started_at ?? null,
+          ended_at: editMatch.ended_at ?? null,
           participants: editMatch.participants?.map(p => ({ user_id: p.user_id, role: p.role, username: p.username, full_name: p.full_name })),
         } : null}
       />

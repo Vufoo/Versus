@@ -40,8 +40,11 @@ export function sportLabel(name: string): string {
   return `${SPORT_EMOJI[name] ?? '\u{1F3C6}'} ${name}`;
 }
 
-/** Sport scoring rules: game format [target, winBy] or 'set' for tennis-style sets */
-export const SPORT_SCORING: Record<string, { target: number; winBy: number; lowerWins?: boolean } | 'set'> = {
+/** Sport scoring rules: game format [target, winBy] or 'set' for tennis-style sets.
+ *  singleGame: true  → only one score entry (no "Add game"), e.g. Golf (total strokes)
+ *  lowerWins: true   → lower score is the winner, e.g. Golf
+ */
+export const SPORT_SCORING: Record<string, { target: number; winBy: number; lowerWins?: boolean; singleGame?: boolean } | 'set'> = {
   Tennis: 'set',
   Pickleball: { target: 11, winBy: 2 },
   Badminton: { target: 21, winBy: 2 },
@@ -49,7 +52,7 @@ export const SPORT_SCORING: Record<string, { target: number; winBy: number; lowe
   Racquetball: { target: 15, winBy: 1 },
   Squash: { target: 11, winBy: 2 },
   Basketball: { target: 0, winBy: 0 },
-  Golf: { target: 0, winBy: 0, lowerWins: true },
+  Golf: { target: 0, winBy: 0, lowerWins: true, singleGame: true },
   Volleyball: { target: 25, winBy: 2 },
 };
 
