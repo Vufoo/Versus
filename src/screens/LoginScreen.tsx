@@ -12,30 +12,26 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, typography, borderRadius, lightColors } from '../constants/theme';
+import { spacing, typography, borderRadius, lightColors, darkColors } from '../constants/theme';
 import type { ThemeColors } from '../constants/theme';
 import { supabase, setRememberMe, getRememberMePreference } from '../lib/supabase';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 
-type Props = { onContinue: () => void; onGoToSignup: () => void };
-
-const colors = lightColors;
+type Props = { onContinue: () => void; onGoToSignup: () => void; onBack?: () => void };
 
 function s(c: ThemeColors) {
   return StyleSheet.create({
     outer: { flex: 1, backgroundColor: c.background },
     scroll: { flexGrow: 1, justifyContent: 'center', paddingVertical: spacing.xxl },
-    wrapper: { alignItems: 'center', paddingHorizontal: spacing.xl },
+    wrapper: { alignItems: 'center', paddingHorizontal: spacing.xl, width: '100%', maxWidth: 560, alignSelf: 'center' as const },
 
-    logo: { width: 280, height: 280, marginTop: -60, marginBottom: -80, resizeMode: 'contain' as const },
-    appName: { ...typography.title, fontSize: 36, color: c.primary, marginBottom: spacing.xs },
+    logo: { width: 160, height: 160, marginBottom: spacing.sm, resizeMode: 'contain' as const },
     tagline: {
       ...typography.body,
       color: c.textSecondary,
       textAlign: 'center',
-      // marginTop: spacing.sm,
-      marginBottom: spacing.xl, /* ← motto: change this number to adjust space below motto (e.g. spacing.sm, spacing.md, spacing.lg, spacing.xl) */
+      marginBottom: spacing.xl,
       maxWidth: 280,
     },
 
@@ -60,7 +56,6 @@ function s(c: ThemeColors) {
       fontSize: 15,
       marginBottom: spacing.sm,
     },
-    inputError: { borderColor: c.error },
 
     continueBtn: {
       backgroundColor: c.primary,
@@ -96,17 +91,11 @@ function s(c: ThemeColors) {
       borderRadius: borderRadius.md,
       borderWidth: 1,
       borderColor: c.border,
-      backgroundColor: c.background,
+      backgroundColor: c.cardBg,
       marginBottom: spacing.sm,
     },
     socialBtnText: { ...typography.body, fontWeight: '500', color: c.text },
-    appleBtnText: { color: '#000' },
 
-    inlineError: {
-      ...typography.caption,
-      color: c.error,
-      marginBottom: spacing.sm,
-    },
     rememberRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -146,12 +135,30 @@ function s(c: ThemeColors) {
       maxWidth: 300,
       lineHeight: 18,
     },
+
+    // Web top nav
+    webNav: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: c.border,
+    },
+    webNavBack: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    webNavBackText: { fontSize: 15, color: c.primary, fontWeight: '700' },
   });
 }
 
-const styles = s(colors);
+const lightStyles = s(lightColors);
+const darkStyles = s(darkColors);
 
-export default function LoginScreen({ onContinue, onGoToSignup }: Props) {
+export default function LoginScreen({ onContinue, onGoToSignup, onBack }: Props) {
+  const isWeb = Platform.OS === 'web';
+  const cs = isWeb ? darkStyles : lightStyles;
+  const cc = isWeb ? darkColors : lightColors;
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -226,7 +233,6 @@ export default function LoginScreen({ onContinue, onGoToSignup }: Props) {
     }
     setLoading(true);
     setError(null);
-
     try {
       await setRememberMe(rememberMe);
       const { error: loginErr } = await supabase.auth.signInWithPassword({
@@ -247,90 +253,100 @@ export default function LoginScreen({ onContinue, onGoToSignup }: Props) {
 
   return (
     <KeyboardAvoidingView
-      style={styles.outer}
+      style={cs.outer}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <View style={styles.wrapper}>
-          <Image source={require('../../assets/icon_blue.png')} style={styles.logo} resizeMode="contain" />
-          {/* <Text style={styles.appName}>Versus</Text> */}
-          <Text style={styles.tagline}>Play vs opponents. Record matches. Earn points. Prove it in the game.</Text>
+      {/* Top-left back nav — web only */}
+      {isWeb && onBack && (
+        <View style={cs.webNav}>
+          <TouchableOpacity onPress={onBack} activeOpacity={0.7} style={cs.webNavBack}>
+            <Ionicons name="chevron-back" size={20} color={cc.primary} />
+            <Text style={cs.webNavBackText}>Back</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
-          <View style={styles.card}>
+      <ScrollView contentContainerStyle={cs.scroll} keyboardShouldPersistTaps="handled">
+        <View style={cs.wrapper}>
+          <Image
+            source={require('../../assets/icon_dark_mode.png')}
+            style={cs.logo}
+            resizeMode="contain"
+          />
+          <Text style={cs.tagline}>Play vs opponents. Record matches. Earn points. Prove it in the game.</Text>
+
+          <View style={[cs.card, isWeb && { maxWidth: 460, padding: spacing.xl }]}>
             <TextInput
-              style={styles.input}
+              style={[cs.input, isWeb && { paddingVertical: 16, fontSize: 17 }]}
               placeholder="Email"
-              placeholderTextColor={colors.textSecondary}
+              placeholderTextColor={cc.textSecondary}
               keyboardType="email-address"
               autoCapitalize="none"
               autoComplete="email"
               value={email}
-              onChangeText={(val) => {
-                setEmail(val);
-                setError(null);
-              }}
+              onChangeText={(val) => { setEmail(val); setError(null); }}
             />
 
             <TextInput
-              style={styles.input}
+              style={[cs.input, isWeb && { paddingVertical: 16, fontSize: 17 }]}
               placeholder="Password"
-              placeholderTextColor={colors.textSecondary}
+              placeholderTextColor={cc.textSecondary}
               secureTextEntry
               value={password}
               onChangeText={setPassword}
             />
 
             <TouchableOpacity
-              style={styles.rememberRow}
+              style={cs.rememberRow}
               onPress={() => setRememberMeState((v) => !v)}
               activeOpacity={0.8}
             >
-              <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+              <View style={[cs.checkbox, rememberMe && cs.checkboxChecked]}>
                 {rememberMe && <Ionicons name="checkmark" size={14} color="#FFF" />}
               </View>
-              <Text style={styles.rememberText}>Remember me</Text>
+              <Text style={[cs.rememberText, isWeb && { fontSize: 16 }]}>Remember me</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.continueBtn, loading && styles.continueBtnDisabled]}
+              style={[cs.continueBtn, loading && cs.continueBtnDisabled, isWeb && { paddingVertical: 16 }]}
               activeOpacity={0.9}
               onPress={handleLogin}
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color={colors.textOnPrimary} />
+                <ActivityIndicator color={cc.textOnPrimary} />
               ) : (
-                <Text style={styles.continueBtnText}>Log in</Text>
+                <Text style={[cs.continueBtnText, isWeb && { fontSize: 17 }]}>Log in</Text>
               )}
             </TouchableOpacity>
 
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            {error ? <Text style={cs.errorText}>{error}</Text> : null}
 
-            <View style={styles.dividerRow}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.dividerLine} />
+            <View style={cs.dividerRow}>
+              <View style={cs.dividerLine} />
+              <Text style={cs.dividerText}>or</Text>
+              <View style={cs.dividerLine} />
             </View>
 
-            <Text style={[styles.infoText, { marginBottom: spacing.sm }]}>Create an account with</Text>
+            <Text style={[cs.infoText, { marginBottom: spacing.sm }]}>Create an account with</Text>
 
-            <TouchableOpacity style={styles.socialBtn} activeOpacity={0.8} onPress={onGoToSignup}>
-              <Ionicons name="mail-outline" size={20} color={colors.text} />
-              <Text style={styles.socialBtnText}>Email</Text>
+            <TouchableOpacity style={[cs.socialBtn, isWeb && { paddingVertical: 16 }]} activeOpacity={0.8} onPress={onGoToSignup}>
+              <Ionicons name="mail-outline" size={20} color={cc.text} />
+              <Text style={[cs.socialBtnText, isWeb && { fontSize: 17 }]}>Email</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.socialBtn} activeOpacity={0.8} onPress={handleGoogleSignIn} disabled={loading}>
+            <TouchableOpacity style={[cs.socialBtn, isWeb && { paddingVertical: 16 }]} activeOpacity={0.8} onPress={handleGoogleSignIn} disabled={loading}>
               <Ionicons name="logo-google" size={20} color="#4285F4" />
-              <Text style={styles.socialBtnText}>Google</Text>
+              <Text style={[cs.socialBtnText, isWeb && { fontSize: 17 }]}>Google</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.socialBtn, { backgroundColor: '#000' }]} activeOpacity={0.8} onPress={handleAppleSignIn} disabled={loading}>
+            <TouchableOpacity style={[cs.socialBtn, { backgroundColor: '#1a1a1a' }, isWeb && { paddingVertical: 16 }]} activeOpacity={0.8} onPress={handleAppleSignIn} disabled={loading}>
               <Ionicons name="logo-apple" size={20} color="#FFF" />
-              <Text style={[styles.socialBtnText, { color: '#FFF' }]}>Apple</Text>
+              <Text style={[cs.socialBtnText, { color: '#FFF' }, isWeb && { fontSize: 17 }]}>Apple</Text>
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.footerText}>
+          <Text style={cs.footerText}>
             By continuing, you agree to the Versus Terms of Service and Privacy Policy.
           </Text>
         </View>

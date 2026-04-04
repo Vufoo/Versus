@@ -207,9 +207,9 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
 
   const supports2v2 = match ? SPORTS_2V2.includes(match.sport_name) : false;
   const only2v2 = match ? SPORTS_2V2_ONLY.includes(match.sport_name) : false;
-  const canEditFormat = match && match.status !== 'in_progress' && match.status !== 'completed';
   const sportRules = match ? SPORT_SCORING[match.sport_name] : undefined;
-  const isSingleGameSport = sportRules !== 'set' && !!(sportRules as { singleGame?: boolean })?.singleGame;
+  const isGolfSport = sportRules !== 'set' && !!(sportRules as { holeLimit?: number })?.holeLimit;
+  const holeLimit = isGolfSport ? (sportRules as { holeLimit: number }).holeLimit : 18;
   const isLowerWinsSport = sportRules !== 'set' && !!(sportRules as { lowerWins?: boolean })?.lowerWins;
 
   useEffect(() => {
@@ -252,7 +252,8 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
             else setWinnerRole('draw');
           }
           if (gData && (gData as any[]).length > 0) {
-            setEditGames((gData as any[]).map(g => ({
+            const rows = (gData as any[]).slice(0, isGolfSport ? holeLimit : 11);
+            setEditGames(rows.map((g: any) => ({
               score_challenger: (g.score_challenger ?? 0) > 0 || (g.score_opponent ?? 0) > 0 ? String(g.score_challenger ?? 0) : '',
               score_opponent: (g.score_challenger ?? 0) > 0 || (g.score_opponent ?? 0) > 0 ? String(g.score_opponent ?? 0) : '',
             })));
@@ -315,7 +316,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
         is_public: isPublic,
         scheduled_at: newScheduledAt,
       };
-      if (canEditFormat) updates.match_format = matchFormat;
+
       if (match.status === 'completed' && match.started_at) {
         const h = Math.max(0, parseInt(durationHours, 10) || 0);
         const m = Math.max(0, Math.min(59, parseInt(durationMinutes, 10) || 0));
@@ -598,10 +599,10 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                             );
                           })}
                         </View>
-                        <Text style={styles.label}>Score</Text>
+                        <Text style={styles.label}>{isGolfSport ? 'Holes' : 'Score'}</Text>
                         {/* Per-game score header */}
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm }}>
-                          {editGames.length > 1 && <View style={{ width: 22 + spacing.xs }} />}
+                          <View style={{ width: 22 + spacing.xs }} />
                           <View style={{ width: 90, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
                             {renderAvatar(challAvatar, challInitials, 18)}
                             <Text style={[styles.label, { marginBottom: 0, flexShrink: 1 }]} numberOfLines={1}>{challName}</Text>
@@ -611,16 +612,16 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                             {renderAvatar(oppAvatar, oppInitials, 18)}
                             <Text style={[styles.label, { marginBottom: 0, flexShrink: 1 }]} numberOfLines={1}>{oppName}</Text>
                           </View>
-                          {editGames.length > 1 && <View style={{ width: 20 + spacing.xs }} />}
+                          <View style={{ width: 22 + spacing.xs }} />
                         </View>
                         {editGames.map((game, idx) => (
                           <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: spacing.xs }}>
-                            {editGames.length > 1 && (
-                              <Text style={[styles.label, { width: 22 + spacing.xs, color: colors.textSecondary, marginBottom: 0 }]}>G{idx + 1}</Text>
-                            )}
+                            <Text style={[styles.label, { width: 22 + spacing.xs, color: colors.textSecondary, marginBottom: 0 }]}>
+                              {isGolfSport ? `H${idx + 1}` : `G${idx + 1}`}
+                            </Text>
                             <TextInput
                               style={[styles.input, { width: 90, marginBottom: 0, textAlign: 'center' }]}
-                              placeholder={isSingleGameSport ? 'Strokes' : '0'}
+                              placeholder={isGolfSport ? 'Strokes' : '0'}
                               placeholderTextColor={colors.textSecondary}
                               value={game.score_challenger}
                               onChangeText={v => setEditGames(gs => gs.map((g, i) => i === idx ? { ...g, score_challenger: v.replace(/[^0-9]/g, '') } : g))}
@@ -631,19 +632,17 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                             </View>
                             <TextInput
                               style={[styles.input, { width: 90, marginBottom: 0, textAlign: 'center' }]}
-                              placeholder={isSingleGameSport ? 'Strokes' : '0'}
+                              placeholder={isGolfSport ? 'Strokes' : '0'}
                               placeholderTextColor={colors.textSecondary}
                               value={game.score_opponent}
                               onChangeText={v => setEditGames(gs => gs.map((g, i) => i === idx ? { ...g, score_opponent: v.replace(/[^0-9]/g, '') } : g))}
                               keyboardType="numeric"
                             />
-                            {editGames.length > 1 && (
-                              <View style={{ width: 22 + spacing.xs, alignItems: 'center' }}>
-                                <TouchableOpacity onPress={() => setEditGames(gs => gs.filter((_, i) => i !== idx))} hitSlop={8}>
-                                  <Ionicons name="close-circle" size={20} color={colors.textSecondary} />
-                                </TouchableOpacity>
-                              </View>
-                            )}
+                            <View style={{ width: 22 + spacing.xs, alignItems: 'center' }}>
+                              <TouchableOpacity onPress={() => setEditGames(gs => gs.filter((_, i) => i !== idx))} hitSlop={8}>
+                                <Ionicons name="close-circle" size={20} color={colors.textSecondary} />
+                              </TouchableOpacity>
+                            </View>
                           </View>
                         ))}
                         {isLowerWinsSport && (
@@ -651,14 +650,14 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                             Lower score wins
                           </Text>
                         )}
-                        {!isSingleGameSport && (
+                        {editGames.length < (isGolfSport ? holeLimit : 11) && (
                           <TouchableOpacity
                             style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 9, paddingVertical: 4, borderWidth: 1, borderColor: colors.primary, borderRadius: borderRadius.sm, alignSelf: 'center', marginTop: spacing.sm, marginBottom: spacing.md }}
                             onPress={() => setEditGames(gs => [...gs, { score_challenger: '', score_opponent: '' }])}
                             activeOpacity={0.7}
                           >
                             <Ionicons name="add" size={12} color={colors.primary} />
-                            <Text style={[styles.label, { color: colors.primary, marginBottom: 0, fontSize: 11 }]}>Add game</Text>
+                            <Text style={[styles.label, { color: colors.primary, marginBottom: 0, fontSize: 11 }]}>{isGolfSport ? 'Add hole' : 'Add game'}</Text>
                           </TouchableOpacity>
                         )}
                             </>
@@ -680,18 +679,6 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                     </TouchableOpacity>
                   </View>
 
-                  {canEditFormat && supports2v2 && !only2v2 && (
-                    <>
-                      <Text style={styles.label}>{t.newMatch.format}</Text>
-                      <View style={styles.matchTypeRow}>
-                        {(['1v1', '2v2'] as const).map((f) => (
-                          <TouchableOpacity key={f} style={[styles.matchTypeChip, matchFormat === f && styles.matchTypeChipSel]} onPress={() => setMatchFormat(f)} activeOpacity={0.8}>
-                            <Text style={[styles.matchTypeLbl, matchFormat === f && styles.matchTypeLblSel]}>{f}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
 
                   {scheduledAt && match.status !== 'in_progress' && match.status !== 'completed' && (
                     <>

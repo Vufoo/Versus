@@ -40,6 +40,7 @@ import { supabase } from '../lib/supabase';
 import { sendMatchInvitePush } from '../lib/pushNotifications';
 import { resolveAvatarUrl, resolveMatchImageUrl } from '../lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import UserSearch from '../components/UserSearch';
 import type { SearchedUser } from '../components/UserSearch';
 import EditMatchModal from '../components/EditMatchModal';
@@ -224,6 +225,7 @@ function formatMatchScore(
   const rules = SPORT_SCORING[sportName];
   const isSetBased = rules === 'set';
   const lowerWins = rules !== 'set' && !!(rules as { lowerWins?: boolean }).lowerWins;
+  const isGolfSport = rules !== 'set' && !!(rules as { holeLimit?: number }).holeLimit;
 
   // Tennis: sets won as main, set scores as sub
   if (isSetBased) {
@@ -231,6 +233,14 @@ function formatMatchScore(
     const setsP2 = filtered.filter((g) => g.score_opponent > g.score_challenger).length;
     const setScores = filtered.map((g) => `${g.score_challenger}-${g.score_opponent}`).join(', ');
     return { main: `${setsP1} - ${setsP2}`, sub: setScores };
+  }
+
+  // Golf: sum total strokes across holes
+  if (isGolfSport) {
+    const totalC = filtered.reduce((sum, g) => sum + g.score_challenger, 0);
+    const totalO = filtered.reduce((sum, g) => sum + g.score_opponent, 0);
+    const n = filtered.length;
+    return { main: `${totalC} – ${totalO}`, sub: `${n} hole${n !== 1 ? 's' : ''}` };
   }
 
   // Multi-game: games won as main, individual scores as sub
@@ -241,11 +251,6 @@ function formatMatchScore(
     return { main: `${gamesP1} - ${gamesP2}`, sub: gameScores };
   }
 
-  // Single game: show actual score; for lower-wins sports label the unit
-  const singleGameSport = rules !== 'set' && !!(rules as { singleGame?: boolean })?.singleGame;
-  if (singleGameSport && lowerWins) {
-    return { main: `${filtered[0].score_challenger} – ${filtered[0].score_opponent}`, sub: 'strokes' };
-  }
   return { main: `${filtered[0].score_challenger} - ${filtered[0].score_opponent}`, sub: null };
 }
 
@@ -749,6 +754,28 @@ function FeedCard({
       );
       return;
     }
+
+    // Ranked matches require all participants to have location enabled
+    if (isRanked) {
+      const participantIds = participants.map((p) => p.user_id);
+      const { data: locProfiles } = await supabase
+        .from('profiles')
+        .select('user_id, location_enabled')
+        .in('user_id', participantIds);
+      const missing = (locProfiles ?? []).filter((p: any) => !p.location_enabled);
+      if (missing.length > 0) {
+        const isMe = missing.some((p: any) => p.user_id === currentUserId);
+        Alert.alert(
+          'Location Required',
+          isMe
+            ? 'You need to enable location access for the Versus app to start a ranked match. Go to your device Settings → Versus → Location and allow access.'
+            : 'All players must enable location access before a ranked match can start. Ask your opponent to open the app so their location permission can be verified.',
+          [{ text: 'OK' }],
+        );
+        return;
+      }
+    }
+
     setStartStopLoading(true);
     try {
       const startedAt = new Date().toISOString();
@@ -814,7 +841,7 @@ function FeedCard({
 
       if (rpcError) throw rpcError;
 
-      const result = rpcResult as { ok: boolean; error?: string };
+      const result = rpcResult as { ok: boolean; error?: string; vp_delta?: number };
       if (!result.ok) {
         Alert.alert('Cannot finish match', result.error ?? 'This match was already finished by another player.');
         onRefresh();
@@ -823,12 +850,12 @@ function FeedCard({
 
       triggerShimmer();
       onMatchFinished?.(item.id);
-      // Optimistic local update
+      // Optimistic local update — use server-returned vp_delta for accuracy
       const participants = (item.participants ?? []) as Participant[];
       const is2v2 = (item.match_format || '1v1') === '2v2';
       const winnerParticipant = winnerUserId ? participants.find((p) => p.user_id === winnerUserId) : null;
       const winningRole = winnerParticipant?.role;
-      const isRankedMatch = item.match_type === 'ranked';
+      const serverVpDelta = result.vp_delta ?? 1;
       const getResult = (p: Participant): string => {
         if (winnerUserId === null) return 'draw';
         if (is2v2 && winningRole) return p.role === winningRole ? 'win' : 'loss';
@@ -844,7 +871,7 @@ function FeedCard({
           return {
             ...p,
             result: res,
-            vp_delta: res === 'win' ? (isRankedMatch ? 1 : 0) : res === 'loss' ? (isRankedMatch ? -1 : 0) : 0,
+            vp_delta: res === 'win' ? serverVpDelta : res === 'loss' ? -serverVpDelta : 0,
           };
         }),
       }));
@@ -939,16 +966,17 @@ function FeedCard({
           p_finished_by: currentUserId,
         });
         if (rpcError) throw rpcError;
-        const result = rpcResult as { ok: boolean; error?: string };
+        const result = rpcResult as { ok: boolean; error?: string; vp_delta?: number };
         if (!result.ok) {
           Alert.alert('Cannot finish match', result.error ?? 'This match was already finished.');
           onRefresh();
           return;
         }
-        // Local optimistic update
+        // Local optimistic update — use server-returned vp_delta for accuracy
         const allParticipants = (item.participants ?? []) as Participant[];
         const winnerParticipant = winner ? allParticipants.find((p) => p.user_id === winner) : null;
         const winningRole = winnerParticipant?.role;
+        const serverVpDelta = result.vp_delta ?? 1;
         const getRes = (p: Participant): string => {
           if (winner === null) return 'draw';
           if (is2v2 && winningRole) return p.role === winningRole ? 'win' : 'loss';
@@ -960,7 +988,7 @@ function FeedCard({
           ended_at: new Date().toISOString(),
           participants: m.participants.map((p) => {
             const res = getRes(p);
-            return { ...p, result: res, vp_delta: res === 'win' ? 1 : res === 'loss' ? -1 : 0 };
+            return { ...p, result: res, vp_delta: res === 'win' ? serverVpDelta : res === 'loss' ? -serverVpDelta : 0 };
           }),
         }));
         onMatchFinished?.(item.id);
@@ -1074,6 +1102,8 @@ function FeedCard({
   };
 
   const handleAddGame = () => {
+    const gameLimit = isGolfSport ? holeLimit : 11;
+    if (localGames.length >= gameLimit) return;
     editingScoreRef.current = true;
     setLocalGames((prev) => [...prev, { score_challenger: '', score_opponent: '' }]);
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
@@ -1364,7 +1394,7 @@ function FeedCard({
           await supabase.rpc('reverse_sport_rating', {
             p_user_id: p.user_id,
             p_sport_id: sportRow.id,
-            p_vp_loss: Math.max(0, p.vp_delta ?? 0),
+            p_vp_magnitude: Math.abs(p.vp_delta ?? 0),
             p_was_win: p.result === 'win',
             p_was_loss: p.result === 'loss',
           });
@@ -1546,7 +1576,8 @@ function FeedCard({
   );
   const hasScore = gamesForDisplay.length > 0;
   const sportRules = SPORT_SCORING[item.sport_name];
-  const isSingleGameSport = sportRules !== 'set' && !!(sportRules as { singleGame?: boolean })?.singleGame;
+  const isGolfSport = sportRules !== 'set' && !!(sportRules as { holeLimit?: number })?.holeLimit;
+  const holeLimit = isGolfSport ? (sportRules as { holeLimit: number }).holeLimit : 18;
   const isLowerWinsSport = sportRules !== 'set' && !!(sportRules as { lowerWins?: boolean })?.lowerWins;
   const imagesList = (item.images ?? []) as MatchImage[];
   const mediaRowWidth = Dimensions.get('window').width - 2 * spacing.md;
@@ -1750,7 +1781,7 @@ function FeedCard({
                   })()}
                   {hasScore && (
                     <Text
-                      style={[styles.scoreText, isSingleGameSport && { fontSize: 13 }]}
+                      style={styles.scoreText}
                       numberOfLines={1}
                       adjustsFontSizeToFit
                       minimumFontScale={0.7}
@@ -2257,16 +2288,14 @@ function FeedCard({
                 </View>
                 {localGames.map((game, idx) => (
                   <View key={idx} style={styles.gameRow}>
-                    {!isSingleGameSport && (
-                      <View style={styles.gameLabelWrap}>
-                        <Text style={styles.gameLabelText}>G{idx + 1}</Text>
-                      </View>
-                    )}
+                    <View style={styles.gameLabelWrap}>
+                      <Text style={styles.gameLabelText}>{isGolfSport ? `H${idx + 1}` : `G${idx + 1}`}</Text>
+                    </View>
                     <TextInput
                       style={[styles.scoreInput, !canEditChallenger && styles.scoreInputDisabled]}
                       value={game.score_challenger}
                       onChangeText={(t) => handleScoreChange(idx, 'score_challenger', t)}
-                      placeholder={isSingleGameSport ? 'Strokes' : '0'}
+                      placeholder={isGolfSport ? 'Strokes' : '0'}
                       placeholderTextColor={colors.textSecondary}
                       keyboardType="numeric"
                       editable={canEditChallenger}
@@ -2276,7 +2305,7 @@ function FeedCard({
                       style={[styles.scoreInput, !canEditOpponent && styles.scoreInputDisabled]}
                       value={game.score_opponent}
                       onChangeText={(t) => handleScoreChange(idx, 'score_opponent', t)}
-                      placeholder={isSingleGameSport ? 'Strokes' : '0'}
+                      placeholder={isGolfSport ? 'Strokes' : '0'}
                       placeholderTextColor={colors.textSecondary}
                       keyboardType="numeric"
                       editable={canEditOpponent}
@@ -2303,10 +2332,10 @@ function FeedCard({
                   </View>
                 )}
                 <View style={styles.gameActionsRow}>
-                  {!isSingleGameSport && (
+                  {localGames.length < (isGolfSport ? holeLimit : 11) && (
                     <TouchableOpacity style={styles.addGameBtn} onPress={handleAddGame} activeOpacity={0.8}>
                       <Ionicons name="add" size={12} color={colors.primary} />
-                      <Text style={styles.addGameBtnText}>Add game</Text>
+                      <Text style={styles.addGameBtnText}>{isGolfSport ? 'Add hole' : 'Add game'}</Text>
                     </TouchableOpacity>
                   )}
                   {saving && (
@@ -3570,6 +3599,13 @@ export default function HomeScreen() {
       refreshFollowStates(user.id);
       const { data: prof } = await supabase.from('profiles').select('preferred_sports').eq('user_id', user.id).maybeSingle();
       if (prof?.preferred_sports) setPreferredSports(prof.preferred_sports);
+
+      // Sync location permission status so ranked match proximity check can use it
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        const enabled = status === 'granted';
+        await supabase.from('profiles').update({ location_enabled: enabled }).eq('user_id', user.id);
+      } catch { /* non-critical */ }
     })();
   }, []);
 
@@ -3956,7 +3992,7 @@ export default function HomeScreen() {
             await Promise.all(pts.map((p) => supabase.rpc('reverse_sport_rating', {
               p_user_id: p.user_id,
               p_sport_id: sportRow.id,
-              p_vp_loss: Math.max(0, p.vp_delta ?? 0),
+              p_vp_magnitude: Math.abs(p.vp_delta ?? 0),
               p_was_win: p.result === 'win',
               p_was_loss: p.result === 'loss',
             })));

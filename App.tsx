@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Platform } from 'react-native';
 import RootNavigator from './src/navigation/RootNavigator';
 import { ThemeProvider, useTheme } from './src/theme/ThemeProvider';
 import { LanguageProvider } from './src/i18n/LanguageContext';
 import LoginScreen from './src/screens/LoginScreen';
 import SignupScreen from './src/screens/SignupScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
+import LandingScreen from './src/screens/LandingScreen';
 import { supabase } from './src/lib/supabase';
 import { registerPushToken, configureNotificationHandler } from './src/lib/pushNotifications';
 import { lightColors } from './src/constants/theme';
@@ -19,7 +20,9 @@ function AppShell() {
   const { colors, mode, isSignedIn, setSignedIn } = useTheme();
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
-  const [authScreen, setAuthScreen] = useState<'login' | 'signup'>('login');
+  const [authScreen, setAuthScreen] = useState<'landing' | 'login' | 'signup'>(
+    Platform.OS === 'web' ? 'landing' : 'login',
+  );
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -170,13 +173,19 @@ function AppShell() {
           )
         ) : authScreen === 'signup' ? (
           <SignupScreen
-            onBackToLogin={() => setAuthScreen('login')}
+            onBackToLogin={() => setAuthScreen(Platform.OS === 'web' ? 'landing' : 'login')}
             onContinue={() => setSignedIn(true)}
           />
-        ) : (
+        ) : authScreen === 'login' ? (
           <LoginScreen
             onContinue={() => setSignedIn(true)}
             onGoToSignup={() => setAuthScreen('signup')}
+            onBack={Platform.OS === 'web' ? () => setAuthScreen('landing') : undefined}
+          />
+        ) : (
+          <LandingScreen
+            onSignIn={() => setAuthScreen('login')}
+            onSignUp={() => setAuthScreen('signup')}
           />
         )}
         <StatusBar

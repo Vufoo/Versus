@@ -41,18 +41,18 @@ export function sportLabel(name: string): string {
 }
 
 /** Sport scoring rules: game format [target, winBy] or 'set' for tennis-style sets.
- *  singleGame: true  → only one score entry (no "Add game"), e.g. Golf (total strokes)
+ *  holeLimit: N      → hole-based sport (Golf); shows "Add hole" up to N holes, total strokes as score
  *  lowerWins: true   → lower score is the winner, e.g. Golf
  */
-export const SPORT_SCORING: Record<string, { target: number; winBy: number; lowerWins?: boolean; singleGame?: boolean } | 'set'> = {
+export const SPORT_SCORING: Record<string, { target: number; winBy: number; lowerWins?: boolean; singleGame?: boolean; holeLimit?: number } | 'set'> = {
   Tennis: 'set',
   Pickleball: { target: 11, winBy: 2 },
   Badminton: { target: 21, winBy: 2 },
   'Ping Pong': { target: 11, winBy: 2 },
-  Racquetball: { target: 15, winBy: 1 },
+  Racquetball: { target: 15, winBy: 2 },
   Squash: { target: 11, winBy: 2 },
   Basketball: { target: 0, winBy: 0 },
-  Golf: { target: 0, winBy: 0, lowerWins: true, singleGame: true },
+  Golf: { target: 0, winBy: 0, lowerWins: true, holeLimit: 18 },
   Volleyball: { target: 25, winBy: 2 },
 };
 

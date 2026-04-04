@@ -57,7 +57,6 @@ const SCREEN_W = Dimensions.get('window').width;
 type SportRating = {
   sport: string;
   rank_tier: string | null;
-  rank_div: string | null;
   vp: number;
   wins: number;
   losses: number;
@@ -222,7 +221,7 @@ export default function UserProfileScreen() {
       setTargetProfileVisibility((p as any)?.profile_visibility === 'private' ? 'private' : 'public');
       const { count: fing } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', targetUserId).eq('status', 'accepted');
       const { count: fers } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('followed_id', targetUserId).eq('status', 'accepted');
-      const { data: ratings } = await supabase.from('user_sport_ratings').select('vp, rank_tier, rank_div, wins, losses, sports!inner(name)').eq('user_id', targetUserId);
+      const { data: ratings } = await supabase.from('user_sport_ratings').select('vp, rank_tier, wins, losses, sports!inner(name)').eq('user_id', targetUserId);
 
       setProfile({
         username: p?.username ?? null,
@@ -241,7 +240,7 @@ export default function UserProfileScreen() {
       if (ratings) {
         setSportRatings((ratings as any[]).map((r) => ({
           sport: r.sports?.name ?? '?',
-          rank_tier: r.rank_tier, rank_div: r.rank_div,
+          rank_tier: r.rank_tier,
           vp: r.vp, wins: r.wins, losses: r.losses,
         })));
       }
@@ -309,7 +308,7 @@ export default function UserProfileScreen() {
     const map = new Map(sportRatings.map((r) => [r.sport, r]));
     return SPORTS.map((s) => {
       const r = map.get(s);
-      return { sport: s, rank_tier: r?.rank_tier ?? null, rank_div: r?.rank_div ?? null, vp: r?.vp ?? 0, wins: r?.wins ?? 0, losses: r?.losses ?? 0 };
+      return { sport: s, rank_tier: r?.rank_tier ?? null, vp: r?.vp ?? 0, wins: r?.wins ?? 0, losses: r?.losses ?? 0 };
     });
   }, [sportRatings]);
 
@@ -321,7 +320,7 @@ export default function UserProfileScreen() {
     for (const sp of preferred) {
       if (result.length >= 3) break;
       const r = rankingsData.find((rd) => rd.sport === sp);
-      result.push(r ?? { sport: sp, rank_tier: null, rank_div: null, vp: 0, wins: 0, losses: 0 });
+      result.push(r ?? { sport: sp, rank_tier: null, vp: 0, wins: 0, losses: 0 });
     }
 
     // 2. Sports with activity (by VP) not already included
@@ -342,7 +341,7 @@ export default function UserProfileScreen() {
         if (result.length >= 3) break;
         if (!used.has(s)) {
           const r = rankingsData.find((rd) => rd.sport === s);
-          result.push(r ?? { sport: s, rank_tier: null, rank_div: null, vp: 0, wins: 0, losses: 0 });
+          result.push(r ?? { sport: s, rank_tier: null, vp: 0, wins: 0, losses: 0 });
         }
       }
     }
@@ -498,7 +497,7 @@ export default function UserProfileScreen() {
                   <GradientCard key={item.sport} style={styles.rankCard}>
                     <Text style={styles.rankCardEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
                     <Text style={styles.rankCardSport} numberOfLines={1}>{item.sport}</Text>
-                    <Text style={[styles.rankCardTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : t.common.unranked}</Text>
+                    <Text style={[styles.rankCardTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ?? t.common.unranked}</Text>
                     <Text style={styles.rankCardVp}>{item.vp}</Text>
                     <Text style={styles.rankCardVpLabel}>VP</Text>
                     <View style={styles.rankCardStats}>
@@ -572,7 +571,7 @@ export default function UserProfileScreen() {
                   <GradientCard style={styles.rankPageInner}>
                     <Text style={styles.rankEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
                     <Text style={styles.rankSport}>{item.sport}</Text>
-                    <Text style={[styles.rankTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : t.common.unranked}</Text>
+                    <Text style={[styles.rankTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ?? t.common.unranked}</Text>
                     <View style={styles.rankStatRow}>
                       <View style={styles.rankStat}><Text style={[styles.rankStatValue, { color: '#2563EB' }]}>{item.vp}</Text><Text style={styles.rankStatLabel}>VP</Text></View>
                       <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.wins}</Text><Text style={styles.rankStatLabel}>{t.common.wins}</Text></View>

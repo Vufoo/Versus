@@ -257,7 +257,7 @@ const en = {
   matchType: {
     casual: 'Casual',
     ranked: 'Ranked',
-    rankedSoon: 'Ranked (Soon)',
+    rankedSoon: 'Ranked',
     practice: 'Practice',
     local: 'Local',
   },

@@ -270,7 +270,7 @@ export default function VersusScreen() {
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
-  const [sportRatings, setSportRatings] = useState<Record<string, { rank_tier: string | null; rank_div: string | null; vp: number }>>({});
+  const [sportRatings, setSportRatings] = useState<Record<string, { rank_tier: string | null; vp: number }>>({});
   const [preferredSports, setPreferredSports] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [sportDropdownOpen, setSportDropdownOpen] = useState(false);
@@ -306,7 +306,7 @@ export default function VersusScreen() {
 
       setCurrentUserId(user.id);
       const [ratingsRes, profRes] = await Promise.all([
-        supabase.from('user_sport_ratings').select('vp, rank_tier, rank_div, sport_id, sports!inner(name)').eq('user_id', user.id),
+        supabase.from('user_sport_ratings').select('vp, rank_tier, sport_id, sports!inner(name)').eq('user_id', user.id),
         supabase.from('profiles').select('preferred_sports, avatar_url').eq('user_id', user.id).maybeSingle(),
       ]);
       const avatarUrl = (profRes.data as any)?.avatar_url;
@@ -319,7 +319,7 @@ export default function VersusScreen() {
         const map: typeof sportRatings = {};
         for (const r of ratingsRes.data as any[]) {
           const name = r.sports?.name;
-          if (name) map[name] = { rank_tier: r.rank_tier, rank_div: r.rank_div, vp: r.vp };
+          if (name) map[name] = { rank_tier: r.rank_tier, vp: r.vp };
         }
         setSportRatings(map);
       }
@@ -347,7 +347,7 @@ export default function VersusScreen() {
 
   const currentRating = sportRatings[sport];
   const rankTierDisplay = currentRating
-    ? `${currentRating.rank_tier ?? 'Unranked'} ${currentRating.rank_div ?? ''}`.trim() + ' \u00b7 '
+    ? `${currentRating.rank_tier ?? 'Unranked'} \u00b7 `
     : 'Unranked \u00b7 ';
   const rankVpDisplay = currentRating ? `${currentRating.vp} VP` : '0 VP';
 

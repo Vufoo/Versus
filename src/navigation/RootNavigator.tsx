@@ -8,6 +8,7 @@ import FollowListScreen from '../screens/FollowListScreen';
 import UserProfileScreen from '../screens/UserProfileScreen';
 import LeaderboardScreen from '../screens/LeaderboardScreen';
 import FAQScreen from '../screens/FAQScreen';
+import RanksInfoScreen from '../screens/RanksInfoScreen';
 
 export type RootStackParamList = {
   MainTabs: undefined;
@@ -19,6 +20,7 @@ export type RootStackParamList = {
   UserProfile: { userId: string };
   Leaderboard: undefined;
   FAQ: undefined;
+  RanksInfo: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -35,6 +37,7 @@ export default function RootNavigator() {
       <Stack.Screen name="UserProfile" component={UserProfileScreen} />
       <Stack.Screen name="Leaderboard" component={LeaderboardScreen} />
       <Stack.Screen name="FAQ" component={FAQScreen} />
+      <Stack.Screen name="RanksInfo" component={RanksInfoScreen} />
     </Stack.Navigator>
   );
 }

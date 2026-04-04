@@ -90,7 +90,14 @@ alter table public.profiles
   add column if not exists gender text,
   add column if not exists location text,
   add column if not exists push_token text,
-  add column if not exists push_notifications_enabled boolean not null default true;
+  add column if not exists push_notifications_enabled boolean not null default true,
+  -- Whether the user has granted the app foreground location permission.
+  -- Required for both participants before a ranked match can start.
+  add column if not exists location_enabled boolean not null default false;
+
+-- Migration: drop rank_div column (replaced by tier-only ELO system) ----------
+alter table public.user_sport_ratings
+  drop column if exists rank_div;
 
 -- RLS for profiles -----------------------------------------------------------
 alter table public.profiles enable row level security;
@@ -237,8 +244,6 @@ create table if not exists public.user_sport_ratings (
   sport_id    uuid not null references public.sports (id) on delete cascade,
 
   rank_tier   text,
-  rank_div    text,
-
   vp          integer not null default 0,
   wins        integer not null default 0,
   losses      integer not null default 0,
@@ -349,6 +354,7 @@ create table if not exists public.matches (
 
 create index if not exists matches_sport_id_idx on public.matches (sport_id);
 create index if not exists matches_created_by_idx on public.matches (created_by);
+create index if not exists matches_created_at_desc_idx on public.matches (created_at desc);
 create index if not exists matches_scheduled_at_idx on public.matches (scheduled_at);
 create index if not exists matches_status_idx on public.matches (status);
 
@@ -457,6 +463,7 @@ create table if not exists public.comment_likes (
 );
 
 create index if not exists comment_likes_comment_id_idx on public.comment_likes (comment_id);
+create index if not exists comment_likes_user_id_idx on public.comment_likes (user_id);
 
 alter table public.comment_likes enable row level security;
 
@@ -911,167 +918,9 @@ begin
   end if;
 end $$;
 
--- RPC: upsert sport rating (called from client after match completion) ---------
--- Uses security definer to bypass RLS so the match creator can update both
--- their own and the opponent's ratings in a single transaction.
+-- Drop old trigger/function if they exist from earlier schema versions ---------
 drop trigger if exists trg_update_sport_ratings on public.match_participants;
 drop function if exists public.update_user_sport_ratings();
-
-create or replace function public.upsert_sport_rating(
-  p_user_id uuid,
-  p_sport_id uuid,
-  p_vp_gain integer,
-  p_is_win boolean,
-  p_is_loss boolean
-)
-returns void as $$
-declare
-  v_new_vp integer;
-begin
-  insert into public.user_sport_ratings (user_id, sport_id, vp, wins, losses)
-  values (
-    p_user_id,
-    p_sport_id,
-    p_vp_gain,
-    case when p_is_win then 1 else 0 end,
-    case when p_is_loss then 1 else 0 end
-  )
-  on conflict (user_id, sport_id) do update set
-    vp      = greatest(0, user_sport_ratings.vp + excluded.vp),
-    wins    = greatest(0, user_sport_ratings.wins + excluded.wins),
-    losses  = greatest(0, user_sport_ratings.losses + excluded.losses),
-    updated_at = now();
-
-  -- Read back the accumulated VP for rank calculation
-  select vp into v_new_vp
-  from public.user_sport_ratings
-  where user_id = p_user_id and sport_id = p_sport_id;
-
-  -- Update rank tier and division based on total VP
-  update public.user_sport_ratings
-  set rank_tier = case
-        when v_new_vp >= 50 then 'Pro'
-        when v_new_vp >= 38 then 'Diamond'
-        when v_new_vp >= 28 then 'Platinum'
-        when v_new_vp >= 20 then 'Gold'
-        when v_new_vp >= 12 then 'Silver'
-        when v_new_vp >= 2  then 'Bronze'
-        when v_new_vp >= 1  then 'Beginner'
-        else null
-      end,
-      rank_div = case
-        when v_new_vp >= 50 then null          -- Pro: no division
-        when v_new_vp >= 38 then               -- Diamond: 38–49 VP
-          case
-            when v_new_vp >= 46 then 'I'
-            when v_new_vp >= 42 then 'II'
-            else 'III'
-          end
-        when v_new_vp >= 28 then               -- Platinum: 28–37 VP
-          case
-            when v_new_vp >= 36 then 'I'
-            when v_new_vp >= 32 then 'II'
-            else 'III'
-          end
-        when v_new_vp >= 20 then               -- Gold: 20–27 VP
-          case
-            when v_new_vp >= 26 then 'I'
-            when v_new_vp >= 23 then 'II'
-            else 'III'
-          end
-        when v_new_vp >= 12 then               -- Silver: 12–19 VP
-          case
-            when v_new_vp >= 18 then 'I'
-            when v_new_vp >= 15 then 'II'
-            else 'III'
-          end
-        when v_new_vp >= 2 then                -- Bronze: 2–11 VP
-          case
-            when v_new_vp >= 8 then 'I'
-            when v_new_vp >= 5 then 'II'
-            else 'III'
-          end
-        else null                              -- Beginner or unranked: no division
-      end
-  where user_id = p_user_id and sport_id = p_sport_id;
-end;
-$$ language plpgsql security definer;
-
--- RPC: reverse sport rating when a completed ranked match is deleted -----------
-create or replace function public.reverse_sport_rating(
-  p_user_id uuid,
-  p_sport_id uuid,
-  p_vp_loss integer,
-  p_was_win boolean,
-  p_was_loss boolean
-)
-returns void as $$
-declare
-  v_new_vp integer;
-begin
-  update public.user_sport_ratings
-  set
-    vp     = greatest(0, vp - p_vp_loss),
-    wins   = greatest(0, wins - case when p_was_win then 1 else 0 end),
-    losses = greatest(0, losses - case when p_was_loss then 1 else 0 end),
-    updated_at = now()
-  where user_id = p_user_id and sport_id = p_sport_id;
-
-  -- Recalculate rank tier based on new VP
-  select vp into v_new_vp
-  from public.user_sport_ratings
-  where user_id = p_user_id and sport_id = p_sport_id;
-
-  if v_new_vp is not null then
-    update public.user_sport_ratings
-    set rank_tier = case
-          when v_new_vp >= 50 then 'Pro'
-          when v_new_vp >= 38 then 'Diamond'
-          when v_new_vp >= 28 then 'Platinum'
-          when v_new_vp >= 20 then 'Gold'
-          when v_new_vp >= 12 then 'Silver'
-          when v_new_vp >= 2  then 'Bronze'
-          when v_new_vp >= 1  then 'Beginner'
-          else null
-        end,
-        rank_div = case
-          when v_new_vp >= 50 then null          -- Pro: no division
-          when v_new_vp >= 38 then               -- Diamond: 38–49 VP
-            case
-              when v_new_vp >= 46 then 'I'
-              when v_new_vp >= 42 then 'II'
-              else 'III'
-            end
-          when v_new_vp >= 28 then               -- Platinum: 28–37 VP
-            case
-              when v_new_vp >= 36 then 'I'
-              when v_new_vp >= 32 then 'II'
-              else 'III'
-            end
-          when v_new_vp >= 20 then               -- Gold: 20–27 VP
-            case
-              when v_new_vp >= 26 then 'I'
-              when v_new_vp >= 23 then 'II'
-              else 'III'
-            end
-          when v_new_vp >= 12 then               -- Silver: 12–19 VP
-            case
-              when v_new_vp >= 18 then 'I'
-              when v_new_vp >= 15 then 'II'
-              else 'III'
-            end
-          when v_new_vp >= 2 then                -- Bronze: 2–11 VP
-            case
-              when v_new_vp >= 8 then 'I'
-              when v_new_vp >= 5 then 'II'
-              else 'III'
-            end
-          else null                               -- Beginner or unranked: no division
-        end
-    where user_id = p_user_id and sport_id = p_sport_id;
-  end if;
-end;
-$$ language plpgsql security definer;
 
 -- RPC: delete the calling user's own account (requires security definer to touch auth.users) --
 create or replace function public.delete_own_account()
@@ -1086,86 +935,6 @@ $$;
 
 revoke all on function public.delete_own_account() from anon, authenticated;
 grant execute on function public.delete_own_account() to authenticated;
-
--- RPC: atomically finish a match (prevents race conditions) ---------------------
-create or replace function public.finish_match(
-  p_match_id uuid,
-  p_winner_user_id uuid,     -- NULL for draw
-  p_finished_by uuid         -- the user who clicked finish
-) returns jsonb
-language plpgsql security definer
-as $$
-declare
-  v_match record;
-  v_participant record;
-  v_result participant_result;
-  v_vp integer;
-  v_sport_id uuid;
-  v_winning_role participant_role;
-  v_match_format text;
-begin
-  -- Lock the match row to prevent concurrent finishes
-  select * into v_match from matches where id = p_match_id for update;
-
-  if v_match is null then
-    return jsonb_build_object('ok', false, 'error', 'Match not found');
-  end if;
-
-  -- Allow finishing from any non-terminal status (handles cases where start/pause
-  -- didn't persist to DB due to missing enum migration in older deployments).
-  if v_match.status in ('completed', 'canceled') then
-    return jsonb_build_object('ok', false, 'error', 'Match already ' || v_match.status);
-  end if;
-
-  v_match_format := coalesce(v_match.match_format, '1v1');
-
-  -- Find winning role for 2v2
-  if p_winner_user_id is not null and v_match_format = '2v2' then
-    select role into v_winning_role
-    from match_participants where match_id = p_match_id and user_id = p_winner_user_id;
-  end if;
-
-  -- Update all participants
-  for v_participant in select * from match_participants where match_id = p_match_id loop
-    if p_winner_user_id is null then
-      v_result := 'draw';
-      v_vp := 0;
-    elsif v_match_format = '2v2' and v_winning_role is not null then
-      if v_participant.role = v_winning_role then
-        v_result := 'win'; v_vp := case when v_match.match_type = 'ranked' then 1 else 0 end;
-      else
-        v_result := 'loss'; v_vp := case when v_match.match_type = 'ranked' then -1 else 0 end;
-      end if;
-    else
-      if v_participant.user_id = p_winner_user_id then
-        v_result := 'win'; v_vp := case when v_match.match_type = 'ranked' then 1 else 0 end;
-      else
-        v_result := 'loss'; v_vp := case when v_match.match_type = 'ranked' then -1 else 0 end;
-      end if;
-    end if;
-
-    update match_participants set result = v_result, vp_delta = v_vp
-    where match_id = p_match_id and user_id = v_participant.user_id;
-
-    -- Update sport ratings for ranked
-    if v_match.match_type = 'ranked' then
-      select id into v_sport_id from sports where id = v_match.sport_id;
-      if v_sport_id is not null then
-        perform upsert_sport_rating(
-          v_participant.user_id, v_sport_id,
-          case when v_result = 'win' then v_vp else 0 end,
-          v_result = 'win', v_result = 'loss'
-        );
-      end if;
-    end if;
-  end loop;
-
-  -- Complete the match
-  update matches set status = 'completed', ended_at = now() where id = p_match_id;
-
-  return jsonb_build_object('ok', true);
-end;
-$$;
 
 -- RLS: allow creator, confirmed participants, or invited users to delete a match
 drop policy if exists "Creators and participants can delete matches" on public.matches;
@@ -1254,4 +1023,328 @@ begin
       add constraint match_participants_match_user_unique unique (match_id, user_id);
   end if;
 end $$;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Tier-based VP ranking system
+--
+-- Tiers (in order): Beginner → Bronze → Silver → Gold → Platinum → Diamond → Pro
+--
+-- Rules:
+--   • Beginner promotes to Bronze at 1 VP (easy onramp)
+--   • All other tiers promote at 10 VP; VP resets to 0 (excess carries over)
+--   • On a loss VP drops but never below 0, and tier never decreases
+--   • VP delta per match:
+--       - Same tier:           ±1
+--       - Winner is underdog (lower tier) by N tiers: ±(1 + N)
+--       - Winner is favorite  (higher tier):          ±1
+--   • Winner gains exactly what loser loses (symmetric)
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- Helper: numeric rank of a tier (used for diff calculation)
+create or replace function public.tier_rank(p_tier text)
+returns integer language plpgsql immutable as $$
+begin
+  return case p_tier
+    when 'Beginner' then 0
+    when 'Bronze'   then 1
+    when 'Silver'   then 2
+    when 'Gold'     then 3
+    when 'Platinum' then 4
+    when 'Diamond'  then 5
+    when 'Pro'      then 6
+    else 0
+  end;
+end; $$;
+
+-- Helper: the tier one step above the given tier
+create or replace function public.next_tier(p_tier text)
+returns text language plpgsql immutable as $$
+begin
+  return case p_tier
+    when 'Beginner' then 'Bronze'
+    when 'Bronze'   then 'Silver'
+    when 'Silver'   then 'Gold'
+    when 'Gold'     then 'Platinum'
+    when 'Platinum' then 'Diamond'
+    when 'Diamond'  then 'Pro'
+    else 'Pro'
+  end;
+end; $$;
+
+-- Helper: VP threshold to leave a tier (Beginner is 1; everything else is 10)
+create or replace function public.tier_threshold(p_tier text)
+returns integer language plpgsql immutable as $$
+begin
+  return case p_tier when 'Beginner' then 1 else 10 end;
+end; $$;
+
+-- Core: apply a VP change for one player after a ranked match
+-- p_vp_delta: positive = win, negative = loss, 0 = draw
+-- Drop old signature (p_vp_gain) so CREATE OR REPLACE can rename the parameter
+drop function if exists public.upsert_sport_rating(uuid, uuid, integer, boolean, boolean);
+create or replace function public.upsert_sport_rating(
+  p_user_id  uuid,
+  p_sport_id uuid,
+  p_vp_delta integer,
+  p_is_win   boolean,
+  p_is_loss  boolean
+) returns void language plpgsql security definer as $$
+declare
+  v_vp       integer;
+  v_tier     text;
+  v_new_vp   integer;
+  v_new_tier text;
+begin
+  -- Ensure row exists
+  insert into public.user_sport_ratings (user_id, sport_id, vp, rank_tier, wins, losses)
+  values (p_user_id, p_sport_id, 0, 'Beginner', 0, 0)
+  on conflict (user_id, sport_id) do nothing;
+
+  select coalesce(vp, 0), coalesce(rank_tier, 'Beginner')
+  into v_vp, v_tier
+  from public.user_sport_ratings
+  where user_id = p_user_id and sport_id = p_sport_id;
+
+  if p_vp_delta > 0 then
+    -- ── Win: add VP, promote while above threshold ──────────────────────
+    v_new_vp   := v_vp + p_vp_delta;
+    v_new_tier := v_tier;
+
+    while v_new_vp >= public.tier_threshold(v_new_tier) and v_new_tier <> 'Pro' loop
+      v_new_vp   := v_new_vp - public.tier_threshold(v_new_tier);
+      v_new_tier := public.next_tier(v_new_tier);
+    end loop;
+
+    update public.user_sport_ratings
+    set vp        = v_new_vp,
+        rank_tier  = v_new_tier,
+
+        wins       = wins + (case when p_is_win then 1 else 0 end),
+        updated_at = now()
+    where user_id = p_user_id and sport_id = p_sport_id;
+
+    -- Increment cumulative vp_total on the profile (never decreases)
+    update public.profiles
+    set vp_total = vp_total + p_vp_delta
+    where user_id = p_user_id;
+
+  elsif p_vp_delta < 0 then
+    -- ── Loss: subtract VP, floor at 0, tier never changes ───────────────
+    update public.user_sport_ratings
+    set vp        = greatest(0, v_vp + p_vp_delta),
+        rank_tier  = v_tier,
+
+        losses     = losses + (case when p_is_loss then 1 else 0 end),
+        updated_at = now()
+    where user_id = p_user_id and sport_id = p_sport_id;
+
+  else
+    -- ── Draw: no VP change, update counts only ───────────────────────────
+    update public.user_sport_ratings
+    set wins       = wins  + (case when p_is_win  then 1 else 0 end),
+        losses     = losses + (case when p_is_loss then 1 else 0 end),
+
+        updated_at = now()
+    where user_id = p_user_id and sport_id = p_sport_id;
+  end if;
+end; $$;
+
+-- Reverse: undo a ranked match result when the match is deleted
+-- p_vp_magnitude: absolute value of the original VP change (always positive)
+-- Drop old signatures (p_vp_loss / p_vp_gain) so CREATE OR REPLACE can rename the parameter
+drop function if exists public.reverse_sport_rating(uuid, uuid, integer, boolean, boolean);
+create or replace function public.reverse_sport_rating(
+  p_user_id       uuid,
+  p_sport_id      uuid,
+  p_vp_magnitude  integer,   -- renamed from p_vp_loss; always a positive number
+  p_was_win       boolean,
+  p_was_loss      boolean
+) returns void language plpgsql security definer as $$
+declare
+  v_vp       integer;
+  v_tier     text;
+  v_new_vp   integer;
+  v_new_tier text;
+  v_prev_tier text;
+begin
+  select coalesce(vp, 0), coalesce(rank_tier, 'Beginner')
+  into v_vp, v_tier
+  from public.user_sport_ratings
+  where user_id = p_user_id and sport_id = p_sport_id;
+
+  if v_tier is null then return; end if;
+
+  if p_was_win then
+    -- Undo a win: subtract the gained VP, allow tier rollback on reversal
+    v_new_vp   := v_vp - p_vp_magnitude;
+    v_new_tier := v_tier;
+
+    while v_new_vp < 0 and v_new_tier <> 'Beginner' loop
+      v_new_tier := case v_new_tier
+        when 'Bronze'   then 'Beginner'
+        when 'Silver'   then 'Bronze'
+        when 'Gold'     then 'Silver'
+        when 'Platinum' then 'Gold'
+        when 'Diamond'  then 'Platinum'
+        when 'Pro'      then 'Diamond'
+        else 'Beginner'
+      end;
+      -- Restore into previous tier: add that tier's threshold to what remains
+      v_new_vp := public.tier_threshold(v_new_tier) + v_new_vp;
+    end loop;
+
+    v_new_vp := greatest(0, v_new_vp);
+
+    update public.user_sport_ratings
+    set vp        = v_new_vp,
+        rank_tier  = v_new_tier,
+
+        wins       = greatest(0, wins - 1),
+        updated_at = now()
+    where user_id = p_user_id and sport_id = p_sport_id;
+
+    -- Reverse the vp_total increment
+    update public.profiles
+    set vp_total = greatest(0, vp_total - p_vp_magnitude)
+    where user_id = p_user_id;
+
+  elsif p_was_loss then
+    -- Undo a loss: restore the VP that was subtracted (cap at threshold - 1 to avoid accidental promotion)
+    v_new_vp := least(v_vp + p_vp_magnitude, public.tier_threshold(v_tier) - 1);
+
+    update public.user_sport_ratings
+    set vp        = greatest(0, v_new_vp),
+        rank_tier  = v_tier,
+
+        losses     = greatest(0, losses - 1),
+        updated_at = now()
+    where user_id = p_user_id and sport_id = p_sport_id;
+  end if;
+end; $$;
+
+-- finish_match: calculate tier-adjusted VP delta, then apply to all participants
+create or replace function public.finish_match(
+  p_match_id       uuid,
+  p_winner_user_id uuid,   -- NULL for draw
+  p_finished_by    uuid
+) returns jsonb language plpgsql security definer as $$
+declare
+  v_match        record;
+  v_match_format text;
+  v_winning_role participant_role;
+  v_sport_id     uuid;
+  v_winner_tier  text;
+  v_loser_tier   text;
+  v_tier_diff    integer;
+  v_vp_delta     integer;
+  v_participant  record;
+  v_result       participant_result;
+  v_is_winner    boolean;
+begin
+  -- Verify caller identity matches the passed-in user_id
+  if p_finished_by <> auth.uid() then
+    return jsonb_build_object('ok', false, 'error', 'Not authorized');
+  end if;
+
+  -- Verify caller is a participant in this match
+  if not exists (
+    select 1 from match_participants
+    where match_id = p_match_id and user_id = auth.uid()
+  ) then
+    return jsonb_build_object('ok', false, 'error', 'Not a participant in this match');
+  end if;
+
+  select * into v_match from matches where id = p_match_id for update;
+
+  if v_match is null then
+    return jsonb_build_object('ok', false, 'error', 'Match not found');
+  end if;
+  if v_match.status in ('completed', 'canceled') then
+    return jsonb_build_object('ok', false, 'error', 'Match already ' || v_match.status);
+  end if;
+
+  v_sport_id     := v_match.sport_id;
+  v_match_format := coalesce(v_match.match_format, '1v1');
+
+  -- Determine winning role for 2v2
+  if p_winner_user_id is not null and v_match_format = '2v2' then
+    select role into v_winning_role
+    from match_participants
+    where match_id = p_match_id and user_id = p_winner_user_id;
+  end if;
+
+  -- ── VP delta calculation (ranked + winner declared) ──────────────────────
+  v_vp_delta := 0;
+  if v_match.match_type = 'ranked' and p_winner_user_id is not null then
+    -- Winner's current tier
+    select coalesce(rank_tier, 'Beginner') into v_winner_tier
+    from public.user_sport_ratings
+    where user_id = p_winner_user_id and sport_id = v_sport_id;
+    v_winner_tier := coalesce(v_winner_tier, 'Beginner');
+
+    -- Loser's current tier (first participant on the losing side)
+    if v_match_format = '2v2' and v_winning_role is not null then
+      select coalesce(usr.rank_tier, 'Beginner') into v_loser_tier
+      from match_participants mp
+      left join public.user_sport_ratings usr
+        on usr.user_id = mp.user_id and usr.sport_id = v_sport_id
+      where mp.match_id = p_match_id and mp.role <> v_winning_role
+      limit 1;
+    else
+      select coalesce(usr.rank_tier, 'Beginner') into v_loser_tier
+      from match_participants mp
+      left join public.user_sport_ratings usr
+        on usr.user_id = mp.user_id and usr.sport_id = v_sport_id
+      where mp.match_id = p_match_id and mp.user_id <> p_winner_user_id
+      limit 1;
+    end if;
+    v_loser_tier := coalesce(v_loser_tier, 'Beginner');
+
+    -- Negative diff = winner is the underdog → upset bonus
+    v_tier_diff := public.tier_rank(v_winner_tier) - public.tier_rank(v_loser_tier);
+    v_vp_delta  := case when v_tier_diff < 0 then 1 + abs(v_tier_diff) else 1 end;
+  end if;
+
+  -- ── Update participants ───────────────────────────────────────────────────
+  for v_participant in
+    select * from match_participants where match_id = p_match_id
+  loop
+    if p_winner_user_id is null then
+      v_result    := 'draw';
+      v_is_winner := false;
+    elsif v_match_format = '2v2' and v_winning_role is not null then
+      v_is_winner := v_participant.role = v_winning_role;
+      v_result    := case when v_is_winner then 'win'::participant_result else 'loss'::participant_result end;
+    else
+      v_is_winner := v_participant.user_id = p_winner_user_id;
+      v_result    := case when v_is_winner then 'win'::participant_result else 'loss'::participant_result end;
+    end if;
+
+    update match_participants
+    set result   = v_result,
+        vp_delta = case
+          when v_result = 'win'  then  v_vp_delta
+          when v_result = 'loss' then -v_vp_delta
+          else 0
+        end
+    where match_id = p_match_id and user_id = v_participant.user_id;
+
+    if v_match.match_type = 'ranked' and v_sport_id is not null then
+      perform public.upsert_sport_rating(
+        v_participant.user_id,
+        v_sport_id,
+        case
+          when v_result = 'win'  then  v_vp_delta
+          when v_result = 'loss' then -v_vp_delta
+          else 0
+        end,
+        v_result = 'win',
+        v_result = 'loss'
+      );
+    end if;
+  end loop;
+
+  update matches set status = 'completed', ended_at = now() where id = p_match_id;
+  return jsonb_build_object('ok', true, 'vp_delta', v_vp_delta);
+end; $$;
 

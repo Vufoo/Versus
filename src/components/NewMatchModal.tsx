@@ -279,6 +279,8 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   }, [visible]);
   useEffect(() => { if (initialMatchType) setMatchType(initialMatchType as 'casual' | 'ranked' | 'practice'); }, [initialMatchType]);
   useEffect(() => { if (SPORTS_NO_RANKED.includes(sport) && matchType === 'ranked') setMatchType('casual'); }, [sport, matchType]);
+  // Ranked is 1v1 only — auto-revert when format changes to 2v2/3v3
+  useEffect(() => { if ((matchFormat === '2v2' || matchFormat === '3v3') && matchType === 'ranked') setMatchType('casual'); }, [matchFormat]);
   useEffect(() => {
     if (initialLocation) {
       setLocation(initialLocation.name);
@@ -335,18 +337,26 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
       const allFriendIds = Array.from(new Set([...followingIds, ...followerIds].filter(Boolean)));
       setFriendUserIds(allFriendIds);
 
-      // Build suggestions (max 3): mutuals first, then following-only, then followers-only
+      // Build suggestions: sort by most recently invited, then alphabetically
       if (allFriendIds.length > 0) {
-        const followerSet = new Set(followerIds);
-        const mutuals = followingIds.filter(id => followerSet.has(id));
-        const followingOnly = followingIds.filter(id => !followerSet.has(id));
-        const followingSet = new Set(followingIds);
-        const followerOnly = followerIds.filter(id => !followingSet.has(id));
-        const topIds = [...mutuals, ...followingOnly, ...followerOnly].slice(0, 3);
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('user_id, username, full_name, avatar_url')
-          .in('user_id', topIds);
+        const [{ data: profiles }, { data: recentMatches }] = await Promise.all([
+          supabase.from('profiles').select('user_id, username, full_name, avatar_url').in('user_id', allFriendIds),
+          supabase.from('matches')
+            .select('invited_opponent_id, invited_teammate_id, invited_opponent_2_id, invited_teammate_2_id, invited_opponent_3_id, created_at')
+            .eq('created_by', user.id)
+            .order('created_at', { ascending: false })
+            .limit(50),
+        ]);
+
+        // Build map of userId -> most recent invite timestamp
+        const lastInvited = new Map<string, string>();
+        for (const m of (recentMatches ?? []) as any[]) {
+          const slots = [m.invited_opponent_id, m.invited_teammate_id, m.invited_opponent_2_id, m.invited_teammate_2_id, m.invited_opponent_3_id];
+          for (const id of slots) {
+            if (id && !lastInvited.has(id)) lastInvited.set(id, m.created_at);
+          }
+        }
+
         if (profiles) {
           const resolved = await Promise.all(
             (profiles as SearchedUser[]).map(async (u) => ({
@@ -354,9 +364,17 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
               avatar_url: (await resolveAvatarUrl(u.avatar_url)) ?? u.avatar_url,
             })),
           );
-          // Preserve the priority order
-          const order = new Map(topIds.map((id, i) => [id, i]));
-          resolved.sort((a, b) => (order.get(a.user_id) ?? 99) - (order.get(b.user_id) ?? 99));
+          resolved.sort((a, b) => {
+            const aDate = lastInvited.get(a.user_id);
+            const bDate = lastInvited.get(b.user_id);
+            if (aDate && bDate) return aDate > bDate ? -1 : 1; // most recent first
+            if (aDate) return -1; // a was invited, b was not
+            if (bDate) return 1;  // b was invited, a was not
+            // neither invited — alphabetical by display name
+            const aName = (a.full_name ?? a.username ?? '').toLowerCase();
+            const bName = (b.full_name ?? b.username ?? '').toLowerCase();
+            return aName.localeCompare(bName);
+          });
           setFriends(resolved);
         }
       }
@@ -582,13 +600,20 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
                 {(['casual', 'ranked', 'practice'] as const).map((mt) => {
                   const icon = mt === 'casual' ? 'people-outline' : mt === 'ranked' ? 'trophy-outline' : 'barbell-outline';
                   const sel = matchType === mt;
-                  const rankedDisabled = mt === 'ranked' && SPORTS_NO_RANKED.includes(sport);
+                  const rankedDisabledBySport = mt === 'ranked' && SPORTS_NO_RANKED.includes(sport);
+                  const rankedDisabledByFormat = mt === 'ranked' && (matchFormat === '2v2' || matchFormat === '3v3');
+                  const rankedDisabled = rankedDisabledBySport || rankedDisabledByFormat;
                   return (
                     <TouchableOpacity
                       key={mt}
                       style={[styles.matchTypeChip, sel && styles.matchTypeChipSel, rankedDisabled && { opacity: 0.45 }]}
                       onPress={() => {
-                        if (rankedDisabled) return;
+                        if (rankedDisabled) {
+                          if (rankedDisabledByFormat) {
+                            Alert.alert('1v1 Only', 'Ranked matches are only available in 1v1 format.');
+                          }
+                          return;
+                        }
                         if (mt === 'ranked' && !locationIsPublic) {
                           Alert.alert(
                             'Location Required',

@@ -78,7 +78,6 @@ let _profileCache: ProfileCache | null = null;
 type SportRating = {
   sport: string;
   rank_tier: string | null;
-  rank_div: string | null;
   vp: number;
   wins: number;
   losses: number;
@@ -183,7 +182,7 @@ function createStyles(colors: ThemeColors) {
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
       paddingHorizontal: spacing.lg,
-      paddingTop: spacing.sm,
+      paddingTop: spacing.lg,
       paddingBottom: spacing.lg,
       marginBottom: 0,
     },
@@ -236,7 +235,7 @@ function createStyles(colors: ThemeColors) {
     /* ---- Cards ---- */
     card: {
       paddingHorizontal: spacing.lg,
-      paddingTop: spacing.sm,
+      paddingTop: spacing.lg,
       paddingBottom: spacing.lg,
       marginBottom: 0,
       borderBottomWidth: 1,
@@ -542,7 +541,7 @@ export default function ProfileScreen() {
         supabase.from('profiles').select('username, full_name, vp_total, preferred_sports, avatar_url, date_of_birth, gender, location, bio, phone_hash').eq('user_id', user.id).maybeSingle(),
         supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', user.id).eq('status', 'accepted'),
         supabase.from('follows').select('*', { count: 'exact', head: true }).eq('followed_id', user.id).eq('status', 'accepted'),
-        supabase.from('user_sport_ratings').select('vp, rank_tier, rank_div, wins, losses, sports!inner(name)').eq('user_id', user.id),
+        supabase.from('user_sport_ratings').select('vp, rank_tier, wins, losses, sports!inner(name)').eq('user_id', user.id),
         supabase.from('match_participants').select('match_id').eq('user_id', user.id),
       ]);
 
@@ -564,7 +563,7 @@ export default function ProfileScreen() {
       if (ratingsRes.data) {
         setSportRatings((ratingsRes.data as any[]).map((r) => ({
           sport: r.sports?.name ?? '?',
-          rank_tier: r.rank_tier, rank_div: r.rank_div,
+          rank_tier: r.rank_tier,
           vp: r.vp, wins: r.wins, losses: r.losses,
         })));
       }
@@ -588,7 +587,7 @@ export default function ProfileScreen() {
         location: p?.location ?? null, bio: p?.bio ?? null,
       };
       const ratingsFinal: SportRating[] = ratingsRes.data
-        ? (ratingsRes.data as any[]).map((r) => ({ sport: r.sports?.name ?? '?', rank_tier: r.rank_tier, rank_div: r.rank_div, vp: r.vp, wins: r.wins, losses: r.losses }))
+        ? (ratingsRes.data as any[]).map((r) => ({ sport: r.sports?.name ?? '?', rank_tier: r.rank_tier, vp: r.vp, wins: r.wins, losses: r.losses }))
         : [];
 
       _profileCache = {
@@ -650,7 +649,7 @@ export default function ProfileScreen() {
     const map = new Map(sportRatings.map((r) => [r.sport, r]));
     return SPORTS.map((s) => {
       const r = map.get(s);
-      return { sport: s, rank_tier: r?.rank_tier ?? null, rank_div: r?.rank_div ?? null, vp: r?.vp ?? 0, wins: r?.wins ?? 0, losses: r?.losses ?? 0 };
+      return { sport: s, rank_tier: r?.rank_tier ?? null, vp: r?.vp ?? 0, wins: r?.wins ?? 0, losses: r?.losses ?? 0 };
     });
   }, [sportRatings]);
 
@@ -662,7 +661,7 @@ export default function ProfileScreen() {
     for (const sp of preferred) {
       if (result.length >= 3) break;
       const r = rankingsData.find((rd) => rd.sport === sp);
-      result.push(r ?? { sport: sp, rank_tier: null, rank_div: null, vp: 0, wins: 0, losses: 0 });
+      result.push(r ?? { sport: sp, rank_tier: null, vp: 0, wins: 0, losses: 0 });
     }
 
     // 2. Sports with activity (by VP) not already included
@@ -683,7 +682,7 @@ export default function ProfileScreen() {
         if (result.length >= 3) break;
         if (!used.has(s)) {
           const r = rankingsData.find((rd) => rd.sport === s);
-          result.push(r ?? { sport: s, rank_tier: null, rank_div: null, vp: 0, wins: 0, losses: 0 });
+          result.push(r ?? { sport: s, rank_tier: null, vp: 0, wins: 0, losses: 0 });
         }
       }
     }
@@ -880,7 +879,7 @@ export default function ProfileScreen() {
                     <Text style={styles.rankCardSport} numberOfLines={1}>{item.sport}</Text>
                   </View>
                   <Text style={[styles.rankCardTier, { color: tierColor(item.rank_tier) }]}>
-                    {item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : t.common.unranked}
+                    {item.rank_tier ?? t.common.unranked}
                   </Text>
                   <View style={styles.rankCardBottomRow}>
                     <View style={styles.rankCardStat}>
@@ -998,7 +997,7 @@ export default function ProfileScreen() {
                   <GradientCard style={styles.rankPageInner}>
                     <Text style={styles.rankEmoji}>{SPORT_EMOJI[item.sport] ?? '🏆'}</Text>
                     <Text style={styles.rankSport}>{item.sport}</Text>
-                    <Text style={[styles.rankTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ? `${item.rank_tier} ${item.rank_div ?? ''}`.trim() : 'Unranked'}</Text>
+                    <Text style={[styles.rankTier, { color: tierColor(item.rank_tier) }]}>{item.rank_tier ?? 'Unranked'}</Text>
                     <View style={styles.rankStatRow}>
                       <View style={styles.rankStat}><Text style={styles.rankStatValue}>{item.wins}</Text><Text style={styles.rankStatLabel}>{t.common.wins}</Text></View>
                       <View style={styles.rankStat}><Text style={[styles.rankStatValue, { color: '#2563EB' }]}>{item.vp}</Text><Text style={styles.rankStatLabel}>VP</Text></View>

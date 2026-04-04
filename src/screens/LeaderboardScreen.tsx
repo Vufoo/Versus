@@ -32,7 +32,6 @@ type LeaderEntry = {
   full_name: string | null;
   avatar_url: string | null;
   rank_tier: string | null;
-  rank_div: string | null;
   vp: number;
 };
 
@@ -40,7 +39,6 @@ type MyRating = {
   vp: number;
   losses: number;
   rank_tier: string | null;
-  rank_div: string | null;
 };
 
 type SportData = {
@@ -198,6 +196,7 @@ function makeStyles(c: ThemeColors) {
     dotsRow: { flexDirection: 'row', justifyContent: 'center', gap: 5, paddingVertical: spacing.md },
     dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: c.border },
     dotActive: { backgroundColor: c.primary },
+
   });
 }
 
@@ -223,12 +222,12 @@ export default function LeaderboardScreen() {
       if (userId) {
         const { data: ratings } = await supabase
           .from('user_sport_ratings')
-          .select('vp, losses, rank_tier, rank_div, sports!inner(name)')
+          .select('vp, losses, rank_tier, sports!inner(name)')
           .eq('user_id', userId);
         const map: Record<string, MyRating> = {};
         for (const r of (ratings ?? []) as any[]) {
           const sName = (r.sports as any)?.name;
-          if (sName) map[sName] = { vp: r.vp ?? 0, losses: r.losses ?? 0, rank_tier: r.rank_tier ?? null, rank_div: r.rank_div ?? null };
+          if (sName) map[sName] = { vp: r.vp ?? 0, losses: r.losses ?? 0, rank_tier: r.rank_tier ?? null };
         }
         setMyRatings(map);
       }
@@ -250,7 +249,7 @@ export default function LeaderboardScreen() {
 
       // Step 1: get top 10 user_ids + stats (no join — avoid silent INNER JOIN drops)
       const top10Promise = supabase.from('user_sport_ratings')
-        .select('user_id, vp, rank_tier, rank_div')
+        .select('user_id, vp, rank_tier')
         .eq('sport_id', sportRow.id)
         .gt('vp', 0)
         .order('vp', { ascending: false })
@@ -272,7 +271,7 @@ export default function LeaderboardScreen() {
 
       if (top10Res.error && __DEV__) console.error('[Leaderboard] top10 query error:', top10Res.error);
 
-      const rows = (top10Res.data ?? []) as { user_id: string; vp: number; rank_tier: string | null; rank_div: string | null }[];
+      const rows = (top10Res.data ?? []) as { user_id: string; vp: number; rank_tier: string | null }[];
 
       // Step 2: fetch profiles separately for those user_ids
       const userIds = rows.map(r => r.user_id);
@@ -298,7 +297,6 @@ export default function LeaderboardScreen() {
         full_name: profileMap[r.user_id]?.full_name ?? null,
         avatar_url: profileMap[r.user_id]?.avatar_url ?? null,
         rank_tier: r.rank_tier,
-        rank_div: r.rank_div,
         vp: r.vp,
       }));
 
@@ -335,6 +333,13 @@ export default function LeaderboardScreen() {
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t.versus.leaderboards}</Text>
+        <TouchableOpacity
+          onPress={() => navigation.navigate('RanksInfo')}
+          hitSlop={12}
+          style={{ width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Text style={{ fontSize: 13, fontWeight: '700', color: colors.primary }}>?</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -379,7 +384,7 @@ export default function LeaderboardScreen() {
                             #{data.myRank}
                             {'  '}
                             <Text style={{ color: tierColor(deriveTier(myRating.vp, myRating.rank_tier)), fontSize: 14 }}>
-                              {deriveTier(myRating.vp, myRating.rank_tier)}{myRating.rank_div ? ` ${myRating.rank_div}` : ''}
+                              {deriveTier(myRating.vp, myRating.rank_tier)}
                             </Text>
                           </Text>
                           <Text style={styles.myRankSub}>
@@ -478,7 +483,7 @@ export default function LeaderboardScreen() {
                               tier && tColor ? (
                                 <View style={[styles.tierBadge, { borderColor: tColor }]}>
                                   <Text style={[styles.tierText, { color: tColor }]}>
-                                    {tier}{entry.rank_div ? ` ${entry.rank_div}` : ''}
+                                    {tier}
                                   </Text>
                                 </View>
                               ) : null
@@ -511,6 +516,7 @@ export default function LeaderboardScreen() {
           <View key={i} style={[styles.dot, i === sportIdx && styles.dotActive]} />
         ))}
       </View>
+
     </View>
   );
 }
