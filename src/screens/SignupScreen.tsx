@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Crypto from 'expo-crypto';
 import {
   View,
   Text,
@@ -87,14 +89,33 @@ function s(c: ThemeColors) {
     webNav: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: spacing.xl,
-      paddingTop: spacing.lg,
-      paddingBottom: spacing.md,
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.xxl,
+      height: 64,
+      overflow: 'visible',
       borderBottomWidth: 1,
       borderBottomColor: c.border,
     },
+    webNavIcon: { width: 120, height: 120, resizeMode: 'contain' },
     webNavBack: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     webNavBackText: { fontSize: 15, color: c.primary, fontWeight: '700' },
+    pageTitle: { fontSize: 28, fontWeight: '800', color: c.text, marginBottom: spacing.lg, textAlign: 'center' },
+    dividerRow: { flexDirection: 'row', alignItems: 'center', marginVertical: spacing.md },
+    dividerLine: { flex: 1, height: 1, backgroundColor: c.border },
+    dividerText: { ...typography.caption, color: c.textSecondary, paddingHorizontal: spacing.md },
+    socialBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+      paddingVertical: 13,
+      borderRadius: borderRadius.md,
+      borderWidth: 1,
+      borderColor: c.border,
+      backgroundColor: c.cardBg,
+      marginBottom: spacing.sm,
+    },
+    socialBtnText: { ...typography.body, fontWeight: '500', color: c.text },
   });
 }
 
@@ -110,6 +131,50 @@ export default function SignupScreen({ onBackToLogin, onContinue }: Props) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleAppleSignIn = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const rawNonce = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+      const hashedNonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawNonce);
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [AppleAuthentication.AppleAuthenticationScope.FULL_NAME, AppleAuthentication.AppleAuthenticationScope.EMAIL],
+        nonce: hashedNonce,
+      });
+      if (!credential.identityToken) return;
+      const { error: authError } = await supabase.auth.signInWithIdToken({ provider: 'apple', token: credential.identityToken, nonce: rawNonce });
+      if (authError) throw authError;
+      onContinue();
+    } catch (e: any) {
+      if (e?.code === 'ERR_REQUEST_CANCELED') return;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { GoogleSignin, statusCodes } = require('@react-native-google-signin/google-signin');
+      GoogleSignin.configure({
+        webClientId: '748575961938-u5o8nf59pn8oqiu5h4a7bda2s0qm6bs8.apps.googleusercontent.com',
+        iosClientId: '748575961938-ifm39u8rtt3aorcsujrj0oabd2n8ha4i.apps.googleusercontent.com',
+      });
+      await GoogleSignin.hasPlayServices();
+      const response = await GoogleSignin.signIn();
+      if (!response.data?.idToken) return;
+      const { error: authError } = await supabase.auth.signInWithIdToken({ provider: 'google', token: response.data.idToken });
+      if (authError) throw authError;
+      onContinue();
+    } catch (e: any) {
+      if (e?.code === statusCodes?.SIGN_IN_CANCELLED) return;
+      if (e?.code === statusCodes?.IN_PROGRESS) return;
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSignup = async () => {
     if (!email || !password) {
@@ -144,9 +209,12 @@ export default function SignupScreen({ onBackToLogin, onContinue }: Props) {
       style={cs.outer}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* Top-left back nav — web only */}
+      {/* Top nav — web only */}
       {isWeb && (
         <View style={cs.webNav}>
+          <TouchableOpacity onPress={onBackToLogin} activeOpacity={0.8}>
+            <Image source={require('../../assets/icon_dark_mode.png')} style={cs.webNavIcon} />
+          </TouchableOpacity>
           <TouchableOpacity onPress={onBackToLogin} activeOpacity={0.7} style={cs.webNavBack}>
             <Ionicons name="chevron-back" size={20} color={cc.primary} />
             <Text style={cs.webNavBackText}>Back</Text>
@@ -156,13 +224,16 @@ export default function SignupScreen({ onBackToLogin, onContinue }: Props) {
 
       <ScrollView contentContainerStyle={cs.scroll} keyboardShouldPersistTaps="handled">
         <View style={cs.wrapper}>
-          <Image
-            source={require('../../assets/icon_dark_mode.png')}
-            style={cs.logo}
-            resizeMode="contain"
-          />
-          <Text style={cs.appName}>Versus</Text>
-          <Text style={cs.tagline}>Create an account to get started.</Text>
+          {!isWeb && (
+            <Image
+              source={require('../../assets/icon_light_mode.png')}
+              style={cs.logo}
+              resizeMode="contain"
+            />
+          )}
+          {!isWeb && <Text style={cs.appName}>Versus</Text>}
+          {isWeb && <Text style={cs.pageTitle}>Sign Up for Free</Text>}
+          {!isWeb && <Text style={cs.tagline}>Create an account to get started.</Text>}
 
           <View style={[cs.card, isWeb && { maxWidth: 460, padding: spacing.xl }]}>
             <TextInput
@@ -194,11 +265,31 @@ export default function SignupScreen({ onBackToLogin, onContinue }: Props) {
               {loading ? (
                 <ActivityIndicator color={cc.textOnPrimary} />
               ) : (
-                <Text style={[cs.signupBtnText, isWeb && { fontSize: 17 }]}>Sign up</Text>
+                <Text style={[cs.signupBtnText, isWeb && { fontSize: 17 }]}>Sign up with Email</Text>
               )}
             </TouchableOpacity>
 
             {error ? <Text style={cs.errorText}>{error}</Text> : null}
+
+            {isWeb && (
+              <>
+                <View style={cs.dividerRow}>
+                  <View style={cs.dividerLine} />
+                  <Text style={cs.dividerText}>or</Text>
+                  <View style={cs.dividerLine} />
+                </View>
+
+                <TouchableOpacity style={[cs.socialBtn, { paddingVertical: 16 }]} activeOpacity={0.8} onPress={handleGoogleSignIn} disabled={loading}>
+                  <Ionicons name="logo-google" size={20} color="#4285F4" />
+                  <Text style={[cs.socialBtnText, { fontSize: 17 }]}>Sign up with Google</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={[cs.socialBtn, { backgroundColor: '#1a1a1a', paddingVertical: 16 }]} activeOpacity={0.8} onPress={handleAppleSignIn} disabled={loading}>
+                  <Ionicons name="logo-apple" size={20} color="#FFF" />
+                  <Text style={[cs.socialBtnText, { color: '#FFF', fontSize: 17 }]}>Sign up with Apple</Text>
+                </TouchableOpacity>
+              </>
+            )}
 
             {/* Back to login — native only (web uses top nav) */}
             {!isWeb && (

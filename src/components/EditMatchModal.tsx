@@ -183,6 +183,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
   const is2v2 = match?.match_format === '2v2';
   const isRanked = match?.match_type?.toLowerCase() === 'ranked';
   const isCasual = match?.match_type?.toLowerCase() === 'casual';
+  const isPractice = match?.match_type?.toLowerCase() === 'practice';
 
   const [winnerRole, setWinnerRole] = useState<'challenger' | 'opponent' | 'draw'>('draw');
   const [editGames, setEditGames] = useState<Array<{ score_challenger: string; score_opponent: string }>>([{ score_challenger: '', score_opponent: '' }]);
@@ -231,6 +232,8 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
         setDurationHours('0');
         setDurationMinutes('0');
       }
+      // Practice: also load duration via ended_at - started_at (already handled above);
+      // if started_at is null, defaults to 0h 0min which is fine.
       const roles: Record<string, 'challenger' | 'opponent'> = {};
       for (const p of match.participants ?? []) {
         if (p.role === 'challenger' || p.role === 'opponent') roles[p.user_id] = p.role;
@@ -317,12 +320,20 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
         scheduled_at: newScheduledAt,
       };
 
-      if (match.status === 'completed' && match.started_at) {
+      if (match.status === 'completed' && (match.started_at || isPractice)) {
         const h = Math.max(0, parseInt(durationHours, 10) || 0);
         const m = Math.max(0, Math.min(59, parseInt(durationMinutes, 10) || 0));
         const newDurationMs = (h * 3600 + m * 60) * 1000;
         if (newDurationMs > 0) {
-          updates.ended_at = new Date(new Date(match.started_at).getTime() + newDurationMs).toISOString();
+          if (match.started_at) {
+            // Non-practice (or practice with started_at): anchor end_at on started_at
+            updates.ended_at = new Date(new Date(match.started_at).getTime() + newDurationMs).toISOString();
+          } else {
+            // Practice without started_at: anchor on ended_at or now, derive started_at
+            const anchor = match.ended_at ? new Date(match.ended_at).getTime() : Date.now();
+            updates.started_at = new Date(anchor - newDurationMs).toISOString();
+            updates.ended_at = new Date(anchor).toISOString();
+          }
           updates.paused_at = null;
         }
       }
@@ -696,9 +707,9 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                     </>
                   )}
 
-                  {match.status === 'completed' && match.started_at && (
+                  {match.status === 'completed' && (match.started_at || isPractice) && (
                     <>
-                      <Text style={styles.label}>Duration</Text>
+                      <Text style={styles.label}>{isPractice ? 'Time practiced' : 'Duration'}</Text>
                       <View style={[styles.timeRow, { marginBottom: spacing.md }]}>
                         <View style={[styles.timeBtn, { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
                           <TextInput

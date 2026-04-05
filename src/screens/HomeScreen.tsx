@@ -1636,9 +1636,9 @@ function FeedCard({
       </View>
 
       <View style={[
-        item.status === 'in_progress' && styles.playersRowLive,
-        item.status === 'paused' && styles.playersRowPaused,
-        item.status === 'completed' && styles.playersRowCompleted,
+        isParticipant && item.status === 'in_progress' && styles.playersRowLive,
+        isParticipant && item.status === 'paused' && styles.playersRowPaused,
+        isParticipant && item.status === 'completed' && styles.playersRowCompleted,
       ]}>
       <View style={styles.playersRow}>
         <View style={styles.playerCol}>
@@ -4439,11 +4439,13 @@ export default function HomeScreen() {
     <View style={styles.container}>
       {/* ---- Top bar (includes safe-area inset so cardBg fills behind status bar) ---- */}
       <View style={[styles.topBar, { paddingTop: insets.top }]}>
-        <Image
-          source={themeMode === 'dark' ? require('../../assets/icon_dark_mode.png') : require('../../assets/icon_light_mode.png')}
-          style={{ height: 44, width: 100, marginLeft: 2, marginVertical: -5 }}
-          resizeMode="contain"
-        />
+        <TouchableOpacity onPress={() => navigation.navigate('Versus')} activeOpacity={0.7}>
+          <Image
+            source={themeMode === 'dark' ? require('../../assets/icon_dark_mode.png') : require('../../assets/icon_light_mode.png')}
+            style={{ height: 44, width: 100, marginLeft: 2, marginVertical: -5 }}
+            resizeMode="contain"
+          />
+        </TouchableOpacity>
         <View style={styles.topBarRight}>
           <TouchableOpacity
             style={styles.topBarIcon}

@@ -140,14 +140,17 @@ function s(c: ThemeColors) {
     webNav: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: spacing.xl,
-      paddingTop: spacing.lg,
-      paddingBottom: spacing.md,
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.xxl,
+      height: 64,
+      overflow: 'visible',
       borderBottomWidth: 1,
       borderBottomColor: c.border,
     },
+    webNavIcon: { width: 120, height: 120, resizeMode: 'contain' },
     webNavBack: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     webNavBackText: { fontSize: 15, color: c.primary, fontWeight: '700' },
+    pageTitle: { fontSize: 28, fontWeight: '800', color: c.text, marginBottom: spacing.lg, textAlign: 'center' },
   });
 }
 
@@ -256,24 +259,32 @@ export default function LoginScreen({ onContinue, onGoToSignup, onBack }: Props)
       style={cs.outer}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* Top-left back nav — web only */}
-      {isWeb && onBack && (
+      {/* Top nav — web only */}
+      {isWeb && (
         <View style={cs.webNav}>
-          <TouchableOpacity onPress={onBack} activeOpacity={0.7} style={cs.webNavBack}>
-            <Ionicons name="chevron-back" size={20} color={cc.primary} />
-            <Text style={cs.webNavBackText}>Back</Text>
+          <TouchableOpacity onPress={onBack} activeOpacity={0.8} disabled={!onBack}>
+            <Image source={require('../../assets/icon_dark_mode.png')} style={cs.webNavIcon} />
           </TouchableOpacity>
+          {onBack && (
+            <TouchableOpacity onPress={onBack} activeOpacity={0.7} style={cs.webNavBack}>
+              <Ionicons name="chevron-back" size={20} color={cc.primary} />
+              <Text style={cs.webNavBackText}>Back</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
       <ScrollView contentContainerStyle={cs.scroll} keyboardShouldPersistTaps="handled">
         <View style={cs.wrapper}>
-          <Image
-            source={require('../../assets/icon_dark_mode.png')}
-            style={cs.logo}
-            resizeMode="contain"
-          />
-          <Text style={cs.tagline}>Play vs opponents. Record matches. Earn points. Prove it in the game.</Text>
+          {!isWeb && (
+            <Image
+              source={require('../../assets/icon_light_mode.png')}
+              style={cs.logo}
+              resizeMode="contain"
+            />
+          )}
+          {isWeb && <Text style={cs.pageTitle}>Log In</Text>}
+          {!isWeb && <Text style={cs.tagline}>Play vs opponents. Record matches. Earn points. Prove it in the game.</Text>}
 
           <View style={[cs.card, isWeb && { maxWidth: 460, padding: spacing.xl }]}>
             <TextInput
@@ -332,17 +343,17 @@ export default function LoginScreen({ onContinue, onGoToSignup, onBack }: Props)
 
             <TouchableOpacity style={[cs.socialBtn, isWeb && { paddingVertical: 16 }]} activeOpacity={0.8} onPress={onGoToSignup}>
               <Ionicons name="mail-outline" size={20} color={cc.text} />
-              <Text style={[cs.socialBtnText, isWeb && { fontSize: 17 }]}>Email</Text>
+              <Text style={[cs.socialBtnText, isWeb && { fontSize: 17 }]}>Sign in with Email</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={[cs.socialBtn, isWeb && { paddingVertical: 16 }]} activeOpacity={0.8} onPress={handleGoogleSignIn} disabled={loading}>
               <Ionicons name="logo-google" size={20} color="#4285F4" />
-              <Text style={[cs.socialBtnText, isWeb && { fontSize: 17 }]}>Google</Text>
+              <Text style={[cs.socialBtnText, isWeb && { fontSize: 17 }]}>Sign in with Google</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={[cs.socialBtn, { backgroundColor: '#1a1a1a' }, isWeb && { paddingVertical: 16 }]} activeOpacity={0.8} onPress={handleAppleSignIn} disabled={loading}>
               <Ionicons name="logo-apple" size={20} color="#FFF" />
-              <Text style={[cs.socialBtnText, { color: '#FFF' }, isWeb && { fontSize: 17 }]}>Apple</Text>
+              <Text style={[cs.socialBtnText, { color: '#FFF' }, isWeb && { fontSize: 17 }]}>Sign in with Apple</Text>
             </TouchableOpacity>
           </View>
 
