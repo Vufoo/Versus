@@ -82,23 +82,27 @@ const FAQ_SECTIONS = [
     items: [
       {
         q: 'What is Versus?',
-        a: 'Versus is a competitive sports app that lets you challenge friends and other players to ranked and casual matches across 15+ sports. Track your wins, losses, and VP (Victory Points) to climb the ranks.',
+        a: 'Versus is a competitive sports tracking app for recreational players. Challenge friends to ranked and casual matches across 9 sports, track your wins and losses, earn VP (Victory Points), and climb per-sport leaderboards.',
+      },
+      {
+        q: 'What sports are supported?',
+        a: 'Tennis, Pickleball, Badminton, Ping Pong, Racquetball, Squash, Basketball, Golf, and Volleyball. 2v2 formats are available for Tennis, Ping Pong, Basketball, and Volleyball.',
       },
       {
         q: 'How do I create a match?',
-        a: 'Tap the "+" button on the home screen to open New Match. Select a sport, choose a format (1v1 or 2v2 where available), pick ranked or casual, set a location and time, then invite your opponent. They\'ll receive a notification to accept.',
+        a: 'Tap the "+" button on the home screen to open New Match. Choose a sport, format (1v1 or 2v2 where available), and match type (Ranked, Casual, or Practice). Set a location and time, then invite your opponent. They\'ll get a notification to accept.',
       },
       {
         q: 'What match types are available?',
-        a: 'Ranked — affects your VP and rank. Casual — just for fun, no VP changes. Local — open challenges visible to nearby players. Practice — no records kept.',
+        a: 'Ranked — affects your VP and rank. Casual — tracked in history but no VP changes. Practice — log solo or group sessions; tracks time spent, not wins or losses.',
       },
       {
         q: 'What is the Plan view?',
-        a: 'The Plan view (calendar icon in the tab bar) shows your upcoming and past matches on a calendar. Days with any match are highlighted with a colored circle; days with completed matches also show a 🔥 beneath the date. The streak counter (🔥 Xd) in the calendar header shows how many consecutive days you\'ve played. Tap "Today" between the navigation arrows to jump back to the current date.',
+        a: 'The Plan view (calendar icon) shows your upcoming and past matches on a calendar. Tap any day to see matches on that date. The streak counter shows how many consecutive days you\'ve played. Tap "Today" to jump back to the current date.',
       },
       {
         q: 'How do I set my preferred sports?',
-        a: 'Go to your Profile → Edit Profile → Preferred Sports. The order you select them matters — your sports appear in that order on your profile cards, in the Versus view, and everywhere else in the app.',
+        a: 'Go to Profile → Edit Profile → Preferred Sports. The order you select determines how your sports appear on your profile and throughout the app.',
       },
     ],
   },
@@ -107,27 +111,27 @@ const FAQ_SECTIONS = [
     items: [
       {
         q: 'What are VP (Victory Points)?',
-        a: 'VP are earned by winning ranked matches. Each sport has its own VP total. The more VP you accumulate, the higher your rank tier in that sport.',
+        a: 'VP are earned by winning ranked matches. Each sport tracks VP independently. Accumulate VP to advance through rank tiers in that sport.',
       },
       {
         q: 'What are the rank tiers?',
-        a: 'From lowest to highest: Beginner → Bronze → Silver → Gold → Platinum → Diamond → Pro. Each tier has divisions (e.g., Bronze I, Bronze II, Bronze III) to show your progress within the tier.',
+        a: 'From lowest to highest: Beginner → Bronze → Silver → Gold → Platinum → Diamond → Pro. Each tier has divisions (I, II, III) showing your progress within the tier.',
       },
       {
-        q: 'How is VP calculated after a match?',
-        a: 'After a ranked match is completed and both players confirm the result, VP is awarded to the winner and deducted from the loser. The amount varies based on match format and outcome.',
+        q: 'How is VP awarded after a match?',
+        a: 'Once a ranked match is completed and confirmed, VP is awarded to the winner and deducted from the loser. The amount depends on match format and outcome.',
       },
       {
-        q: 'What happens if I lose a ranked match?',
-        a: 'You lose VP. Your rank tier can drop if your VP falls below the threshold for that tier. This is why match confirmation from both sides is required — to keep results fair.',
+        q: 'Can my rank drop?',
+        a: 'Yes. Losing ranked matches costs VP. If your VP falls below a tier threshold, you\'ll drop to the lower tier. This is why both players must confirm results — to keep standings fair.',
       },
       {
         q: 'How does the Leaderboard work?',
-        a: 'The Leaderboard shows the top 10 players per sport ranked by VP. Swipe left/right to switch sports. Your own rank and VP are shown in a card at the top even if you\'re outside the top 10. Players with 0 VP don\'t appear on the board.',
+        a: 'The Leaderboard (in the Versus tab) shows the top players per sport ranked by VP. Your own rank appears even if you\'re outside the top 10. Players with 0 VP are not shown.',
       },
       {
         q: 'Do casual or practice matches affect my rank?',
-        a: 'No. Only Ranked matches change your VP and rank. Casual, Local, and Practice matches are tracked in your history but have no effect on your standing.',
+        a: 'No. Only Ranked matches change your VP and rank tier. Casual and Practice matches are tracked in your history but have no effect on standings.',
       },
     ],
   },
@@ -136,23 +140,27 @@ const FAQ_SECTIONS = [
     items: [
       {
         q: 'What do the match statuses mean?',
-        a: 'Planned — scheduled but not yet accepted by all players. Pending — waiting on opponent acceptance. Confirmed — all players accepted, ready to play. In Progress — match has started. Paused — temporarily paused. Completed — finished and results recorded.',
+        a: 'Planned — scheduled ahead of time. Pending — waiting on opponent to accept. Confirmed — all players accepted, ready to play. In Progress — match timer is running. Paused — temporarily stopped. Completed — results recorded.',
       },
       {
-        q: 'How do I record match results?',
-        a: 'For casual and local matches: tap "Finish" on the active match card, then select the winner (or Draw). For ranked matches: both players must tap "Request Finish" on the match card; once both confirm, VP is awarded automatically. Scores can be edited at any time on a completed casual match via the ⋯ menu.',
+        q: 'How do I start and finish a match?',
+        a: 'Once confirmed, tap "Start" on the match card to begin the timer. Tap "Finish" when done and select the winner (or Draw for casual). For ranked matches, both players must tap "Request Finish" — VP is awarded once both confirm.',
+      },
+      {
+        q: 'Can I edit a completed match?',
+        a: 'Yes. Tap the ⋯ menu on any completed match you were part of to edit scores, duration (for practice), or other details.',
       },
       {
         q: 'What is 2v2?',
-        a: '2v2 is available for Tennis, Ping Pong, Basketball, and Volleyball. You invite a teammate in addition to your opponents. All four players must accept before the match is confirmed.',
+        a: '2v2 is available for Tennis, Ping Pong, Basketball, and Volleyball. Invite a teammate and two opponents. All four players must accept before the match is confirmed.',
       },
       {
         q: 'Can I cancel a match?',
-        a: 'Yes. Open the match card and use the cancel option. Canceling permanently deletes the match from your feed — no VP is affected. For pending or confirmed ranked matches, only the creator can cancel alone. For completed ranked matches, all participants must confirm deletion, which also reverses any VP changes.',
+        a: 'Yes — tap the ⋯ menu on the match card and select Cancel. Canceling removes the match from your feed with no VP impact. For completed ranked matches, all participants must confirm deletion, which also reverses VP changes.',
       },
       {
-        q: 'What happens if there\'s a dispute over results?',
-        a: 'Both players must confirm the result for VP to be awarded. If one player submits different scores, the match will remain unresolved until both sides agree. Contact support if a dispute cannot be resolved.',
+        q: 'What if there\'s a dispute over results?',
+        a: 'Both players must confirm the result for VP to be awarded. If scores submitted don\'t match, the match stays unresolved until both sides agree. Contact support if a dispute can\'t be settled.',
       },
     ],
   },
@@ -161,60 +169,65 @@ const FAQ_SECTIONS = [
     items: [
       {
         q: 'Who can see my location on the map?',
-        a: 'Only mutual followers can see each other\'s location — meaning you follow them AND they follow you (both accepted). Strangers cannot see your location even if your setting is set to Public. If either person has their location set to Private, neither can see the other.',
+        a: 'Only mutual followers — you follow them and they follow you (both accepted). Strangers cannot see your location even if your visibility is set to Public. If either person sets location to Private, neither can see the other.',
       },
       {
-        q: 'How do I control my location visibility?',
-        a: 'Go to Settings → Location Privacy and choose Public or Private. Public shares your location with mutual followers only. Private means no one can see your location on the map, not even mutual followers.',
+        q: 'How do I control location visibility?',
+        a: 'Go to Settings → Location → Public or Private. Public shares your approximate location with mutual followers only. Private hides you from the map entirely.',
       },
       {
-        q: 'Is my exact location shown to others?',
-        a: 'No. Match location pins show only the general area (neighborhood or city level), not an exact address. This protects your privacy while still letting you find nearby games.',
+        q: 'Is my exact location shown?',
+        a: 'No. Pins show only a general area — not an exact address. This protects your privacy while still helping you find nearby matches.',
       },
       {
         q: 'What matches appear on the map?',
-        a: 'Only public matches are shown. Private matches are never visible on the map to anyone other than the participants. Matches from mutual followers appear anywhere on the map; other public matches only appear within your selected radius (2, 5, 10, or 20 miles).',
+        a: 'Public matches from mutual followers appear anywhere on the map. Other public matches appear within your selected radius (2, 5, 10, or 20 miles). Private matches are never visible to non-participants.',
       },
       {
-        q: 'How do I request to join a match on the map?',
-        a: 'Tap a match pin to see its details. If it\'s open, tap "Request to Join." The match creator receives a notification and can accept or deny your request. If accepted, you\'re added to the match. If denied, you\'ll receive a notification and the button stays greyed out.',
-      },
-      {
-        q: 'Can I turn off location sharing entirely?',
-        a: 'Yes — two ways. Set Location Privacy to Private in Settings, or deny location permission for Versus in your phone\'s system settings. Either will prevent your location from appearing on the map.',
-      },
-      {
-        q: 'Why isn\'t my location updating on the map?',
-        a: 'Your location only updates after you\'ve moved roughly 100 meters from where it was last recorded. This is intentional to reduce battery drain. Make sure location permissions are set to "Always" or "While Using" in your phone\'s settings for the most accurate updates.',
+        q: 'Why isn\'t my location updating?',
+        a: 'Location updates after you\'ve moved roughly 100 meters from the last recorded position — this limits battery drain. Make sure Versus has location permission ("While Using" or "Always") in your phone\'s settings.',
       },
     ],
   },
   {
-    title: 'Social & Privacy',
+    title: 'Social & Messaging',
     items: [
       {
         q: 'How does following work?',
-        a: 'You can follow other players to see their match activity on your feed. If their profile is set to Private, they must approve your follow request first. Mutual follows (both following each other) unlock location visibility on the map.',
+        a: 'Follow other players to see their match activity in your feed. If their profile is Private, they must approve your request. Mutual follows unlock location sharing on the map.',
       },
       {
         q: 'How do I find friends?',
-        a: 'Use the Search screen (magnifying glass icon) to find players by username or name. You can also connect your contacts to see which of your phone contacts are on Versus — your contacts are never sent to our servers, only a one-way hash is used for matching.',
+        a: 'Use the Search screen (magnifying glass) to find players by username or name. You can also connect your contacts — only a one-way hash is used for matching, your contacts are never stored on our servers.',
       },
       {
-        q: 'How does contact matching work?',
-        a: 'To be discoverable via contacts, add your phone number in Edit Profile. Your number is hashed (irreversibly encrypted) before being stored — we never see or store your actual number. Others who have your number saved in their contacts will see you in their "From your contacts" section on the Search screen.',
+        q: 'How do I send a direct message?',
+        a: 'Tap the chat icon at the top of the Home screen, or visit a player\'s profile and tap the message button. Conversations only appear in your inbox once you\'ve exchanged at least one message.',
       },
       {
-        q: 'How do I message someone?',
-        a: 'Tap the chat bubble icon at the top of the Home screen, or visit a player\'s profile and tap the message button. Direct messages are private and only visible to you and the recipient.',
+        q: 'What does a Private profile mean?',
+        a: 'A Private profile hides your match history and stats from non-followers. Your username is still visible in search. Approved followers can see your full profile.',
       },
       {
-        q: 'What does Private profile mean?',
-        a: 'A Private profile hides your match history and stats from users who don\'t follow you. Your username and basic info are still visible in search results. Followers you\'ve approved can see your full profile.',
+        q: 'Can I remove a follower or report someone?',
+        a: 'Yes — go to your follower list to remove anyone. To report a user, use the Report option on their profile or contact us through Settings → Report a Problem.',
+      },
+    ],
+  },
+  {
+    title: 'Membership',
+    items: [
+      {
+        q: 'What is Versus Membership?',
+        a: 'Membership is a premium tier coming soon that will unlock exclusive features for serious players. Stay tuned for the launch announcement.',
       },
       {
-        q: 'Can I block or report a user?',
-        a: 'You can remove followers at any time by going to your follower list and removing them. To report inappropriate behavior, contact us through the Support section in Settings.',
+        q: 'What will membership include?',
+        a: 'Details are being finalized, but membership perks will include enhanced stats, profile customization, and priority access to new features.',
+      },
+      {
+        q: 'How will I be notified when membership launches?',
+        a: 'Make sure push notifications are enabled in Settings. You\'ll receive an in-app notification as soon as memberships become available.',
       },
     ],
   },

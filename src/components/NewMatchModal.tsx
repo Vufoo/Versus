@@ -118,7 +118,7 @@ function makeStyles(c: ThemeColors) {
     sportCardNameSel: { color: c.textOnPrimary },
     timeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
     timeBtn: {
-      flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs,
       paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
       borderRadius: borderRadius.md, borderWidth: 1, borderColor: c.primary, backgroundColor: c.background,
     },
@@ -253,10 +253,14 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
 
   // Clear pending location search timer on unmount
   useEffect(() => {
-    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      if (searchAbortRef.current) searchAbortRef.current.abort();
+    };
   }, []);
 
   const [sportDropdownOpen, setSportDropdownOpen] = useState(false);
@@ -399,12 +403,15 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
       return;
     }
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (searchAbortRef.current) searchAbortRef.current.abort();
     if (text.trim().length < 2) return;
     searchTimerRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
       try {
         const resp = await fetch(
           `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&limit=5&addressdetails=1`,
-          { headers: { 'Accept-Language': 'en', 'User-Agent': 'VersusApp/1.0' } },
+          { headers: { 'Accept-Language': 'en', 'User-Agent': 'VersusApp/1.0' }, signal: controller.signal },
         );
         const results = await resp.json();
         const suggestions: LocationSuggestion[] = results.map((r: any) => ({
@@ -414,7 +421,8 @@ export default function NewMatchModal({ visible, onClose, onCreated, colors, ini
         }));
         setLocationSuggestions(suggestions);
         setShowSuggestions(suggestions.length > 0);
-      } catch {
+      } catch (e: any) {
+        if (e?.name === 'AbortError') return;
         setLocationSuggestions([]);
         setShowSuggestions(false);
       }

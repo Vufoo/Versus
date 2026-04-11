@@ -1595,15 +1595,20 @@ function FeedCard({
       {/* Header: Created by (left) + Sport (right) */}
       <View style={styles.stravaHeader}>
         <View style={styles.creatorBlock}>
-          <View style={styles.creatorRow}>
+          <TouchableOpacity
+            style={styles.creatorRow}
+            activeOpacity={0.7}
+            onPress={() => creator && navigation.navigate('UserProfile', { userId: creator.user_id })}
+            disabled={!creator}
+          >
             <Avatar
               initials={creator ? getInitials(creator) : '?'}
               avatarUrl={creatorAvatarUrl ?? creator?.avatar_url}
-              size={32}
+              size={26}
               colors={colors}
             />
             <Text style={styles.creatorLabel}>{creator ? getName(creator) : 'Unknown'}</Text>
-          </View>
+          </TouchableOpacity>
         </View>
         <View style={styles.sportBadge}>
           <Text style={styles.sportEmoji}>{SPORT_EMOJI[item.sport_name] ?? '🏆'}</Text>
@@ -1651,7 +1656,9 @@ function FeedCard({
                   <TouchableOpacity onPress={() => p1 && navigation.navigate('UserProfile', { userId: p1.user_id })} activeOpacity={0.7}>
                     <Avatar initials={p1 ? getInitials(p1) : '?'} avatarUrl={p1AvatarUrl ?? p1?.avatar_url} size={44} colors={colors} isWinner={isCompleted && p1?.result === 'win'} ring={isCompleted} />
                   </TouchableOpacity>
-                  <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>{p1 ? getName(p1) : '?'}</Text>
+                  <TouchableOpacity onPress={() => p1 && navigation.navigate('UserProfile', { userId: p1.user_id })} activeOpacity={0.7} disabled={!p1}>
+                    <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>{p1 ? getName(p1) : '?'}</Text>
+                  </TouchableOpacity>
                   {isRanked && p1 && (item.status === 'pending' || item.status === 'confirmed') && (
                     <Text style={[typography.caption, { fontSize: 9, color: isReady(p1) ? colors.primary : colors.textSecondary }]}>{isReady(p1) ? '✓' : '—'}</Text>
                   )}
@@ -1674,9 +1681,11 @@ function FeedCard({
                   ) : (
                     <Avatar initials="?" size={44} colors={colors} />
                   )}
-                  <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>
-                    {teammate ? getName(teammate) : t.common.tbd}
-                  </Text>
+                  <TouchableOpacity onPress={() => teammate && navigation.navigate('UserProfile', { userId: teammate.user_id })} activeOpacity={0.7} disabled={!teammate}>
+                    <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>
+                      {teammate ? getName(teammate) : t.common.tbd}
+                    </Text>
+                  </TouchableOpacity>
                   {isRanked && teammate && (item.status === 'pending' || item.status === 'confirmed') && (
                     <Text style={[typography.caption, { fontSize: 9, color: isReady(teammate) ? colors.primary : colors.textSecondary }]}>{isReady(teammate) ? '✓' : '—'}</Text>
                   )}
@@ -1891,16 +1900,25 @@ function FeedCard({
             );
             const inviteBtn = onInviteOpponent && canControl ? (
               <TouchableOpacity onPress={() => onInviteOpponent(item)} activeOpacity={0.8} style={{ alignItems: 'center', gap: spacing.xs }}>
-                <View style={{ position: 'relative' }}>
-                  <Avatar initials="+" size={PSIZE} colors={colors} />
-                  {inviteBadge}
-                </View>
+                {isCompleted ? (
+                  <View style={{ height: PSIZE + 14, alignItems: 'center', justifyContent: 'center' }}>
+                    <View style={{ position: 'relative' }}>
+                      <Avatar initials="+" size={PSIZE} colors={colors} />
+                      {inviteBadge}
+                    </View>
+                  </View>
+                ) : (
+                  <View style={{ position: 'relative' }}>
+                    <Avatar initials="+" size={PSIZE} colors={colors} />
+                    {inviteBadge}
+                  </View>
+                )}
                 <Text style={[styles.playerName]}>{t.common.invite}</Text>
               </TouchableOpacity>
             ) : null;
             if (n === 0) {
               // single invite button centered
-              return inviteBtn ?? <Avatar initials="?" size={PSIZE} colors={colors} />;
+              return inviteBtn ?? <Avatar initials="?" size={PSIZE} colors={colors} ring={isCompleted} />;
             }
             if (n === 1) {
               // [P1] [+] side by side
@@ -1953,9 +1971,11 @@ function FeedCard({
                   ) : (
                     <Avatar initials="?" size={44} colors={colors} />
                   )}
-                  <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>
-                    {p2 ? getName(p2) : t.common.tbd}
-                  </Text>
+                  <TouchableOpacity onPress={() => p2 && navigation.navigate('UserProfile', { userId: p2.user_id })} activeOpacity={0.7} disabled={!p2}>
+                    <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>
+                      {p2 ? getName(p2) : t.common.tbd}
+                    </Text>
+                  </TouchableOpacity>
                   {isRanked && p2 && (item.status === 'pending' || item.status === 'confirmed') && (
                     <Text style={[typography.caption, { fontSize: 9, color: isReady(p2) ? colors.primary : colors.textSecondary }]}>{isReady(p2) ? '✓' : '—'}</Text>
                   )}
@@ -1978,9 +1998,11 @@ function FeedCard({
                   ) : (
                     <Avatar initials="?" size={44} colors={colors} />
                   )}
-                  <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>
-                    {opponent2 ? getName(opponent2) : t.common.tbd}
-                  </Text>
+                  <TouchableOpacity onPress={() => opponent2 && navigation.navigate('UserProfile', { userId: opponent2.user_id })} activeOpacity={0.7} disabled={!opponent2}>
+                    <Text style={[styles.playerName, { fontSize: 9 }]} numberOfLines={1}>
+                      {opponent2 ? getName(opponent2) : t.common.tbd}
+                    </Text>
+                  </TouchableOpacity>
                   {isRanked && opponent2 && (item.status === 'pending' || item.status === 'confirmed') && (
                     <Text style={[typography.caption, { fontSize: 9, color: isReady(opponent2) ? colors.primary : colors.textSecondary }]}>{isReady(opponent2) ? '✓' : '—'}</Text>
                   )}
@@ -2038,17 +2060,28 @@ function FeedCard({
                   activeOpacity={0.8}
                   style={{ alignItems: 'center', gap: spacing.xs }}
                 >
-                  <View style={{ position: 'relative' }}>
-                    <Avatar initials="?" size={46} colors={colors} />
-                    <View style={{ position: 'absolute', bottom: -2, right: -2, backgroundColor: colors.primary, borderRadius: 10, padding: 4 }}>
-                      <Ionicons name="person-add" size={12} color={colors.textOnPrimary} />
+                  {isCompleted ? (
+                    <View style={{ height: 60, alignItems: 'center', justifyContent: 'center' }}>
+                      <View style={{ position: 'relative' }}>
+                        <Avatar initials="?" size={46} colors={colors} />
+                        <View style={{ position: 'absolute', bottom: -2, right: -2, backgroundColor: colors.primary, borderRadius: 10, padding: 4 }}>
+                          <Ionicons name="person-add" size={12} color={colors.textOnPrimary} />
+                        </View>
+                      </View>
                     </View>
-                  </View>
+                  ) : (
+                    <View style={{ position: 'relative' }}>
+                      <Avatar initials="?" size={46} colors={colors} />
+                      <View style={{ position: 'absolute', bottom: -2, right: -2, backgroundColor: colors.primary, borderRadius: 10, padding: 4 }}>
+                        <Ionicons name="person-add" size={12} color={colors.textOnPrimary} />
+                      </View>
+                    </View>
+                  )}
                   <Text style={styles.playerName}>{t.common.invite}</Text>
                 </TouchableOpacity>
               ) : (
                 <>
-                  <Avatar initials="?" size={46} colors={colors} />
+                  <Avatar initials="?" size={46} colors={colors} ring={isCompleted} />
                   <Text style={styles.playerName}>{t.common.tbd}</Text>
                 </>
               )}
@@ -2903,7 +2936,7 @@ function createHomeStyles(colors: ThemeColors) {
     creatorRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.xs,
+      gap: spacing.sm,
     },
     creatorLabel: { ...typography.caption, fontSize: 15, lineHeight: 19, color: colors.textSecondary },
     timestampsRow: {
@@ -3515,19 +3548,17 @@ export default function HomeScreen() {
   const feedOpacityAnim = useRef(new Animated.Value(1)).current;
   const feedModeInitialized = useRef(false);
   const mediaRowTouching = useRef(false);
-  const feedSwipePan = useRef(
-    PanResponder.create({
-      // Only capture clearly horizontal swipes (dx dominates dy by 2:1),
-      // and never steal from the media row's horizontal ScrollView.
-      onMoveShouldSetPanResponder: (_, gs) =>
-        !mediaRowTouching.current &&
-        Math.abs(gs.dx) > 15 && Math.abs(gs.dx) > Math.abs(gs.dy) * 2,
-      onPanResponderRelease: (_, gs) => {
-        if (gs.dx < -60 && Math.abs(gs.dx) > Math.abs(gs.dy)) setFeedMode('public');
-        else if (gs.dx > 60 && Math.abs(gs.dx) > Math.abs(gs.dy)) setFeedMode('my');
-      },
-    }),
-  ).current;
+  // const feedSwipePan = useRef(
+  //   PanResponder.create({
+  //     onMoveShouldSetPanResponder: (_, gs) =>
+  //       !mediaRowTouching.current &&
+  //       Math.abs(gs.dx) > 15 && Math.abs(gs.dx) > Math.abs(gs.dy) * 2,
+  //     onPanResponderRelease: (_, gs) => {
+  //       if (gs.dx < -60 && Math.abs(gs.dx) > Math.abs(gs.dy)) setFeedMode('public');
+  //       else if (gs.dx > 60 && Math.abs(gs.dx) > Math.abs(gs.dy)) setFeedMode('my');
+  //     },
+  //   }),
+  // ).current;
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [preferredSports, setPreferredSports] = useState<string[]>([]);
@@ -3998,6 +4029,11 @@ export default function HomeScreen() {
             })));
           }
         }
+        // Delete storage files before removing the match row (cascade removes DB rows but not storage)
+        const imagePaths = (m.images ?? []).map((img: MatchImage) => img.file_path).filter(Boolean);
+        if (imagePaths.length > 0) {
+          await supabase.storage.from('match-images').remove(imagePaths).catch(() => {});
+        }
         await supabase.from('matches').delete().eq('id', m.id);
       } catch { /* swallow — other user may have already deleted */ }
       finally { deletingMatchRef.current.delete(m.id); }
@@ -4021,58 +4057,52 @@ export default function HomeScreen() {
       }),
     [feedItems, currentUserId, recentlyFinished],
   );
-  const publicFeed = useMemo(
-    () => feedItems
-      .filter((m) => m.status === 'completed' && m.match_type !== 'practice' && m.is_public !== false)
-      .sort((a, b) => new Date(b.ended_at ?? b.created_at).getTime() - new Date(a.ended_at ?? a.created_at).getTime()),
-    [feedItems],
-  );
+  // const publicFeed = useMemo(
+  //   () => feedItems
+  //     .filter((m) => m.status === 'completed' && m.match_type !== 'practice' && m.is_public !== false)
+  //     .sort((a, b) => new Date(b.ended_at ?? b.created_at).getTime() - new Date(a.ended_at ?? a.created_at).getTime()),
+  //   [feedItems],
+  // );
   const displayedItems = useMemo(() => {
-    const feed = feedMode === 'my' ? myFeed : publicFeed;
-    if (preferredSports.length === 0) return feed;
+    if (preferredSports.length === 0) return myFeed;
     const prefSet = new Set(preferredSports);
-    return [...feed].sort((a, b) => {
-      if (feedMode === 'my') {
-        const tier = (m: FeedMatch) =>
-          m.status === 'completed' && !recentlyFinished.has(m.id) ? 1 : 0;
-        const tA = tier(a), tB = tier(b);
-        if (tA !== tB) return tA - tB;
-      }
+    return [...myFeed].sort((a, b) => {
+      const tier = (m: FeedMatch) =>
+        m.status === 'completed' && !recentlyFinished.has(m.id) ? 1 : 0;
+      const tA = tier(a), tB = tier(b);
+      if (tA !== tB) return tA - tB;
       const aP = prefSet.has(a.sport_name) ? 0 : 1;
       const bP = prefSet.has(b.sport_name) ? 0 : 1;
       return aP - bP;
     });
-  }, [feedMode, myFeed, publicFeed, preferredSports, recentlyFinished]);
+  }, [myFeed, preferredSports, recentlyFinished]);
 
-  // Animate tab indicator + feed content when feed mode changes
-  useEffect(() => {
-    if (!feedModeInitialized.current) {
-      feedModeInitialized.current = true;
-      return;
-    }
-    const toPublic = feedMode === 'public';
-    // Slide indicator to new tab
-    Animated.spring(tabIndicatorX, {
-      toValue: toPublic ? Dimensions.get('window').width / 2 : 0,
-      useNativeDriver: true,
-      tension: 120,
-      friction: 16,
-    }).start();
-    // Slide + fade feed content in from the correct direction
-    feedSlideAnim.setValue(toPublic ? 30 : -30);
-    feedOpacityAnim.setValue(0);
-    Animated.parallel([
-      Animated.spring(feedSlideAnim, { toValue: 0, useNativeDriver: true, tension: 90, friction: 13 }),
-      Animated.timing(feedOpacityAnim, { toValue: 1, duration: 180, useNativeDriver: true }),
-    ]).start();
-  }, [feedMode]);
+  // // Animate tab indicator + feed content when feed mode changes
+  // useEffect(() => {
+  //   if (!feedModeInitialized.current) {
+  //     feedModeInitialized.current = true;
+  //     return;
+  //   }
+  //   const toPublic = feedMode === 'public';
+  //   Animated.spring(tabIndicatorX, {
+  //     toValue: toPublic ? Dimensions.get('window').width / 2 : 0,
+  //     useNativeDriver: true,
+  //     tension: 120,
+  //     friction: 16,
+  //   }).start();
+  //   feedSlideAnim.setValue(toPublic ? 30 : -30);
+  //   feedOpacityAnim.setValue(0);
+  //   Animated.parallel([
+  //     Animated.spring(feedSlideAnim, { toValue: 0, useNativeDriver: true, tension: 90, friction: 13 }),
+  //     Animated.timing(feedOpacityAnim, { toValue: 1, duration: 180, useNativeDriver: true }),
+  //   ]).start();
+  // }, [feedMode]);
 
   // Capture scrollToMatchId param immediately and clear it from route so it doesn't re-fire
   useEffect(() => {
     const matchId = route.params?.scrollToMatchId;
     if (!matchId) return;
     setPendingScrollMatchId(matchId);
-    setFeedMode('my');
     navigation.setParams({ scrollToMatchId: undefined } as any);
   }, [route.params?.scrollToMatchId]);
 
@@ -4481,8 +4511,14 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {/* ---- Feed switcher ---- */}
+      {/* ---- Feed header ---- */}
       <View style={styles.switcherRow}>
+        <View style={styles.switcherTab}>
+          <Ionicons name="people" size={21} color={colors.primary} />
+          <Text style={[styles.switcherLabel, styles.switcherLabelActive]}>{t.home.myFeed}</Text>
+        </View>
+      </View>
+      {/* <View style={styles.switcherRow}>
         <TouchableOpacity
           style={styles.switcherTab}
           onPress={() => setFeedMode('my')}
@@ -4511,19 +4547,15 @@ export default function HomeScreen() {
             {t.home.publicLabel}
           </Text>
         </TouchableOpacity>
-        {/* Sliding active tab indicator */}
         <Animated.View
           style={[styles.switcherIndicator, { transform: [{ translateX: tabIndicatorX }] }]}
           pointerEvents="none"
         />
-      </View>
-      {/* {feedMode === 'public' && (
-        <Text style={styles.switcherHint}>All confirmed & completed matches</Text>
-      )} */}
+      </View> */}
 
       {/* ---- Feed ---- */}
-      <View style={{ flex: 1 }} {...feedSwipePan.panHandlers}>
-      <Animated.View style={{ flex: 1, opacity: feedOpacityAnim, transform: [{ translateX: feedSlideAnim }] }}>
+      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1 }}>
       {loadingFeed ? (
         <View style={styles.loadingCenter}>
           <ActivityIndicator size="large" color={colors.primary} />
@@ -4549,7 +4581,7 @@ export default function HomeScreen() {
           }
           ListEmptyComponent={
             <Text style={styles.emptyFeed}>
-              {feedMode === 'my' ? t.home.noMatchesCreate : t.home.noPublicMatchesYet}
+              {t.home.noMatchesCreate}
             </Text>
           }
           renderItem={({ item }) => (
@@ -4578,7 +4610,7 @@ export default function HomeScreen() {
           )}
         />
       )}
-      </Animated.View>
+      </View>
       </View>
 
       {/* ---- Edit match modal ---- */}
@@ -4751,9 +4783,13 @@ export default function HomeScreen() {
                       </View>
                     )}
                     <View style={styles.notifContent}>
-                      <Text style={[styles.notifTitle, !n.read && styles.notifTitleUnread]}>
-                        {n.title}
-                      </Text>
+                      {senderId ? (
+                        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeNotifications(); navigation.navigate('UserProfile', { userId: senderId }); }}>
+                          <Text style={[styles.notifTitle, !n.read && styles.notifTitleUnread]}>{n.title}</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <Text style={[styles.notifTitle, !n.read && styles.notifTitleUnread]}>{n.title}</Text>
+                      )}
                       {n.body && <Text style={styles.notifBody}>{n.body}</Text>}
                       <Text style={styles.notifTime}>{timeAgo(n.created_at)}</Text>
                       {isInvite && (

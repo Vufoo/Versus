@@ -384,6 +384,7 @@ create table if not exists public.match_participants (
 
 create index if not exists match_participants_match_id_idx on public.match_participants (match_id);
 create index if not exists match_participants_user_id_idx on public.match_participants (user_id);
+create index if not exists match_participants_match_user_idx on public.match_participants (match_id, user_id);
 
 -- RLS for matches ------------------------------------------------------------
 alter table public.matches enable row level security;
@@ -633,6 +634,7 @@ create table if not exists public.dm_messages (
   created_at      timestamptz not null default now()
 );
 create index if not exists dm_messages_conversation_idx on public.dm_messages (conversation_id);
+create index if not exists dm_messages_conv_created_idx on public.dm_messages (conversation_id, created_at desc);
 
 alter table public.dm_conversations enable row level security;
 alter table public.dm_messages enable row level security;
@@ -1347,4 +1349,47 @@ begin
   update matches set status = 'completed', ended_at = now() where id = p_match_id;
   return jsonb_build_object('ok', true, 'vp_delta', v_vp_delta);
 end; $$;
+
+-- RPC: allow match creator to remove another participant from a casual/practice match
+create or replace function public.kick_match_participant(p_match_id uuid, p_user_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_creator uuid;
+  v_match_type text;
+  v_status text;
+begin
+  select created_by, match_type, status into v_creator, v_match_type, v_status
+  from public.matches where id = p_match_id;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'Match not found.');
+  end if;
+
+  if auth.uid() != v_creator then
+    return jsonb_build_object('ok', false, 'error', 'Only the match creator can remove players.');
+  end if;
+
+  if lower(v_match_type) = 'ranked' then
+    return jsonb_build_object('ok', false, 'error', 'Cannot remove players from a ranked match.');
+  end if;
+
+  if p_user_id = auth.uid() then
+    return jsonb_build_object('ok', false, 'error', 'Use Leave match to remove yourself.');
+  end if;
+
+  delete from public.match_participants
+  where match_id = p_match_id and user_id = p_user_id;
+
+  -- Reset to pending if confirmed, since lineup changed
+  if v_status = 'confirmed' then
+    update public.matches set status = 'pending' where id = p_match_id;
+  end if;
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
 

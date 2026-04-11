@@ -238,6 +238,7 @@ function createStyles(colors: ThemeColors) {
       paddingTop: spacing.lg,
       paddingBottom: spacing.lg,
       marginBottom: 0,
+      marginTop: spacing.lg,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
@@ -352,6 +353,7 @@ function createStyles(colors: ThemeColors) {
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
       marginBottom: 0,
+      marginTop: spacing.lg,
     },
     matchHistoryHeader: {
       paddingHorizontal: spacing.lg,

@@ -483,9 +483,6 @@ export default function UserProfileScreen() {
           <TouchableOpacity style={[styles.tab, tab === 'overview' && styles.tabActive]} onPress={() => setTab('overview')} activeOpacity={0.8}>
             <Text style={[styles.tabText, tab === 'overview' && styles.tabTextActive]}>{t.profile.overview}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.tab, tab === 'rankings' && styles.tabActive]} onPress={() => setTab('rankings')} activeOpacity={0.8}>
-            <Text style={[styles.tabText, tab === 'rankings' && styles.tabTextActive]}>{t.profile.rankings}</Text>
-          </TouchableOpacity>
         </View>
 
         {tab === 'overview' && (

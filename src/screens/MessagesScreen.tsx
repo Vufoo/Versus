@@ -134,6 +134,15 @@ export default function MessagesScreen() {
   const [followers, setFollowers] = useState<FollowerEntry[]>([]);
   const [avatarUrls, setAvatarUrls] = useState<Record<string, string>>({});
   const [conversationByUser, setConversationByUser] = useState<Record<string, ConversationMeta>>({});
+
+  const sortedFollowers = useMemo(
+    () => [...followers].sort((a, b) => {
+      const aTime = conversationByUser[a.user_id]?.latestCreatedAt || '';
+      const bTime = conversationByUser[b.user_id]?.latestCreatedAt || '';
+      return bTime.localeCompare(aTime);
+    }),
+    [followers, conversationByUser],
+  );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
@@ -143,117 +152,104 @@ export default function MessagesScreen() {
   const isMountedRef = useRef(true);
   useEffect(() => { return () => { isMountedRef.current = false; }; }, []);
 
-  const loadFollowers = useCallback(async () => {
-    try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-    const uid = user.id;
-    setCurrentUserId(uid);
+  // Stable refs so the lightweight refresh can use them without re-running the full load
+  const currentUserIdRef = useRef<string | null>(null);
+  const convListRef = useRef<{ id: string; user1_id: string; user2_id: string }[]>([]);
+  const otherByConvRef = useRef<Record<string, string>>({});
+  const initialLoadDoneRef = useRef(false);
 
-    // Accepted followers (people who follow you)
-    const { data: followRows } = await supabase
-      .from('follows')
-      .select('follower_id')
-      .eq('followed_id', uid)
-      .eq('status', 'accepted');
-    const followerIds = (followRows ?? []).map((r: { follower_id: string }) => r.follower_id);
-
-    // All conversations you are part of
-    const { data: convos } = await supabase
-      .from('dm_conversations')
-      .select('id, user1_id, user2_id')
-      .or(`user1_id.eq.${uid},user2_id.eq.${uid}`);
-    const convList = (convos ?? []) as { id: string; user1_id: string; user2_id: string }[];
+  // Lightweight: only re-fetch latest messages + read status (2 parallel queries, no profile fetches)
+  const refreshMeta = useCallback(async () => {
+    const uid = currentUserIdRef.current;
+    const convList = convListRef.current;
+    if (!uid || convList.length === 0) return;
     const convIds = convList.map((c) => c.id);
-    const otherByConv: Record<string, string> = {};
-    convList.forEach((c) => {
-      const other = c.user1_id === uid ? c.user2_id : c.user1_id;
-      otherByConv[c.id] = other;
-    });
-
-    // Build unified list of people we have a DM with OR who follow us.
-    const conversationUserIds = Array.from(new Set(Object.values(otherByConv)));
-    const profileIds = Array.from(new Set([...followerIds, ...conversationUserIds])).filter(
-      (id) => id && id !== uid,
-    );
-
-    if (profileIds.length > 0) {
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('user_id, username, full_name, avatar_url')
-        .in('user_id', profileIds);
-      const list = (profiles ?? []) as FollowerEntry[];
-      setFollowers(list);
-      Promise.all(list.filter((p) => p.avatar_url).map(async (p) => {
-        const url = await resolveAvatarUrl(p.avatar_url);
-        if (url && isMountedRef.current) setAvatarUrls((prev) => ({ ...prev, [p.user_id]: url }));
-      }));
-    } else {
-      setFollowers([]);
-    }
-
-    const readMap: Record<string, string> = {};
-    let messages: { conversation_id: string; sender_id: string; body: string; created_at: string }[] = [];
-    if (convIds.length > 0) {
+    const otherByConv = otherByConvRef.current;
+    try {
       const [{ data: readRows }, { data: msgRows }] = await Promise.all([
         supabase.from('dm_conversation_read').select('conversation_id, last_read_at').eq('user_id', uid).in('conversation_id', convIds),
-        supabase.from('dm_messages').select('conversation_id, sender_id, body, created_at').in('conversation_id', convIds).order('created_at', { ascending: false }),
+        supabase.from('dm_messages').select('conversation_id, sender_id, body, created_at').in('conversation_id', convIds).order('created_at', { ascending: false }).limit(Math.max(convIds.length * 3, 50)),
       ]);
-      (readRows ?? []).forEach((r: { conversation_id: string; last_read_at: string }) => {
-        readMap[r.conversation_id] = r.last_read_at;
+      const readMap: Record<string, string> = {};
+      (readRows ?? []).forEach((r: { conversation_id: string; last_read_at: string }) => { readMap[r.conversation_id] = r.last_read_at; });
+      const messages = (msgRows ?? []) as { conversation_id: string; sender_id: string; body: string; created_at: string }[];
+      const latestByConv: Record<string, { body: string; sender_id: string; created_at: string }> = {};
+      messages.forEach((m) => { if (!latestByConv[m.conversation_id]) latestByConv[m.conversation_id] = { body: m.body, sender_id: m.sender_id, created_at: m.created_at }; });
+      const metaByUser: Record<string, ConversationMeta> = {};
+      convList.forEach((c) => {
+        const otherId = otherByConv[c.id];
+        const latest = latestByConv[c.id];
+        if (!otherId) return;
+        const lastReadAt = readMap[c.id] ?? null;
+        metaByUser[otherId] = latest
+          ? { conversationId: c.id, latestBody: latest.body, latestFromOther: latest.sender_id !== uid, latestCreatedAt: latest.created_at, lastReadAt }
+          : { conversationId: c.id, latestBody: null, latestFromOther: false, latestCreatedAt: '', lastReadAt };
       });
-      messages = (msgRows ?? []) as { conversation_id: string; sender_id: string; body: string; created_at: string }[];
-    }
-
-    const latestByConv: Record<string, { body: string; sender_id: string; created_at: string }> = {};
-    messages.forEach((m) => {
-      if (!latestByConv[m.conversation_id]) {
-        latestByConv[m.conversation_id] = { body: m.body, sender_id: m.sender_id, created_at: m.created_at };
-      }
-    });
-
-    const metaByUser: Record<string, ConversationMeta> = {};
-    convList.forEach((c) => {
-      const otherId = otherByConv[c.id];
-      const latest = latestByConv[c.id];
-      if (!otherId) return;
-      const lastReadAt = readMap[c.id] ?? null;
-      if (!latest) {
-        metaByUser[otherId] = {
-          conversationId: c.id,
-          latestBody: null,
-          latestFromOther: false,
-          latestCreatedAt: '',
-          lastReadAt,
-        };
-        return;
-      }
-      metaByUser[otherId] = {
-        conversationId: c.id,
-        latestBody: latest.body,
-        latestFromOther: latest.sender_id !== uid,
-        latestCreatedAt: latest.created_at,
-        lastReadAt,
-      };
-    });
-    setConversationByUser(metaByUser);
-    } catch { /* swallow */ } finally { setLoading(false); }
+      if (isMountedRef.current) setConversationByUser(metaByUser);
+    } catch { /* swallow */ }
   }, []);
+
+  // Full load: fetches user, conversations, profiles, then messages. Runs once on mount.
+  const loadAll = useCallback(async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
+      const uid = user.id;
+      currentUserIdRef.current = uid;
+      setCurrentUserId(uid);
+
+      const { data: convos } = await supabase
+        .from('dm_conversations')
+        .select('id, user1_id, user2_id')
+        .or(`user1_id.eq.${uid},user2_id.eq.${uid}`);
+      const convList = (convos ?? []) as { id: string; user1_id: string; user2_id: string }[];
+      convListRef.current = convList;
+      const convIds = convList.map((c) => c.id);
+      const otherByConv: Record<string, string> = {};
+      convList.forEach((c) => { otherByConv[c.id] = c.user1_id === uid ? c.user2_id : c.user1_id; });
+      otherByConvRef.current = otherByConv;
+
+      const profileIds = Array.from(new Set(Object.values(otherByConv))).filter((id) => id && id !== uid);
+      if (profileIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('user_id, username, full_name, avatar_url')
+          .in('user_id', profileIds);
+        const list = (profiles ?? []) as FollowerEntry[];
+        if (isMountedRef.current) setFollowers(list);
+        list.filter((p) => p.avatar_url).forEach(async (p) => {
+          const url = await resolveAvatarUrl(p.avatar_url);
+          if (url && isMountedRef.current) setAvatarUrls((prev) => ({ ...prev, [p.user_id]: url }));
+        });
+      } else {
+        if (isMountedRef.current) setFollowers([]);
+      }
+
+      if (convIds.length > 0) await refreshMeta();
+    } catch { /* swallow */ } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+        initialLoadDoneRef.current = true;
+      }
+    }
+  }, [refreshMeta]);
 
   useFocusEffect(
     useCallback(() => {
-      loadFollowers();
-    }, [loadFollowers]),
+      if (!initialLoadDoneRef.current) {
+        loadAll();
+      } else {
+        // Fast path: only refresh message previews, skip profile/conversation fetches
+        refreshMeta();
+      }
+    }, [loadAll, refreshMeta]),
   );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadFollowers();
+    await loadAll();
     setRefreshing(false);
-  }, [loadFollowers]);
+  }, [loadAll]);
 
   const openCompose = async () => {
     if (!currentUserId) return;
@@ -308,11 +304,7 @@ export default function MessagesScreen() {
               {t.messages.noConversationsLong}
             </Text>
           ) : (
-            [...followers].sort((a, b) => {
-              const aTime = conversationByUser[a.user_id]?.latestCreatedAt || '';
-              const bTime = conversationByUser[b.user_id]?.latestCreatedAt || '';
-              return bTime.localeCompare(aTime);
-            }).map((f) => {
+            sortedFollowers.map((f) => {
               const meta = conversationByUser[f.user_id];
               const preview = meta?.latestBody ?? '';
               const unread = Boolean(

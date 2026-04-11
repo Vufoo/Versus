@@ -98,6 +98,7 @@ function makeStyles(c: ThemeColors) {
     timeBtn: {
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'center',
       gap: spacing.xs,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm,
@@ -175,6 +176,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
   const [durationMinutes, setDurationMinutes] = useState('0');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [kicking, setKicking] = useState<string | null>(null);
   const [editTeams, setEditTeams] = useState(false);
   const [teamRoles, setTeamRoles] = useState<Record<string, 'challenger' | 'opponent'>>({});
 
@@ -318,6 +320,7 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
         notes: notes.trim() || null,
         is_public: isPublic,
         scheduled_at: newScheduledAt,
+        ...(isCasual ? { match_format: matchFormat } : {}),
       };
 
       if (match.status === 'completed' && (match.started_at || isPractice)) {
@@ -376,6 +379,51 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleKick = (p: { user_id: string; full_name: string | null; username: string | null }) => {
+    if (!match || !isCreator) return;
+    const name = p.full_name || p.username || 'this player';
+    Alert.alert('Remove Player', `Remove ${name} from this match?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          setKicking(p.user_id);
+          try {
+            const { data, error } = await supabase.rpc('kick_match_participant', {
+              p_match_id: match.id,
+              p_user_id: p.user_id,
+            });
+            if (error) throw error;
+            if (!data?.ok) throw new Error(data?.error ?? 'Could not remove player.');
+            // Notify the kicked player
+            try {
+              const { data: myProfile } = await supabase
+                .from('profiles')
+                .select('full_name, username')
+                .eq('user_id', currentUserId)
+                .maybeSingle();
+              const myName = (myProfile as any)?.full_name ?? (myProfile as any)?.username ?? 'The match creator';
+              await supabase.from('notifications').insert({
+                user_id: p.user_id,
+                type: 'match_declined',
+                title: 'Removed from match',
+                body: `${myName} removed you from their ${match.sport_name} match.`,
+                data: { match_id: match.id, from_user_id: currentUserId },
+              });
+            } catch { /* notification failure is non-critical */ }
+            onSaved?.();
+            onClose();
+          } catch (e: any) {
+            Alert.alert('Error', e?.message ?? 'Could not remove player.');
+          } finally {
+            setKicking(null);
+          }
+        },
+      },
+    ]);
   };
 
   const handleDelete = () => {
@@ -678,6 +726,35 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                     );
                   })()}
 
+                  {isCasual && supports2v2 && !only2v2 && (
+                    <>
+                      <Text style={styles.label}>Format</Text>
+                      <View style={styles.matchTypeRow}>
+                        <TouchableOpacity
+                          style={[styles.matchTypeChip, matchFormat === '1v1' && styles.matchTypeChipSel]}
+                          onPress={() => {
+                            const participantCount = (match.participants ?? []).length;
+                            if (participantCount > 2) {
+                              Alert.alert('Cannot switch to 1v1', `There are already ${participantCount} players in this match. Remove extra players first before switching to 1v1.`);
+                              return;
+                            }
+                            setMatchFormat('1v1');
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.matchTypeLbl, matchFormat === '1v1' && styles.matchTypeLblSel]}>1v1</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.matchTypeChip, matchFormat === '2v2' && styles.matchTypeChipSel]}
+                          onPress={() => setMatchFormat('2v2')}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.matchTypeLbl, matchFormat === '2v2' && styles.matchTypeLblSel]}>2v2</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
+
                   <Text style={styles.label}>{t.newMatch.visibility}</Text>
                   <View style={styles.matchTypeRow}>
                     <TouchableOpacity style={[styles.matchTypeChip, isPublic && styles.matchTypeChipSel]} onPress={() => setIsPublic(true)} activeOpacity={0.8}>
@@ -695,11 +772,11 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                     <>
                       <Text style={styles.label}>{t.editMatch.scheduledDateTime}</Text>
                       <View style={styles.timeRow}>
-                        <TouchableOpacity style={styles.timeBtn} onPress={() => setDatePicker(true)} activeOpacity={0.8}>
+                        <TouchableOpacity style={[styles.timeBtn, { flex: 1 }]} onPress={() => setDatePicker(true)} activeOpacity={0.8}>
                           <Ionicons name="calendar-outline" size={18} color={colors.primary} />
                           <Text style={styles.timeText}>{dpDateStr ? new Date(dpDateStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.timeBtn} onPress={() => setTimePicker(true)} activeOpacity={0.8}>
+                        <TouchableOpacity style={[styles.timeBtn, { flex: 1 }]} onPress={() => setTimePicker(true)} activeOpacity={0.8}>
                           <Ionicons name="time-outline" size={18} color={colors.primary} />
                           <Text style={styles.timeText}>{formatTime()}</Text>
                         </TouchableOpacity>
@@ -816,6 +893,46 @@ export default function EditMatchModal({ visible, onClose, onSaved, colors, matc
                     </>
                   )}
                 </>
+              )}
+
+              {isCasual && isCreator && (match.participants ?? []).filter(p => p.user_id !== currentUserId).length > 0 && (
+                <View style={{ marginTop: spacing.lg }}>
+                  <Text style={[styles.label, { marginBottom: spacing.sm }]}>Remove Players</Text>
+                  {(match.participants ?? []).filter(p => p.user_id !== currentUserId).map(p => {
+                    const avatarUri = participantAvatars[p.user_id];
+                    const initials = (p.full_name || p.username || '?').split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2);
+                    return (
+                      <View key={p.user_id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.divider }}>
+                        {avatarUri
+                          ? <Image source={{ uri: avatarUri }} style={{ width: 38, height: 38, borderRadius: 19, marginRight: spacing.md }} />
+                          : <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.primary + '30', alignItems: 'center', justifyContent: 'center', marginRight: spacing.md }}>
+                              <Text style={{ fontSize: 14, fontWeight: '700', color: colors.primary }}>{initials}</Text>
+                            </View>
+                        }
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.text, fontSize: 14, fontWeight: '600' }} numberOfLines={1}>
+                            {p.full_name || p.username || 'Player'}
+                          </Text>
+                          {p.username ? <Text style={{ color: colors.textSecondary, fontSize: 12 }}>@{p.username}</Text> : null}
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => handleKick(p)}
+                          disabled={kicking === p.user_id}
+                          hitSlop={8}
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: borderRadius.md, borderWidth: 1, borderColor: '#E53935' + '80' }}
+                        >
+                          {kicking === p.user_id
+                            ? <ActivityIndicator size="small" color="#E53935" />
+                            : <>
+                                <Ionicons name="person-remove-outline" size={14} color="#E53935" />
+                                <Text style={{ fontSize: 12, fontWeight: '600', color: '#E53935' }}>Remove</Text>
+                              </>
+                          }
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </View>
               )}
 
               <View style={{ marginTop: spacing.lg, gap: spacing.xs }}>

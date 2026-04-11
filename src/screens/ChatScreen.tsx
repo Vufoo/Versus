@@ -152,6 +152,7 @@ export default function ChatScreen() {
   const otherUserId = route.params?.userId ?? '';
   const styles = useMemo(() => createStyles(colors, mode === 'dark'), [colors, mode]);
   const flatListRef = useRef<FlatList>(null);
+  const hasScrolledInitiallyRef = useRef(false);
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -275,11 +276,10 @@ export default function ChatScreen() {
     return () => { supabase.removeChannel(channel); };
   }, [conversationId]);
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom when new realtime messages arrive (after initial load)
   useEffect(() => {
-    if (messages.length > 0 && !loading) {
-      // Small delay to let layout settle before scrolling
-      const t = setTimeout(() => flatListRef.current?.scrollToEnd({ animated: messages.length === 1 }), 60);
+    if (messages.length > 0 && !loading && hasScrolledInitiallyRef.current) {
+      const t = setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 60);
       return () => clearTimeout(t);
     }
   }, [messages.length, loading]);
@@ -402,6 +402,12 @@ export default function ChatScreen() {
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
             ListEmptyComponent={<Text style={styles.empty}>{t.messages.noMessages}</Text>}
+            onContentSizeChange={() => {
+              if (!hasScrolledInitiallyRef.current && messages.length > 0) {
+                flatListRef.current?.scrollToEnd({ animated: false });
+                hasScrolledInitiallyRef.current = true;
+              }
+            }}
             renderItem={({ item }) => {
               if ('type' in item && item.type === 'date-header') {
                 return (

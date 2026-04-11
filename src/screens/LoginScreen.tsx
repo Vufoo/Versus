@@ -23,10 +23,10 @@ type Props = { onContinue: () => void; onGoToSignup: () => void; onBack?: () => 
 function s(c: ThemeColors) {
   return StyleSheet.create({
     outer: { flex: 1, backgroundColor: c.background },
-    scroll: { flexGrow: 1, justifyContent: 'center', paddingVertical: spacing.xxl },
+    scroll: { flexGrow: 1, justifyContent: 'center', paddingVertical: spacing.md },
     wrapper: { alignItems: 'center', paddingHorizontal: spacing.xl, width: '100%', maxWidth: 560, alignSelf: 'center' as const },
 
-    logo: { width: 160, height: 160, marginBottom: spacing.sm, resizeMode: 'contain' as const },
+    logo: { width: 160, height: 160, marginBottom: spacing.xs, resizeMode: 'contain' as const },
     tagline: {
       ...typography.body,
       color: c.textSecondary,
@@ -40,7 +40,7 @@ function s(c: ThemeColors) {
       maxWidth: 360,
       borderRadius: borderRadius.lg,
       backgroundColor: c.surface,
-      padding: spacing.xl,
+      padding: spacing.md,
       borderWidth: 1,
       borderColor: c.border,
     },
@@ -50,7 +50,7 @@ function s(c: ThemeColors) {
       borderWidth: 1,
       borderColor: c.border,
       paddingHorizontal: spacing.md,
-      paddingVertical: 12,
+      paddingVertical: 10,
       backgroundColor: c.background,
       color: c.text,
       fontSize: 15,
@@ -59,13 +59,13 @@ function s(c: ThemeColors) {
 
     continueBtn: {
       backgroundColor: c.primary,
-      paddingVertical: 14,
+      paddingVertical: 12,
       borderRadius: borderRadius.md,
       alignItems: 'center',
       justifyContent: 'center',
       flexDirection: 'row',
       gap: spacing.sm,
-      marginTop: spacing.sm,
+      marginTop: spacing.xs,
     },
     continueBtnDisabled: { opacity: 0.5 },
     continueBtnText: { ...typography.body, fontWeight: '600', color: c.textOnPrimary },
@@ -73,7 +73,7 @@ function s(c: ThemeColors) {
     dividerRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginVertical: spacing.md,
+      marginVertical: spacing.sm,
     },
     dividerLine: { flex: 1, height: 1, backgroundColor: c.border },
     dividerText: {
@@ -87,7 +87,7 @@ function s(c: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: spacing.sm,
-      paddingVertical: 13,
+      paddingVertical: 10,
       borderRadius: borderRadius.md,
       borderWidth: 1,
       borderColor: c.border,
